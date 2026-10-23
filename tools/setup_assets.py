@@ -43,7 +43,7 @@ PACK_STORE = WORK / "textures_pack"
 TRUSTED_MANIFEST = ROOT / "tools" / "data" / "remaster_textures.manifest.json"
 # Where the texture pack will be published: not decided yet (README "Getting started"). Until then pass a local
 # archive. When it is published, put its URL here and commit its manifest as TRUSTED_MANIFEST.
-PACK_URL = None
+PACK_URL = "https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/textures/v1/remaster_textures.zip"
 
 KNOWN_EXES = {
     "960df24c70d788a34946fa5984685ef69bf2c0cacf04a275769472ce302f5b45": "Steam, app 6090, build 251748 (tested)",
@@ -145,7 +145,9 @@ def fetch(source):
         dest = ROOT / "work" / "downloads" / pathlib.Path(source.split("?")[0]).name
         dest.parent.mkdir(parents=True, exist_ok=True)
         print(f"textures: downloading {source} -> {dest}")
-        with urllib.request.urlopen(source) as r, tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as t:
+        # Cloudflare (r2.dev) answers 403 to urllib's default "Python-urllib" agent
+        req = urllib.request.Request(source, headers={"User-Agent": "and-remaster-setup/1"})
+        with urllib.request.urlopen(req) as r, tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as t:
             shutil.copyfileobj(r, t)
         os.replace(t.name, dest)
         return dest
@@ -228,8 +230,8 @@ def main():
     ap.add_argument("--game", help="the game's install folder (the one holding GameData)")
     ap.add_argument("--levels", default="all", help="'all' (default) or a comma-separated list, e.g. lev_1_m1")
     ap.add_argument("--no-movies", action="store_true", help="skip the cut-scene export")
-    ap.add_argument("--remaster-textures", metavar="ZIP_OR_URL",
-                    help="install the optional AI retexture pack (a local .zip or an http(s) URL)")
+    ap.add_argument("--remaster-textures", metavar="ZIP_OR_URL", nargs="?", const=PACK_URL,
+                    help="install the optional AI retexture pack: the published one (no value), a local .zip or an http(s) URL")
     ap.add_argument("--force", action="store_true", help="redo steps whose output exists; repoint orig/pc")
     ap.add_argument("--check", action="store_true", help="report what is set up and stop")
     a = ap.parse_args()

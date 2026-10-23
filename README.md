@@ -110,12 +110,15 @@ This links the install in as `orig/pc`, then converts every level, the UI, audio
 set up.
 
 **Optional: the Remaster texture pack.** AI-upscaled textures, colour-locked to the originals, used by the Remaster
-preset (without them it uses the original textures). The pack is distributed separately from this repository;
-where it will be published is not decided yet. Once you have it:
+preset (without them it uses the original textures). The pack (176 MB) is distributed separately from this
+repository, on Cloudflare R2; the script downloads it and checks every file against the manifest committed in
+`tools/data/remaster_textures.manifest.json`:
 
 ```bat
-.venv\Scripts\python tools\setup_assets.py --remaster-textures path\to\remaster_textures.zip
+.venv\Scripts\python tools\setup_assets.py --remaster-textures
 ```
+
+(`--remaster-textures path\to\remaster_textures.zip` installs a copy you downloaded yourself.)
 
 ### 4. Build
 
