@@ -35,6 +35,8 @@ struct GameMaterialParams {
     // y its strength, z alpha cover (0 blend, 1 MSAA alpha-to-coverage), w shadow strength (0: the
     // level's shadow colour)
     geometry: vec4<f32>,
+    // the environment cube map (graphics/env_map.rs): x 1 = env_tex holds the level's baked cube (3 x 2 faces)
+    env_map: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;
@@ -46,3 +48,5 @@ struct GameMaterialParams {
 @group(constants::MATERIAL_BIND_GROUP) @binding(6) var mask_tex: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(7) var mask_smp: sampler;
 @group(constants::MATERIAL_BIND_GROUP) @binding(8) var<uniform> p: GameMaterialParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(9) var env_tex: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(10) var env_smp: sampler;

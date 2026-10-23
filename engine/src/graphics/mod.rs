@@ -28,6 +28,8 @@ mod farclip;
 pub mod geometry;
 pub mod snow;
 mod textures;
+// the environment cube maps of ice, water and metal (2026-10-23)
+pub mod env_map;
 // the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos, 2026-10-19)
 pub mod ao_extras;
 mod effects_log;
@@ -190,6 +192,9 @@ pub struct GraphicsSettings {
     // --- GPU snowfall (snow.rs), flattened: options.json says "snow", "snow_amount", "snow_tuning"
     #[serde(flatten)]
     pub snowfall: snow::SnowSettings,
+    // --- the environment cube maps (env_map.rs): "env_maps", "env_map_size"
+    #[serde(flatten)]
+    pub env_map: env_map::EnvMapSettings,
 }
 
 impl GraphicsSettings {
@@ -233,6 +238,7 @@ impl GraphicsSettings {
             motion_blur: motion_blur::MotionBlurSettings::original(),
             present: present::PresentSettings::original(),
             snowfall: snow::SnowSettings::original(),
+            env_map: env_map::EnvMapSettings::original(),
         }
     }
 
@@ -266,6 +272,7 @@ impl GraphicsSettings {
             motion_blur: motion_blur::MotionBlurSettings::remaster(),
             present: present::PresentSettings::remaster(),
             snowfall: snow::SnowSettings::remaster(),
+            env_map: env_map::EnvMapSettings::remaster(),
             ..Self::original()
         }
     }
@@ -512,7 +519,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
             .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
-            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin))
+            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin, env_map::EnvMapPlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -548,7 +555,7 @@ pub(crate) fn sync(launch: Res<GraphicsLaunch>, options: Res<crate::options::Gam
 pub(crate) fn apply_cameras(
     mut commands: Commands,
     s: Res<GraphicsSettings>,
-    cams: Query<Entity, With<Camera3d>>,
+    cams: Query<Entity, (With<Camera3d>, Without<env_map::EnvProbeView>)>,
     others: Query<Entity, (With<Camera>, Without<Camera3d>)>,
     new_cams: Query<(), Added<Camera>>,
 ) {

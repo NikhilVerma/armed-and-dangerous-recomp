@@ -122,7 +122,7 @@ fn follow_camera(
     mut commands: Commands,
     s: Res<super::GraphicsSettings>,
     time: Res<Time>,
-    mut cams: Query<(Entity, &Camera, &GlobalTransform, Option<&mut ObjectMotionBlur>), With<Camera3d>>,
+    mut cams: Query<(Entity, &Camera, &GlobalTransform, Option<&mut ObjectMotionBlur>), (With<Camera3d>, Without<crate::graphics::env_map::EnvProbeView>)>,
 ) {
     for (e, cam, t, blur) in &mut cams {
         if !s.motion_blur.enabled() || s.anti_aliasing == super::AntiAliasing::Msaa {

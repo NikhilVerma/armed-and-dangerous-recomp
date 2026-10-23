@@ -228,3 +228,9 @@ the camp fight itself (the original was not run: the game was in use by other ag
   (goliath.rs `guard`) runs the goliath's own cycle there. Also open: the cycle's facing in states 1/3/4/5
   (Goliath_FaceAcross: +0xb5c rotated a quarter turn, +0xb5c being 0x00453150's negated matrix column 1) versus
   the placed heading; the remaster faces the target. Needs an original capture of a goliath after its walk.
+- **Environment materials in levels without an env map marker.** "cubemap_texture" exists only once an EnvMapMarker
+  has rendered (EnvMap_Render 0x00418c80 creates it). Without one, Renderer_ApplyMaterial (archive/src/loader/
+  auto_00502cb0.cpp) replaces a stage whose op uses a texture (bit 7) and has none with DISABLE, and a disabled
+  stage 0 disables the rest in D3D9: such a material would draw its lit diffuse colour only, untextured. Not seen in
+  a capture; the engine draws `fog colour * factor + base * lighting` there (graphics/env_map.rs). Check with a
+  capture of a kind-5 material (bronze pipes, n_t_bronze) in a level with no marker (e.g. lev_1_m3).

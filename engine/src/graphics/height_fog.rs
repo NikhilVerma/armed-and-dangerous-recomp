@@ -75,7 +75,7 @@ impl Plugin for HeightFogPlugin {
 }
 
 /// The level's reference height: the 3D camera's on the level's first frame (GameLights is per level).
-fn record_reference(lights: Option<ResMut<GameLights>>, cams: Query<(&Camera, &GlobalTransform), With<Camera3d>>) {
+fn record_reference(lights: Option<ResMut<GameLights>>, cams: Query<(&Camera, &GlobalTransform), (With<Camera3d>, Without<crate::graphics::env_map::EnvProbeView>)>) {
     let Some(mut lights) = lights else { return };
     if lights.fog_reference.is_some() {
         return;

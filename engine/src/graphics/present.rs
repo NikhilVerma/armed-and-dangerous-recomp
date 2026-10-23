@@ -124,7 +124,7 @@ fn stale_bind_groups(
 fn follow_settings(
     mut commands: Commands,
     s: Res<super::GraphicsSettings>,
-    mut cams: Query<(Entity, Option<&mut PresentPass>), With<Camera3d>>,
+    mut cams: Query<(Entity, Option<&mut PresentPass>), (With<Camera3d>, Without<crate::graphics::env_map::EnvProbeView>)>,
     mut frame: Local<u32>,
 ) {
     *frame = (*frame + 1) % 1024;

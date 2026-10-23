@@ -510,8 +510,16 @@ work/remaster/play/compare/.
 - Alpha textures blend (blend table 0x0057d9e0 entry 3: SRCALPHA / INVSRCALPHA, alpha test on): the bare snowy
   trees look right only with blending, not a 0.5 alpha cut.
 - LOD: always the finest (the human's decision, docs/decision.md).
-- Environment cube maps (ice, water, metal): rendered by the game each frame (cubemap_texture); the engine uses the
-  fog colour for now (a labelled approximation).
+- Environment cube maps (ice, water, metal; 2026-10-23): the level's env map marker renders the scene into
+  "cubemap_texture" once at load (EnvMapFreq 0 in every shipped marker; EnvMap_Render 0x00418c80, CubeMap_RenderScene
+  0x00489320); environment materials draw `cube * TFACTOR + base * lighting` (stage words 0x03020184 / 0x00020199,
+  decoded with Renderer_ApplyMaterial's SetTextureStageState order: byte 1 COLORARG0, 2 COLORARG1, 3 COLORARG2), the
+  factor being the record's float +0x40 as a grey (0.3). The engine bakes the cube once per level and preset
+  (`--bake-env-map`, tools/bake_env_maps.py -> `<level>/env_map_<preset>.png`, 3 x 2 faces; graphics/env_map.rs) and
+  samples it per pixel along the reflection; without a bake it reflects the fog colour as before. Baked, not captured
+  in play: six extra Camera3d during play broke the game logic's "the 3D camera" lookups for those frames and the
+  scripted runs diverged. lev_1_m1's ice (n_ice_test, 7,400 landscape triangles) is where it shows: the glossy blue
+  sheen of the original's canyon floor.
 
 ## Characters and colours (found 2026-10-13)
 

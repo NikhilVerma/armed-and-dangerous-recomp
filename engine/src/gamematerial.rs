@@ -42,6 +42,9 @@ pub struct GameMaterialParams {
     /// the old remaster's ported settings (graphics/geometry/mod.rs `material_values`; zero in the Original but
     /// y): x terrain detail scale, y its strength, z the alpha cover (0 blend, 1 MSAA alpha-to-coverage), w shadow strength (0: the level's shadow colour)
     pub geometry: Vec4,
+    /// the environment cube map (graphics/env_map.rs): x 1 = the atlas holds the level's baked cube (else `env` rgb
+    /// is reflected)
+    pub env_map: Vec4,
 }
 
 /// How a game material covers what lies behind it in the depth-only passes (the sun's shadow cascades): the whole
@@ -90,6 +93,10 @@ pub struct GameMaterial<C: Coverage = Solid> {
     pub mask: Handle<Image>,
     #[uniform(8)]
     pub params: GameMaterialParams,
+    /// the level's environment cube map, its six faces in a 3 x 2 atlas (graphics/env_map.rs)
+    #[texture(9)]
+    #[sampler(10)]
+    pub env_atlas: Handle<Image>,
     pub alpha: bool,
     /// a snow surface by name (graphics.rs `ao_exempt`): keeps only `ao_snow` of the ambient occlusion
     pub ao_snow_surface: bool,
@@ -212,10 +219,20 @@ pub struct MaterialDef {
     pub blend: u8,
     #[serde(default = "opaque")]
     pub opacity: f32,
+    /// an environment material's (kind bit 4 without a mask) cube map strength: the record's float +0x40, which the
+    /// material set-up makes the texture factor's grey (archive/src/loader/loader_01.cpp, the 0x7000 colour mix;
+    /// graphics/env_map.rs). Exports before 2026-10-23 lack it: 0.3, the value of every environment record in the
+    /// shipped levels checked (lev_1_m1's ice and water, the bronze pipes)
+    #[serde(default = "env_factor")]
+    pub env_factor: f32,
 }
 
 fn opaque() -> f32 {
     1.0
+}
+
+fn env_factor() -> f32 {
+    0.3
 }
 
 impl MaterialDef {
@@ -236,8 +253,15 @@ pub struct GameLights {
     pub fill_col: Vec3,
     pub ambient: Vec3,
     pub fog: Option<(f32, f32, Vec3)>,
-    /// the environment cube's colour (approximation: the fog colour, the sky at the horizon)
+    /// what the environment materials reflect where the level has no env map marker (or env_maps is off): the fog
+    /// colour, the sky at the horizon (approximation; the original then has no cube texture at all, see
+    /// graphics/env_map.rs)
     pub env: Vec3,
+    /// the level's env map marker (graphics/env_map.rs), where a bake renders the cube from
+    pub env_probe: Option<crate::graphics::env_map::EnvProbe>,
+    /// the level's baked cube, its faces 3 x 2 in one image (graphics/env_map.rs), when `env_baked`
+    pub env_atlas: Handle<Image>,
+    pub env_baked: bool,
     /// the height the old remaster's height fog is calibrated at: the camera's when the level started
     /// (graphics/height_fog.rs; None until the level's first frame)
     pub fog_reference: Option<f32>,
@@ -325,8 +349,8 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             // w: the record's opacity (translucent records; 1 otherwise)
             diffuse: v4(def.diffuse, def.alpha()),
             specular: v4(def.specular, if def.specular.iter().any(|c| *c > 0.0) { def.power } else { 0.0 }),
-            // guess: TFACTOR 0.3 (the environment materials' floats +0x38.. hold 0.3; the render state was not traced)
-            env: l3(lights.env, 0.3),
+            // the cube * TFACTOR stage: the record's +0x40 grey (MaterialDef::env_factor)
+            env: l3(lights.env, def.env_factor.clamp(0.0, 1.0)),
             sun_dir: l3(lights.sun_dir, 0.0),
             sun_col: l3(lights.sun_col, 0.0),
             fill_dir: l3(lights.fill_dir, 0.0),
@@ -338,7 +362,9 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             height_fog: g.height_fog.material_params(lights.fog_reference),
             ao_extras: g.ao_extras.material_params(ao_snow_surface),
             geometry: crate::graphics::geometry::for_material(crate::graphics::geometry::material_values(&g), alpha, def.alpha()),
+            env_map: Vec4::new(if lights.env_baked { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0),
         },
+        env_atlas: if lights.env_baked { lights.env_atlas.clone() } else { white.clone() },
         alpha,
         ao_snow_surface,
         coverage: std::marker::PhantomData,
