@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"expect": {"objects.224.template": "oilpump", "objects.224.health": 300, "objects.248.template": "v_prison_gate", "objects.247.health": 750, "objects.174.max_health": 300}},
  {"warp": [273, -58, 14, 0]},

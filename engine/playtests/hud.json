@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 1.5},
  {"expect": {"hud.visible": true, "hud.weapons": 2, "hud.specials": 2, "hud.objective_frame": [0.0, 1.0]}},
  {"expect": {"hud.arrows": ["ui_select_down_off", "ui_select_left_off", "ui_select_right_off", "ui_select_up_off"]}},

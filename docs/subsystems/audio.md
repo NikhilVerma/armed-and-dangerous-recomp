@@ -1,7 +1,7 @@
 # Audio: sound bank, playback rules, music, ambience and voice
 
-Status 2026-10-13. Static reading of the recovered code (src/audio/audio_01.cpp, audio_02.cpp, audio_03.cpp,
-src/renderer/auto_004fb170.cpp, auto_004fb1f0.cpp, auto_00500230.cpp) and of the lev_1_m1 data. Nothing here was
+Status 2026-10-13. Static reading of the recovered code (archive/src/audio/audio_01.cpp, audio_02.cpp, audio_03.cpp,
+archive/src/renderer/auto_004fb170.cpp, auto_004fb1f0.cpp, auto_00500230.cpp) and of the lev_1_m1 data. Nothing here was
 checked in a running game. "Guess" marks what the code does not prove.
 
 Export for the remaster: `python tools/remaster_export_audio.py <level> [--check N]` writes

@@ -1,6 +1,6 @@
 # Goal: renderer and assets recovered
 
-Repo `C:\Users\nikhi\and-decomp`. Target `orig/pc/GameData/game.unpacked.exe` (SHA-256 `f6a690a4…`).
+Repo `<repo>`. Target `orig/pc/GameData/game.unpacked.exe` (SHA-256 `f6a690a4…`).
 
 ## Outcome
 
@@ -18,10 +18,10 @@ remaster: a modern backend, then DLAA, then ray tracing.
 ## Build first, in this order
 
 1. **Generated calling-convention layer.** Generate C-callable wrappers and entry stubs for every function from
-   `tools/reginputs.py` plus runtime `abi.csv`. These replace hand-written asm shims.
+   `archive/tools/reginputs.py` plus runtime `abi.csv`. These replace hand-written asm shims.
 2. **Automated comparison test.** A scripted, repeatable start-up → menu → `lev_1_m1` run
    (`[startup] load`, `[test] fixed_dt_ms`, a fixed random seed, scripted input). Its call trace and per-frame
-   state hash must match the original game's. Wire it into `tools/check.ps1`.
+   state hash must match the original game's. Wire it into `archive/tools/check.ps1`.
 3. **Ghidra types.** Seed them from `symbols/types/data_members.csv`, then re-export the decompiled code.
 4. **100-function pilot.** Report pass rate and tokens per function, then ask the human before fanning out to
    parallel agents.
@@ -30,7 +30,7 @@ remaster: a modern backend, then DLAA, then ray tracing.
 
 - Each recovered function replaces the original through `HOOK()` and has an `and.ini` switch.
 - A function counts as recovered only when it passes the comparison test.
-- `src/` stays faithful to the original. Every addition lives in `hook/enhance/`, switchable in `and.ini` and
+- `src/` stays faithful to the original. Every addition lives in `archive/hook/enhance/`, switchable in `and.ini` and
   off by default.
 
 ## Done when, in the running game
@@ -39,11 +39,11 @@ remaster: a modern backend, then DLAA, then ray tracing.
 2. A loose PNG/DDS dropped into an override folder replaces the matching `.big` texture through the recovered
    loader, and a replacement model loads the same way.
 3. Command-line tools dump and rebuild every `.big` kind, rebuilding each one byte for byte.
-4. Tracker, docs and journal are updated, with all commits passing `tools/check.ps1`.
+4. Tracker, docs and journal are updated, with all commits passing `archive/tools/check.ps1`.
 
 ## Status (2026-10-03)
 
-1. Done: `[render] wireframe=1` (hook/enhance/render.cpp) sets the game's own debug bit, renderer +0x1628 bit 1.
+1. Done: `[render] wireframe=1` (archive/hook/enhance/render.cpp) sets the game's own debug bit, renderer +0x1628 bit 1.
    The recovered Renderer_BeginScene then sets D3DFILL_WIREFRAME. Seen in lev_1_m1.
 2. Done:
    - `[overrides] textures=1`: `overrides\textures\<name>.dds|.png` replaces a texture after the recovered
@@ -54,7 +54,7 @@ remaster: a modern backend, then DLAA, then ray tracing.
    - `log_names=1` lists texture and model names.
 3. Done: `tools/formats/bigtool.py` dump/rebuild for all 13 kinds, byte for byte on all 325 files
    (docs/formats/big-*.md).
-4. Done: `tools/tracker_sync.py` updates symbols/functions.csv (135 rows at S2+), and check.ps1 enforces it.
+4. Done: `archive/tools/tracker_sync.py` updates symbols/functions.csv (135 rows at S2+), and check.ps1 enforces it.
    Journal updated. check.ps1 is green.
 
 Remaining gaps, recorded so they are not hidden:

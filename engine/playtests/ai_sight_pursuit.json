@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 1.0},
  {"loadout": {"health": 5000}},
  {"note": "a captain (15..20 rounds a clip: he is in the fire state, not reloading, when Roman goes) south of the rock at (189..231, -128..-79) sees Roman in the open and fires (the companions are still far off)"},

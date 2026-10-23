@@ -11,7 +11,7 @@ Output (game data: lives under work/, never committed):
   constants          code constants of the AI (not data)
   templates          per AI template placed or spawned in the level (alarm generators, barracks): its property set,
                      model, weapon, and
-                       params                   the values Ai_InitGeneric 0x004247f0 reads (src/ai/ai_01.cpp:2289-2590;
+                       params                   the values Ai_InitGeneric 0x004247f0 reads (archive/src/ai/ai_01.cpp:2289-2590;
                                                 fire range 0x00425d30), the template's value or the code default
                        data_only_unread_by_exe  keys of the set the exe has no string for (never read)
                        extra                    the set's other keys the exe reads elsewhere (physics, health, model)
@@ -163,7 +163,7 @@ def build(level):
         g.update({k.lower(): v for k, v in gs["props"].items()})
     return {
         "_doc": f"Grunt AI parameters for {level.name}. 'params' = effective values: code default (Ai_InitGeneric "
-                "0x004247f0, src/ai/ai_01.cpp:2347-2420; fire range 0x00425d30) overridden by the template's property "
+                "0x004247f0, archive/src/ai/ai_01.cpp:2347-2420; fire range 0x00425d30) overridden by the template's property "
                 "set; per-instance overrides in 'instances' apply on top. State machine: docs/subsystems/grunt-ai.md.",
         "constants": CONSTANTS,
         "templates": {t: template_entry(level, t) for t in templates},

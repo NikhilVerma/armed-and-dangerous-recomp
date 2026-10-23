@@ -8,7 +8,7 @@ runs"). Engine port: `engine/src/turret.rs`.
 | What | Value | Evidence |
 | --- | --- | --- |
 | Instance | id 32, template stig_mgun, model stig_mgun_0, at (71.17, 172.61, 13.64), turned 180 degrees (row 0 = (-0.943, -0.008, 0)): the gun points game +y | work/remaster/lev_1_m1/scene.json |
-| Class | StigTurret, vtable 0x005a19d8, behavior `stig_mgun_turret`; load slot 0x00498d60 | src/game/game_08.cpp:1751 |
+| Class | StigTurret, vtable 0x005a19d8, behavior `stig_mgun_turret`; load slot 0x00498d60 | archive/src/game/game_08.cpp:1751 |
 | Property set p_stig_mgun | player_bone_name ref_player, pivot_bone_name center, camera_bone_name camera01, player_exit_bone_name ref_exit, message_radius 30, turn_max_speed 1.0, pitch_max_speed 0.7, pitch_range -55..15, yaw_range -55..55 (degrees), recycle_time 0.05, auto_aim 1, rapid_fire 1, projectile stig_mgun_bullet, ai_projectile stig_mgun_bullet_ai, emitter / muzzle bone ref_shoot_00, muzzle fx fx_muzzle_flash_stig_mgun, max_health 10000, ai_can_use 1, ai_never_leave 0 | work/remaster/lev_1_m1/properties.json |
 | Code defaults | recycle_time 1.0, turn/pitch speed 2.0, zoom turn/pitch 0.025 / 0.1, message_radius 20, ai_kickout_health_pct 50, ai_kickout_stayout_secs 10, ai_kickout_impact_force 6000, ranges -45..45 | 0x00497d00, 0x004980c0, 0x00498d60 (game_08.cpp:885-1135, 1751) |
 | p_stig_mgun_bullet | proj_stig_bullet, speed 400, lifetime 2, damage 35, impact_force 4690, damages_buildings 1, trail fx_trail_stig, impact fx_imp_stig_<material> | properties.json |

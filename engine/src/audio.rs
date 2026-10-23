@@ -1,5 +1,5 @@
-//! The sound system: the original's audio object (Game+0x2c; src/audio/audio_02.cpp and audio_03.cpp, its
-//! DirectSound driver in src/renderer/auto_004fb170.cpp / auto_004fb1f0.cpp; docs/subsystems/audio.md) on Bevy audio.
+//! The sound system: the original's audio object (Game+0x2c; archive/src/audio/audio_02.cpp and audio_03.cpp, its
+//! DirectSound driver in archive/src/renderer/auto_004fb170.cpp / auto_004fb1f0.cpp; docs/subsystems/audio.md) on Bevy audio.
 //! A self-contained module: a game hands it a bank of definitions and sends it messages.
 //!
 //! - `SoundBank`: the definitions by name (`audio/sounds.json` and `audio/voice.json` of an export).
@@ -639,7 +639,7 @@ pub struct Mixer {
     pub voice: f32,
     pub music: f32,
     /// the Audio page's Master Volume (options.json `master_volume`, 0..1, linear): the old remaster's `[audio]
-    /// master` (hook/enhance/audio.cpp: an attenuation of 2000 log10(v) hundredths of a dB on every DirectSound
+    /// master` (archive/hook/enhance/audio.cpp: an attenuation of 2000 log10(v) hundredths of a dB on every DirectSound
     /// buffer, so a linear factor v on every voice of every group, the movies' sound included)
     pub master_volume: f32,
 }

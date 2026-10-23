@@ -7,9 +7,9 @@ UI bank (docs/formats/big-ui.md). The `.txt` files next to some of them are DivX
 
 ## 1. The original
 
-Recovered code: src/movie/movie_01.cpp (the movie object), src/renderer/auto_00503900.cpp (the movie manager),
-src/ui/ui_03.cpp 0x00493150..0x004933e0 (the movie screens), src/renderer/render_r4.cpp 0x00493440 / 0x00495cb0
-(the draw and the subtitles), src/game/start_level.cpp:120 (the boot list).
+Recovered code: archive/src/movie/movie_01.cpp (the movie object), archive/src/renderer/auto_00503900.cpp (the movie manager),
+archive/src/ui/ui_03.cpp 0x00493150..0x004933e0 (the movie screens), archive/src/renderer/render_r4.cpp 0x00493440 / 0x00495cb0
+(the draw and the subtitles), archive/src/game/start_level.cpp:120 (the boot list).
 
 **Player.** The movie manager (vtable 0x0058982c, singleton 0x0063a0b8) opens only `.pcv` files
 (MovieManager_Open 0x005039f0) as movie objects (vtable 0x0057d598) played through DivxMediaLib.dll:

@@ -9,7 +9,7 @@ built by the loader, plus an "entries" block read from the file and fixed up in 
 **0x004f1220** (unnamed in Ghidra; "HashTable_FixupInPlace" would describe it). The loaders that call 0x004f1220:
 0x0041c7e0 Fx_LoadChunk, 0x0045af30 ObjectSystem_LoadSkins, 0x0045b430 ObjectSystem_LoadAnims, 0x0045b7d0
 ObjectSystem_LoadProperties, 0x0045bf70 (obj), 0x0045d7a0, 0x00488400 RenderSystem_LoadTextures, 0x00496060
-TextData_Load, 0x004e4d90 Rumble_Load (`tools/recover.py 0x004f1220` caller list).
+TextData_Load, 0x004e4d90 Rumble_Load (`archive/tools/recover.py 0x004f1220` caller list).
 
 ## Layout
 

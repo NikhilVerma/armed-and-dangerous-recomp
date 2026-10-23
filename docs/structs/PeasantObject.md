@@ -6,13 +6,13 @@ Size 0x49c; base TriggerObject > Object; vtables 0x005a8550. Fields below: offse
 
 | Offset | Type | Name / meaning | Evidence | Uses (r/w) |
 | --- | --- | --- | --- | --- |
-| +0x478 | f32 | **m_linkDist** (table) | src/game/game_01.cpp:1172; seen f32 -1.0..16.7288 | 13 (7/6) |
-| +0x47c | u32 | **m_linkIndex** (table) | src/game/game_01.cpp:1173; values [-1, 0] | 4 (2/2) |
-| +0x480 | i32 | **m_linkPosition** (table) | src/game/game_01.cpp:1171; values [0, 1] | 7 (3/4) |
-| +0x484 | u32 | **m_count** (table) property "count" (value) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_01.cpp:1174; values [1] | 7 (6/1) |
+| +0x478 | f32 | **m_linkDist** (table) | archive/src/game/game_01.cpp:1172; seen f32 -1.0..16.7288 | 13 (7/6) |
+| +0x47c | u32 | **m_linkIndex** (table) | archive/src/game/game_01.cpp:1173; values [-1, 0] | 4 (2/2) |
+| +0x480 | i32 | **m_linkPosition** (table) | archive/src/game/game_01.cpp:1171; values [0, 1] | 7 (3/4) |
+| +0x484 | u32 | **m_count** (table) property "count" (value) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_01.cpp:1174; values [1] | 7 (6/1) |
 | +0x488 | ? | **m_deathTrigger** (table) |  | 0 (0/0) |
 | +0x48c | u8 | **m_captured** (table) bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored; values [0, 257] | 3 (1/2) |
 | +0x48d | ? | **m_linkDragging** (table) |  | 0 (0/0) |
-| +0x490 | f32 | property "saved_score_value" (float) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_01.cpp:1175; seen f32 500.0..500.0 | 1 (1/0) |
-| +0x494 | f32 | property "killed_score_value" (float) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_01.cpp:1176; seen f32 -100.0..-100.0 | 1 (1/0) |
+| +0x490 | f32 | property "saved_score_value" (float) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_01.cpp:1175; seen f32 500.0..500.0 | 1 (1/0) |
+| +0x494 | f32 | property "killed_score_value" (float) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_01.cpp:1176; seen f32 -100.0..-100.0 | 1 (1/0) |
 | +0x498 | ptr | pointer to FxData (0.85) | dynamic targets FxData x821; seen ptr | 4 (1/2) |

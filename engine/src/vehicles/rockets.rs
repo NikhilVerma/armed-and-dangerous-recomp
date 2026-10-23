@@ -1,5 +1,5 @@
-//! Rockets and shells: the projectile classes the vehicles fire (src/game/game_07.cpp), on the Projectile base
-//! (src/game/game_06.cpp: Projectile_Load 0x0047e0c0, Projectile_Update 0x0047e580, the hit 0x0047eae0, the end
+//! Rockets and shells: the projectile classes the vehicles fire (archive/src/game/game_07.cpp), on the Projectile base
+//! (archive/src/game/game_06.cpp: Projectile_Load 0x0047e0c0, Projectile_Update 0x0047e580, the hit 0x0047eae0, the end
 //! effect 0x0047ed40, the direct damage 0x0047eec0, AreaDamage_Apply 0x0047f020).
 //!
 //! | behaviour | class | flight |

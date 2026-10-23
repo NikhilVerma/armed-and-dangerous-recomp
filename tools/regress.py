@@ -12,11 +12,12 @@ so those limits are skipped (logged "EXPECT SKIP (perf)") in the correctness SUI
 the machine is (docs/remaster-engine.md "Traps": scripted runs step game time by a fixed 1/60 s; nothing in the game
 may read the wall clock, the audio device's position or how many frames an asset took to load).
 
-From a git worktree without work/: --play the main checkout's work/remaster/play (its untracked scripts and states),
---scene its work/remaster/lev_1_m1 (passed on to playtest.py).
+From a git worktree without work/: --scene the main checkout's work/remaster/lev_1_m1 (passed on to playtest.py), or
+link the main checkout's work/ into the worktree (a directory junction: mklink /J work <main checkout>\\work).
 
-Scripts live in work/remaster/play (not in git; each starts from states/after_pub.json, which
-state_after_pub.json writes). Exit code 1 when any script fails. Add a script here when it guards a ported mechanic.
+Scripts live in engine/playtests (tracked) and, for older local ones, work/remaster/play (--play; not in git). Most
+start from states/after_pub.json next to them, which state_after_pub.json writes (run first when it is missing).
+Exit code 1 when any script fails. Add a script here when it guards a ported mechanic.
 """
 import argparse
 import json
@@ -162,8 +163,9 @@ extra = ['--scene', a.scene] if a.scene else []
 if a.perf:
     extra += ['--env', 'AND_PERF=1']
 
-if not os.path.exists(os.path.join(PLAY, 'states', 'after_pub.json')):
-    subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(PLAY, 'state_after_pub.json'), '--exe', a.exe] + extra)
+for d in (TRACKED, PLAY):
+    if os.path.exists(os.path.join(d, 'state_after_pub.json')) and not os.path.exists(os.path.join(d, 'states', 'after_pub.json')):
+        subprocess.run([sys.executable, os.path.join(ROOT, 'tools', 'playtest.py'), os.path.join(d, 'state_after_pub.json'), '--exe', a.exe] + extra)
 bad = 0
 for name in a.names or (PERF if a.perf else LONG if a.long else SUITE + LONG if a.all else SUITE):
     if name == 'pyunit':

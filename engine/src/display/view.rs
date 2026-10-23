@@ -1,5 +1,5 @@
 //! The view the game's camera shows: the field-of-view scale, Hor+ widescreen and the original's fixed letterbox
-//! (old remaster hook/enhance/camera.cpp `Camera_Adjust` and `SetLetterbox`; evidence docs/subsystems/camera.md).
+//! (old remaster archive/hook/enhance/camera.cpp `Camera_Adjust` and `SetLetterbox`; evidence docs/subsystems/camera.md).
 //!
 //! The original builds its projection (0x0040f6e0 via 0x004f0100 -> 0x004e3490) after the scene render 0x00403050 has
 //! set the letterbox viewport `(0, H * 0.1125, W, H * 0.775)` (0x005bcf24 / 0x005bcf28, unconditional), with the

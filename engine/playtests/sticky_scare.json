@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "the scare 0x0042fb60: a sticky bomb stuck on a grunt makes him flee (state 0xc8) from the player, 250 units, no timer; a grunt within 25 of it flees from him for 3..5 s"},
  {"wait": 1.0},
  {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (0x00481320)"},

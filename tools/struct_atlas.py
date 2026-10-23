@@ -2,7 +2,7 @@
 
 Porting agents look fields up here instead of re-deriving what `Field<float>(obj, 0x9f0)` means.
 
-    python tools/struct_atlas.py static            # parse src/**/*.cpp -> work/struct_atlas_static.json (summary)
+    python tools/struct_atlas.py static            # parse archive/src/**/*.cpp -> work/struct_atlas_static.json (summary)
     python tools/struct_atlas.py dynamic DIR...    # read and-structsnap.bin files (hook [test] struct_snap)
     python tools/struct_atlas.py infer             # static + dynamic -> work/struct_atlas.json + coverage, precision
     python tools/struct_atlas.py field CLASS OFF   # one field: a few lines
@@ -159,8 +159,8 @@ def build_classes():
     # (game_03.cpp kBehaviours: name -> class id) name the vtables that have no descriptor (slot 1 ReturnZero):
     # pseudo-classes "obj:<behaviour>" over Object (every factory object is built over Object_Construct 0x004511d0).
     try:
-        g3 = open(os.path.join(ROOT, "src", "game", "game_03.cpp"), encoding="utf-8").read()
-        g4 = open(os.path.join(ROOT, "src", "game", "game_04.cpp"), encoding="utf-8").read()
+        g3 = open(os.path.join(ROOT, "archive", "src", "game", "game_03.cpp"), encoding="utf-8").read()
+        g4 = open(os.path.join(ROOT, "archive", "src", "game", "game_04.cpp"), encoding="utf-8").read()
         beh = collections.defaultdict(list)
         tb = g3[g3.index("kBehaviours[][2] = {"):]
         tb = tb[:tb.index("};")]
@@ -504,7 +504,7 @@ class StaticIndex:
 
     # -- phase A: read every file
     def run(self):
-        files = sorted(glob.glob(os.path.join(ROOT, "src", "**", "*.cpp"), recursive=True))
+        files = sorted(glob.glob(os.path.join(ROOT, "archive", "src", "**", "*.cpp"), recursive=True))
         for path in files:
             self.read_file(path)
         self.assign_classes()
@@ -1003,7 +1003,7 @@ def cmd_static(a):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Dynamic: and-structsnap.bin (hook/src/teststructsnap.cpp)
+# Dynamic: and-structsnap.bin (archive/hook/src/teststructsnap.cpp)
 
 def read_snap(path):
     """-> {"frames": [(frame, clock, dt)], "objects": {addr: {"vt", "id", "cls", "samples": [frame index], "pos": [...],
@@ -1417,7 +1417,7 @@ DOC_CLASS = {"grunt-ai.md": "GenericAIObject", "infantry.md": "GenericAIObject",
              "objects.md": "Object", "peasants.md": "PeasantObject", "twiglets.md": "Twiglet",
              "companions.md": "TeamateObject", "damage.md": "Object", "turret.md": "TurretObject",
              "vehicles.md": "TurretGun", "defence.md": "GenericAIObject"}
-# What the oracle trace (hook/src/testoracle.cpp) reads, by its own evidence: the traced ground truth
+# What the oracle trace (archive/hook/src/testoracle.cpp) reads, by its own evidence: the traced ground truth
 TRACED = [("Object", 0x396, "id", "level object id (trace 'id')"), ("GenericAIObject", 0x460, "state", "AI state (trace 'state')"),
           ("Object", 0x454, "health", "health (trace 'health')"), ("Object", 0x458, "health", "max_health (trace)"),
           ("GenericAIObject", 0x588, "pointer", "target (trace 'target': the player or an object)"),
@@ -1428,7 +1428,7 @@ TRACED = [("Object", 0x396, "id", "level object id (trace 'id')"), ("GenericAIOb
           ("PeasantObject", 0x480, "int", "rope link (trace)"), ("PeasantObject", 0x484, "int", "count (trace)"),
           ("Object", 0x34, "pointer", "parent (trace 'attached')"), ("Object", 0x414, "pointer", "class template (objects.md)"),
           ("Object", 0x28, "int", "reference count (objects.md)"),
-          # the Game singleton and the World as hook/src/testoracle.cpp reads them
+          # the Game singleton and the World as archive/hook/src/testoracle.cpp reads them
           ("Game", 0x748, "pointer", "the player (testoracle Player())"), ("Game", 0xa84, "pointer", "the World (object system)"),
           ("Game", 0x2684, "int", "pause count"), ("Game", 0x2688, "float", "game clock at the pause"),
           ("Game", 0x26f4, "int", "peasants carried"), ("Game", 0x26e8, "int", "peasants saved"),

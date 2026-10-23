@@ -1,5 +1,5 @@
 //! The old remaster's ambient occlusion in Bevy's SSAO pass: XeGTAO's main pass (Intel, MIT;
-//! third_party/XeGTAO/XeGTAO.hlsli `XeGTAO_MainPass`, unmodified there) with the old remaster's settings (vk_device.cpp
+//! archive/third_party/XeGTAO/XeGTAO.hlsli `XeGTAO_MainPass`, unmodified there) with the old remaster's settings (vk_device.cpp
 //! `Ambient`: GTAOSettings Radius = ao_radius, FinalValuePower = ao_power, FalloffRange = ao_falloff,
 //! ThinOccluderCompensation 0.7 ([render] ao_thin), and vk_gtao.cpp's thickness limit ([render] ao_thickness)).
 //!

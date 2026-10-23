@@ -20,10 +20,10 @@ EBX, and callers can rely on a callee leaving a register untouched. Consequences
 - Calling an original function from C needs an inline-asm shim that loads exactly its register inputs.
 - **Hidden inputs:** a callee may read a register its caller happened to hold, e.g. `0x0040f8c0` reads
   EDX = `Game+0xa68`, which the original caller loaded only for a null test. Missing it turned the front-end
-  black (brightness never set). Check every callee with `tools/reginputs.py` and confirm at runtime.
+  black (brightness never set). Check every callee with `archive/tools/reginputs.py` and confirm at runtime.
 - Do not use EDX/ECX as a scratch call register in a shim unless the callee is known not to read it.
 - A recovered function entered from original code needs a naked entry stub matching its register ABI
-  (example: `Game_StartLevel_Entry` in `src/game/start_level.cpp`).
+  (example: `Game_StartLevel_Entry` in `archive/src/game/start_level.cpp`).
 
 ## Game string pointers (data)
 

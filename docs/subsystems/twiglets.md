@@ -1,9 +1,9 @@
 # Twiglets
 
 Little wooden creatures of the forest levels that come out of the dense trees, pull a bomb off their back and run at
-the player to blow it up at his feet. Recovered code: src/ai/ai_08.cpp (controller, generator, Twiglet_Slot6),
-src/ai/ai_09.cpp (Twiglet_Update and the rest of the class), src/ai/ai_06.cpp:2906-2972 (the monk's summon),
-src/game/game_07.cpp:2070 (the monk twiglet cluster's hit). Remaster: engine/src/twiglet.rs (TwigletPlugin),
+the player to blow it up at his feet. Recovered code: archive/src/ai/ai_08.cpp (controller, generator, Twiglet_Slot6),
+archive/src/ai/ai_09.cpp (Twiglet_Update and the rest of the class), archive/src/ai/ai_06.cpp:2906-2972 (the monk's summon),
+archive/src/game/game_07.cpp:2070 (the monk twiglet cluster's hit). Remaster: engine/src/twiglet.rs (TwigletPlugin),
 engine/src/ai/monk.rs (the summon).
 
 ## 1. Where they are
@@ -89,7 +89,7 @@ contact solver is not modelled). The slope is the landscape's along the way, 3 u
 
 ## 4. Oracle
 
-Hook (hook/src/testoracle.cpp): "twiglets" (World+0xeec: pos, health, state +0x464, bomb) and "swarm" (active
+Hook (archive/hook/src/testoracle.cpp): "twiglets" (World+0xeec: pos, health, state +0x464, bomb) and "swarm" (active
 generators, timer, Game+0x2710 made, +0x270c killed); twiglets are left out of "grunts" (they are on the AI list).
 The remaster (engine/src/oracle.rs) writes the same; a bomb gone off is a death with id 0 (FxExplosion_Die).
 tools/oracle_diff.py families: twiglets.alive / .emerging / .running / .bombs (the other game's count reaches the

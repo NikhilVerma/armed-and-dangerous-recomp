@@ -1,4 +1,4 @@
-//! The AI's close attack (0x00428160, state 0xb; src/ai/ai_02.cpp, ai_06.cpp:889-925, ai_05.cpp 0x0043eae0). The
+//! The AI's close attack (0x00428160, state 0xb; archive/src/ai/ai_02.cpp, ai_06.cpp:889-925, ai_05.cpp 0x0043eae0). The
 //! companions' hand-to-hand takedown (0x00427e80, states 0xc..0xf) is ai/close_kill.rs; this module only has the
 //! grunts' own swing. docs/subsystems/grunt-ai.md section 15.
 //!

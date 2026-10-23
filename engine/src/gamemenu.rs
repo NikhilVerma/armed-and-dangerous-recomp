@@ -1285,7 +1285,7 @@ fn navigate(
                 };
                 // the item under the cursor (0x00463930 tests each item's box +0x490..+0x49c): the text's bounds
                 // grown by 32 units in x and 4 in y (UiText_SetBounds 0x004655b0), with a stepper's gauge and value
-                // or a checkbox's box (`extra`); of several, the nearest row (hook/enhance's nearest-hit rule)
+                // or a checkbox's box (`extra`); of several, the nearest row (archive/hook/enhance's nearest-hit rule)
                 hovered = placed
                     .iter()
                     .filter(|(r, ..)| r.page == menu.page && r.order.is_some() && r.on_device())

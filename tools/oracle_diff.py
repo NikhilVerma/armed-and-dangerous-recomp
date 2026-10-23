@@ -17,7 +17,7 @@ SCENARIO: a name in tools/oracle_scenarios/ (or a path to a .json). A scenario:
      "expected": {"family": "why this family differs (an accepted difference, with evidence)"},
      "suite": true (part of tools/oracle_suite.py),
      "hook_test": {"trace_calls": "GenericAI_SetTarget"} (optional: more [test] keys for the original's hook)}
-Keys are the hook's keys_frames form (hook/src/input_hooks.cpp; the remaster parses the same text, engine/src/oracle.rs):
+Keys are the hook's keys_frames form (archive/hook/src/input_hooks.cpp; the remaster parses the same text, engine/src/oracle.rs):
 `frame:KEY` or `frame:KEY*held_frames`, frame 0 = play_delay frames after the briefing appeared (the scenario's own
 frame-0 ENTER dismisses it). Scan codes: W 17, A 30, S 31, D 32, Space 57, Use X 45, Q 16 next weapon, Tab 15 next
 special, R 19 reload; MOUSE1 fire, MOUSE2 special (sticky bomb), MOUSEX<n> / MOUSEY<n> mouse counts per frame.
@@ -100,7 +100,7 @@ def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
             "play_frames": sc["frames"], "reseed_on_load": 1, "d3d_trace": 0, "offscreen": 1, "parallel": 1,
             # no exit by frame count: play_frames ends the run
             "exit_frame": 0}
-    # extra [test] keys for the hook, e.g. {"trace_calls": "GenericAI_SetTarget"} (hook/src/testoracle.cpp)
+    # extra [test] keys for the hook, e.g. {"trace_calls": "GenericAI_SetTarget"} (archive/hook/src/testoracle.cpp)
     test.update(sc.get("hook_test", {}))
     if sc.get("warp"):
         test["play_warp"] = ",".join(str(v) for v in sc["warp"])
@@ -116,7 +116,7 @@ def run_original(sc, hooks_on=False, timeout=900, inst="oracle"):
         test["hash_from_load"] = 1
         test["warp"] = f"{int(f) + sc['play_delay']}:{x},{y},{z}"
     hooks = {n: hooks_on for n in compare.hook_names()}
-    # The sound log is a callback in the recovered play functions (StartVoice, src/audio/audio_02.cpp:1495): these
+    # The sound log is a callback in the recovered play functions (StartVoice, archive/src/audio/audio_02.cpp:1495): these
     # three run recovered code (S2, verified by tools/compare.py) so the original's sounds are traced too.
     for n in SOUND_HOOKS:
         hooks[n] = True
@@ -363,7 +363,7 @@ def persistent(rows, frames, f, key, value, window):
 
 
 # Vehicles and big units the original's AI list holds among its grunts (GruntObject-derived classes, by vtable): left out
-# of the grunt families. Both traces list them under "vehicles" (hook/src/testoracle.cpp VehicleKind, engine/src/oracle.rs
+# of the grunt families. Both traces list them under "vehicles" (archive/hook/src/testoracle.cpp VehicleKind, engine/src/oracle.rs
 # VehicleKind), compared by kind: their count alive, and the position / health of each pair.
 VEHICLE_CLASSES = {0x5aa238: "colossus", 0x5af500: "mini_zeppelin", 0x5a5e98: "saucer", 0x5af298: "goliath"}
 

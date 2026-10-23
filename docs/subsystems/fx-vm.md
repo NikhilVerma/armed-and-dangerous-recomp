@@ -6,7 +6,7 @@ opcodes added on 2026-10-15 are in section 7. Purpose: port the fx interpreter
 `fx_explosion_powder_keg` and the fx it starts (`fx_keg_trail`, `fx_powder_keg_fire`, `fx_sticky_blast_ring_snowk`,
 `fx_sticky_flashk`), the fx object, the particle system and the powder keg's death (area damage, chain reaction).
 Script format and operand grammar: `docs/formats/big-fx.md`. The full opcode table (every opcode, its callee) is the
-header comment of `src/renderer/render_r2b.cpp`.
+header comment of `archive/src/renderer/render_r2b.cpp`.
 
 Conventions. `r(a,b)` = Rand_FloatRange 0x0046e2c0 = `(b - a) * rand() * (1/32768) + a` (render_r2b.cpp:173,
 constant [0x005bcbc0] = 3.0517578e-05), so it lies in [a, b); `rand()` is 0x005391cd (guess: MSVC CRT rand, 15 bits).

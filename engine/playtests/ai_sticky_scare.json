@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"cheat": "SHIELDME"},
  {"wait": 1.0},
  {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (0x00481320); the scare needs none"},

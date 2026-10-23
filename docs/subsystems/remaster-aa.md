@@ -11,7 +11,7 @@ hand-written versions: DLAA/DLSS, FSR, XeSS and TAA.
 - Intel XeSS 2.x SDK (Intel Simplified Software License, binaries only): x64, with Vulkan for super resolution.
 
 So the AA runs in the existing 64-bit helper process (`rthelper/`, `rt_helper.exe`), which already shares GPU
-memory with the game for ray-traced shadows (`src/rhi/vulkan/rt_ipc.h`: Win32 external-memory buffers plus
+memory with the game for ray-traced shadows (`archive/src/rhi/vulkan/rt_ipc.h`: Win32 external-memory buffers plus
 timeline semaphores).
 
 ## Data flow per frame
@@ -65,7 +65,7 @@ Fixes needed on the way:
 - **Pointer to 64-bit handle casts.** MSVC sign-extends them on x86. Every one now goes through uintptr_t.
 - **A CMake list-separator bug in my own patch.** A ';' in the replacement pair deleted the line that sets the
   constant buffer, so every FSR pass read zero constants and wrote black. The Khronos validation layer, built from
-  source for 32-bit with tools/build_vvl.ps1, showed this as VUID-VkDescriptorBufferInfo-buffer-02998.
+  source for 32-bit with archive/tools/build_vvl.ps1, showed this as VUID-VkDescriptorBufferInfo-buffer-02998.
   Run it with handle wrapping disabled: the 32-bit guard rejects the wrapped 64-bit IDs.
 - **Device features for FSR's 16-bit shader variants.** shaderFloat16, 16-bit storage, shaderInt16 and storage
   image write without format.
@@ -75,7 +75,7 @@ Fixes needed on the way:
 ## In-process FSR (2026-10-08, commit e0bcd57)
 
 Smart App Control kept blocking the helper, so FSR 3.1 is now built from the FidelityFX SDK v1.1.4 sources into the
-32-bit hook DLL (`and_fsr`, hook/CMakeLists.txt; `hook/fsr/fsr_bridge.*`):
+32-bit hook DLL (`and_fsr`, archive/hook/CMakeLists.txt; `archive/hook/fsr/fsr_bridge.*`):
 - the shaders are compiled at build time with the SDK's FidelityFX_SC.exe;
 - three ffx_vk.cpp lines are patched for 32-bit handles;
 - Vulkan goes through volk;
@@ -105,11 +105,11 @@ running. The player's folder keeps the last build that loads.
 
 ## DLSS (DLAA) and XeSS in the helper (2026-10-08)
 
-- The player accepted both licences (docs/decision.md, 2026-10-08). `tools/fetch_aa_sdks.ps1` clones the pinned
-  SDKs into `work/sdk` (not committed): NVIDIA DLSS v310.9.1 and Intel XeSS v3.0.2. `rthelper/CMakeLists.txt`
+- The player accepted both licences (docs/decision.md, 2026-10-08). `archive/tools/fetch_aa_sdks.ps1` clones the pinned
+  SDKs into `work/sdk` (not committed): NVIDIA DLSS v310.9.1 and Intel XeSS v3.0.2. `archive/rthelper/CMakeLists.txt`
   builds them in when present (`AND_HAVE_DLSS`, `AND_HAVE_XESS`) and copies `nvngx_dlss.dll` and `libxess.dll` next
-  to `rt_helper.exe`. `tools/deploy.ps1` and `tools/instances.py` copy them next to the game.
-- `rthelper/aa.cpp` provides the backends:
+  to `rt_helper.exe`. `archive/tools/deploy.ps1` and `tools/instances.py` copy them next to the game.
+- `archive/rthelper/aa.cpp` provides the backends:
   - DLSS runs through the NGX static library (project ID, `NVSDK_NGX_PerfQuality_Value_DLAA`, flags IsHDR,
     MVLowRes and AutoExposure).
   - XeSS loads `libxess.dll` at run time, in `XESS_QUALITY_SETTING_AA` with auto exposure.
@@ -140,7 +140,7 @@ running. The player's folder keeps the last build that loads.
 
 ## Mip bias, alpha coverage and dithering (2026-10-09)
 
-- **Mip bias** (`[render] aa_mip_bias`, remaster -1, original 0; src/rhi/vulkan/vk_pipeline.cpp). It is added to
+- **Mip bias** (`[render] aa_mip_bias`, remaster -1, original 0; archive/src/rhi/vulkan/vk_pipeline.cpp). It is added to
   every mipmapped sampler while temporal AA is on: the vendors' log2(render / output) - 1 at native resolution.
   - Still camera on lev_1_m1 over 24 frames, FSR (work/visual/q_*): sharpness 11.30 -> 11.93, frame-to-frame change
     0.992 -> 0.991.

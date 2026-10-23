@@ -14,7 +14,7 @@ Each run's counts are kept in work/coverage_runs/<level>.<scenario>.json; the me
 contribution of the same scenario first, so reruns never double count, and the counts of tools/coverage.py's
 scenarios are kept (rerunning tools/coverage.py drops the level runs from coverage.json: run --merge after it).
 
-Scenario keys: "frame:KEY*N" in presented frames (hook/src/input_hooks.cpp): W 17, S 31, A 30, D 32, Use X 45,
+Scenario keys: "frame:KEY*N" in presented frames (archive/hook/src/input_hooks.cpp): W 17, S 31, A 30, D 32, Use X 45,
 Q 16 (next weapon), Tab 15 (next special), R 19, Space 57, 1 / 3 teammate orders, MOUSE1 fire, MOUSE2 special
 (sticky / topsy), MOUSEX<n> turn by n counts per poll. At most 64 keys. The briefing is up from ~480; MOUSE1 at
 500 dismisses it. [test] warp=FRAME:x,y,z (game axes, z up; one warp per run) moves Roman; he keeps his heading

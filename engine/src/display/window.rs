@@ -1,5 +1,5 @@
-//! The window: the display mode and the resolutions the Graphics page offers (old remaster hook/enhance/display.cpp
-//! `window_mode` and `all_modes`; the original's mode list src/renderer/display_modes.cpp).
+//! The window: the display mode and the resolutions the Graphics page offers (old remaster archive/hook/enhance/display.cpp
+//! `window_mode` and `all_modes`; the original's mode list archive/src/renderer/display_modes.cpp).
 //!
 //! - Display mode: the options' Fullscreen (F11 / Alt+Enter, the Graphics page's checkbox) and the setting
 //!   `fullscreen_mode` together give display.cpp's three choices: Fullscreen (exclusive, at the chosen resolution),

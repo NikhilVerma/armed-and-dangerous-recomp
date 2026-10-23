@@ -1,7 +1,7 @@
 //! Tessellated characters (setting `tessellation`): the skinned meshes are refined into a smooth curved surface once,
 //! when they first appear, and drawn in place of the authored ones.
 //!
-//! Port of the old remaster's tessellation (src/rhi/vulkan/vk_tessellation.cpp TessControlGlsl / TessEvalGlsl,
+//! Port of the old remaster's tessellation (archive/src/rhi/vulkan/vk_tessellation.cpp TessControlGlsl / TessEvalGlsl,
 //! settings in vk_device.cpp `Tess()` and `TessModules()`): Phong tessellation (Boubekeur and Alexa 2008) with the
 //! crease rule of 2026-10-12 ("sharp angles remain sharp but shallow angles get smooth"). Every point of the flat
 //! triangle is projected onto the tangent plane of each corner, the three projections are blended by the barycentrics,

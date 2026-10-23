@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "preset": "remaster", "steps": [
+{"load": "states/after_pub.json", "preset": "remaster", "steps": [
  {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (the bombs are in the bullets' list, 0x00481320), which this test is not about"},
  {"ai_force": "grunts_hold"},
  {"cheat": "SHIELDME"},

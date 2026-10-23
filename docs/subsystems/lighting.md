@@ -5,26 +5,26 @@ off (tests).
 
 ## Where the game's fog comes from
 
-- The game fogs in its vertex shaders: `Renderer_SetFog` (0x00504010, src/renderer/auto_00502300.cpp) takes the
+- The game fogs in its vertex shaders: `Renderer_SetFog` (0x00504010, archive/src/renderer/auto_00502300.cpp) takes the
   shader path and sets **c1 = {start, end, 1 / (end - start), 0.5}** (camera distances); D3D9 sees
   `D3DRS_FOGTABLEMODE` = none and FOGSTART/FOGEND 0 / 1. Measured in lev_1_m1: start 100, end 1500 (and.log `fog:` line from
   ModernFogUniforms, vk_device.cpp).
 - The fog is blended in one place for every draw: D3D9_FINAL (vk_fixed_function.cpp FinalBody), shared by
   fixed-function and translated shaders.
 
-## Modern fog (`fog_modern`, src/rhi/vulkan/vk_fog.h)
+## Modern fog (`fog_modern`, archive/src/rhi/vulkan/vk_fog.h)
 
 Exponential height fog in D3D9_FINAL, in place of the linear blend: density a exp(-b dh) (Z up), a set so half the
 light gets through half way through the game's fog range (as its linear fog), b = `fog_height` (0.002 per unit),
 in-scattering = the game's fog colour plus a sun glow (`fog_sun`). Only scene draws: the HUD and menus (after
 SceneEnd) keep the game's fog. Camera and sun come from rhi::Hints, filled at Renderer_BeginScene (0x005042d0,
-wrapped by hook/enhance/shadows.cpp) so they are this frame's.
+wrapped by archive/hook/enhance/shadows.cpp) so they are this frame's.
 
-## Ambient occlusion (`ao`, `ao_strength`, `ao_radius`; src/rhi/vulkan/vk_gtao.h)
+## Ambient occlusion (`ao`, `ao_strength`, `ao_radius`; archive/src/rhi/vulkan/vk_gtao.h)
 
-- XeGTAO (Intel, MIT) adopted unmodified: third_party/XeGTAO (XeGTAO.h, XeGTAO.hlsli). Entry points in
-  src/rhi/vulkan/shaders/gtao.hlsl (from the sample's vaGTAO.hlsl), compiled at run time with glslang's HLSL front
-  end (ENABLE_HLSL on), sources embedded by hook/CMakeLists.txt. Two textual fixes at assembly time for glslang:
+- XeGTAO (Intel, MIT) adopted unmodified: archive/third_party/XeGTAO (XeGTAO.h, XeGTAO.hlsli). Entry points in
+  archive/src/rhi/vulkan/shaders/gtao.hlsl (from the sample's vaGTAO.hlsl), compiled at run time with glslang's HLSL front
+  end (ENABLE_HLSL on), sources embedded by archive/hook/CMakeLists.txt. Two textual fixes at assembly time for glslang:
   the sample framework's `VA_SATURATE` / `VA_PI`, and literal swizzles (`2.xx` -> `float2(2, 2)`).
 - Passes: depth prefilter (R32F, 5 MIPs), main pass "high" (3 slices x 3 steps, normals from depth), denoise
   "medium" (2 passes). Constants from XeGTAO's own GTAOUpdateConstants with the game's D3D projection.
@@ -56,17 +56,17 @@ wrapped by hook/enhance/shadows.cpp) so they are this frame's.
 - **Hardware RT is not available in the game process:** the game is 32-bit and NVIDIA's 32-bit Vulkan driver
   exposes no ray-tracing extensions (measured on the RTX 4090, driver 617.14: 270 device extensions, none of
   VK_KHR_acceleration_structure / ray_query). The human chose a 64-bit helper process (decision.md 2026-10-05).
-- **Design** (src/rhi/vulkan/rt_ipc.h): rthelper/ builds rt_helper.exe (tools/build_helper.ps1, x64). The game
+- **Design** (archive/src/rhi/vulkan/rt_ipc.h): rthelper/ builds rt_helper.exe (archive/tools/build_helper.ps1, x64). The game
   (vk_rt_client.cpp) starts it, shares buffers (VK_KHR_external_memory_win32) and two timeline semaphores
   (VK_KHR_external_semaphore_win32); per frame it replays the casters' vertex shaders with c22..c25 =
   camera -> world into the shared vertex buffer, writes triangle indices (strips/fans converted) and the
   camera-space depth, submits the first half of the frame (VulkanDevice::SplitSubmit, signalling the helper),
   and continues in the slot's second command buffer; the apply pass reads the helper's visibility, and the
   final submit waits for the helper only if it acknowledged the frame (no GPU hang possible).
-- **Helper** (rthelper/main.cpp): device on the same GPU (LUID), imports, copies inputs into AS-build buffers,
-  builds BLAS + TLAS every frame (PREFER_FAST_BUILD), then rthelper/shadow_denoiser.cpp: its own G-buffer pass
+- **Helper** (archive/rthelper/main.cpp): device on the same GPU (LUID), imports, copies inputs into AS-build buffers,
+  builds BLAS + TLAS every frame (PREFER_FAST_BUILD), then archive/rthelper/shadow_denoiser.cpp: its own G-buffer pass
   (depth, normals, velocity from the previous camera) and a one-ray-per-pixel trace over the sun's disc into
-  8x4 tile bit masks, then AMD FidelityFX Shadow Denoiser v1.1.4 unmodified (third_party/FidelityFX-
+  8x4 tile bit masks, then AMD FidelityFX Shadow Denoiser v1.1.4 unmodified (archive/third_party/FidelityFX-
   ShadowDenoiser: prepare, tile classification with temporal accumulation, three edge-aware filter passes).
   The penumbra comes from sampling the sun's disc (FrameParams.sun.w = tan of its angular radius) accumulated
   over frames: it widens with the occluder distance, with no blur cap.

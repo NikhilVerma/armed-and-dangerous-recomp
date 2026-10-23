@@ -1,7 +1,7 @@
 //! Key bindings: which keys, mouse buttons and pad buttons drive each of the player's actions, kept in the options
 //! (options.json `bindings`) and edited on the Controls page (gamemenu.rs).
 //!
-//! The original's model (docs/subsystems/qol.md "Bindings", src/ui/ui_01.cpp): every action has two keys, a primary
+//! The original's model (docs/subsystems/qol.md "Bindings", archive/src/ui/ui_01.cpp): every action has two keys, a primary
 //! and a secondary (Control +0x1c / +0xa8); the controls pages list the actions of table 0x00588dd8 (Move Forward ..
 //! Look Down, Fire, Fire Special; Jump, Next / Prev Weapon, Next / Prev Special, Reload, Zoom, Send / Recall Mates,
 //! Activate; an entry is set up by 0x00447d20 / 0x00447e20, the table's empty slots 0x23 hidden), each entry showing "%s or %s" (pms_input_aorb), one key, or "Unassigned" (0x00447e70). Choosing an entry

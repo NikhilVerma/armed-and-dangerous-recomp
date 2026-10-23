@@ -12,16 +12,16 @@ Export for the remaster engine: `tools/remaster_export_ui.py <level>` writes `wo
 
 | Piece | Source | Evidence |
 | --- | --- | --- |
-| Elements (which object/text, page, layout point, nav ids, text scale and colour) | UI bank `big12_ui` | Hud_CreateLevelUi 0x004629b0, `src/ui/ui_01.cpp:2344` |
-| Layout points `ref_*` | **Nodes of the page anchor anim** in `big03_anim` (`pui_main`, `pui_pub`, `pui_pressstart`, `pui_general`). Rest position node +0x1c, in 640x480 pixels, origin bottom left, y up | 0x00464b10 `ui_01.cpp:3386`: anchor = page object (list g+0xa84 +0xec0, 0x00463c90), matrix of the ref "bone" from 0x00453c50 (`src/anim/anim_01.cpp:2241`), x = m[3] / 640, y = m[7] / 480 |
-| Element graphics | Skin model (LOD 0 of the object's template, `big07_obj`) in `big05_skin`: quads in 640x480 pixels around the object origin | UiMesh_Draw 0x00464e20 `src/renderer/render_r3.cpp:320`: world = rotation * x-aspect * translation * scale(+0x37c/640, +0x380/480, +0x384/480) |
+| Elements (which object/text, page, layout point, nav ids, text scale and colour) | UI bank `big12_ui` | Hud_CreateLevelUi 0x004629b0, `archive/src/ui/ui_01.cpp:2344` |
+| Layout points `ref_*` | **Nodes of the page anchor anim** in `big03_anim` (`pui_main`, `pui_pub`, `pui_pressstart`, `pui_general`). Rest position node +0x1c, in 640x480 pixels, origin bottom left, y up | 0x00464b10 `ui_01.cpp:3386`: anchor = page object (list g+0xa84 +0xec0, 0x00463c90), matrix of the ref "bone" from 0x00453c50 (`archive/src/anim/anim_01.cpp:2241`), x = m[3] / 640, y = m[7] / 480 |
+| Element graphics | Skin model (LOD 0 of the object's template, `big07_obj`) in `big05_skin`: quads in 640x480 pixels around the object origin | UiMesh_Draw 0x00464e20 `archive/src/renderer/render_r3.cpp:320`: world = rotation * x-aspect * translation * scale(+0x37c/640, +0x380/480, +0x384/480) |
 | Textures | `big02_txtr` (stored bottom-up; the export flips them upright) | decoded `b_ad_image` is upside down; meshes carry v = 1 on their top edge |
 | Font | `big13_font` metrics + txtr `mainfontid` (256x512) | docs/formats/big-font.md |
-| Strings | `big01_text` (`Text_Lookup` 0x00495f00) | UiText_SetName 0x00465850 `src/ui/ui_02.cpp:254` |
+| Strings | `big01_text` (`Text_Lookup` 0x00495f00) | UiText_SetName 0x00465850 `archive/src/ui/ui_02.cpp:254` |
 
 All 24 pages, 77 refs, 97 object instances and 203 text instances are identical in every level (big-ui.md).
 `ui_text` instances on menu pages get their row subtracted: `y -= (id % 100) * 24` px (UiScreen_InitItem
-0x00491b70, `src/ui/ui_03.cpp:1306`).
+0x00491b70, `archive/src/ui/ui_03.cpp:1306`).
 
 Which anim a page object poses with is not traced (open question 1). The export uses the anim named as the page
 when it exists (`pui_main`, `pui_pub`, `pui_pressstart`), else `pui_general`. With that rule the pause menu items
@@ -30,15 +30,15 @@ land exactly where `work/visual/pause_m/00750.bmp` shows them ("Continue" centre
 
 ## 2. Frame order
 
-1. `0x00402e80` (game update, `src/game/game_01.cpp:640`), when 0x00462790 allows (pause input):
+1. `0x00402e80` (game update, `archive/src/game/game_01.cpp:640`), when 0x00462790 allows (pause input):
    - `Hud_UpdateCrosshair` 0x00406f50 (`ui_01.cpp:297`): target under the crosshair, crosshair state, marker slots;
    - `0x004915b0`: menu screen stack update;
    - `0x00463fa0` (`ui_01.cpp:3035`): HUD widgets (weapon icons, arrows, pulse phase), section 4;
    - every object's update virtual (slot +0xbc, e.g. 0x00466e70) runs with the other objects (**guess**: in the
      object system update 0x0045da90): the per-element drivers of section 4.
-2. `Game_RenderFrame` 0x00403050 (`src/renderer/render_r0.cpp:38`): the 3D scene (ScenePass_Render, which also runs
+2. `Game_RenderFrame` 0x00403050 (`archive/src/renderer/render_r0.cpp:38`): the 3D scene (ScenePass_Render, which also runs
    the chat update 0x0046a820), then the viewport is restored and **`UiPass_Draw` 0x00464460**
-   (`src/game/ui_pass.cpp:53`), then 0x00491670 (menu overlay), then present.
+   (`archive/src/game/ui_pass.cpp:53`), then 0x00491670 (menu overlay), then present.
 3. `UiPass_Draw`:
    - saves world/view/projection, sets the screen transform 0x004f01c0 (normalised 0..1 space, ui.md section 1);
    - world-tracking markers (list g+0xa84 +0xebc, 0x004190a0): projected 3D positions, no anchoring;
@@ -69,10 +69,10 @@ HUD page stays shown under the pause menu (capture `pause_m`).
 
 ### 3.2 Meters: texture scroll (health, ticker bomb arming)
 
-`DrawSlidePanel` (`src/renderer/render_r6.cpp:1116`), used by 0x00466ce0 / 0x004672d0 / 0x00467dd0: for the part
+`DrawSlidePanel` (`archive/src/renderer/render_r6.cpp:1116`), used by 0x00466ce0 / 0x004672d0 / 0x00467dd0: for the part
 whose texture slot is `b_health_level1` (health) the texture matrix is translated by `(x, t)` with
 `t = clamp((1 - value) * 0.5, 0, 0.5)`; `x` picks the colour band. So the bar empties by **scrolling the texture**,
-not by scaling geometry. Health driver 0x00466e70 (`src/game/game_04.cpp:839`):
+not by scaling geometry. Health driver 0x00466e70 (`archive/src/game/game_04.cpp:839`):
 
 | `+0x4a8` | Target | Name |
 | --- | --- | --- |
@@ -87,8 +87,8 @@ scene (g+0xdce).
 
 ### 3.3 Text (UiText_Render 0x00465360 -> UiText_Draw 0x00464750 -> Text_Draw 0x00495e80)
 
-`src/renderer/render_r3.cpp:274` and `:381`, `src/renderer/render_r4.cpp:1244`,
-`src/renderer/auto_00507c10.cpp:82`, `src/renderer/auto_00503900.cpp:439`.
+`archive/src/renderer/render_r3.cpp:274` and `:381`, `archive/src/renderer/render_r4.cpp:1244`,
+`archive/src/renderer/auto_00507c10.cpp:82`, `archive/src/renderer/auto_00503900.cpp:439`.
 
 - **Position:** the ref point (+0x4e8, +0x4ec, normalised), **alignment 0.5, 0.5** (centred both ways) unless the
   caller passes a non-zero offset.
@@ -107,7 +107,7 @@ scene (g+0xdce).
 - **Glyph model** (0x005078c0): `left = pen + x_offset * s`, quad `(width + 1) * s` wide and
   `(line_height + 1) * s = 25 s` tall from the pen line top, `pen = left + advance * s`; quads snap to the pixel
   grid. Line advance = 25 s (0x00506ff0).
-- **Markup** (renderer virtuals 102-112, `src/renderer/auto_00504b90.cpp:367-470`): `<br>` line break,
+- **Markup** (renderer virtuals 102-112, `archive/src/renderer/auto_00504b90.cpp:367-470`): `<br>` line break,
   `<rgb=RRGGBB>` ... `</rgb>` colour (e.g. "You need `<rgb=ffff00>`Ticker Bombs!`</rgb>`"), `<tab=N>` (N widths of
   'W'), `<ll=N>` line width; other `<...>` tags are skipped. `\n` also breaks. Multi-line text is aligned per
   line in x and as a block in y.
@@ -121,7 +121,7 @@ scene (g+0xdce).
 ## 4. HUD elements (page 0 `pui_main`, lev_1_m1)
 
 Positions are the ref points in 640x480, **y up from the bottom** (top-left y = 480 - y). Mesh size = the model's
-rectangle around that point. "Anchor" is the remaster's widescreen rule (hook/enhance/ui_aspect.cpp, section 7).
+rectangle around that point. "Anchor" is the remaster's widescreen rule (archive/hook/enhance/ui_aspect.cpp, section 7).
 
 | Element | Kind | Ref | x, y (y up) | Size / look | Shows; driver | Anchor |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -142,7 +142,7 @@ rectangle around that point. "Anchor" is the remaster's widescreen rule (hook/en
 | `ui_multi_lock` x4 | mesh | ref_chat_01..04 (re-placed at run time) | | lock-on marker | world-tracked lock targets; 0x00407c20 | none (screen space) |
 | `ui_clock`, `ui_tickerbomb`, `ui_tickerbomb_set` | mesh | ref_clock / ref_tickerbomb / ref_tickerbomb_text | 320, 384.5 / 464.3, 384.5 / 321.6, 329.8 | clock face 70 px; arming bar 351 x 26 px | ticker bomb (`ui_01.cpp:2089`, `:2151`; 0x00467450) | centre / right / centre |
 | `ui_text_bkd` + `ui_mission_briefing` (0.9 `#d0d0ff`) + `ui_pause_text` (0.9 `#7070ff`) | mesh + text | ref_mission_hint | 320, 281.1 | 856 px band | objectives on the pause screen (capture `pause_m`) | centre |
-| `ui_mission_timer` | text 1.1 `#ffff80` | ref_message_01 | 320, 77.2 | | `"%d:%02d"` of `seconds + 0.9` (0x00465b70; driver `src/game/game_07.cpp:3099`) | centre |
+| `ui_mission_timer` | text 1.1 `#ffff80` | ref_message_01 | 320, 77.2 | | `"%d:%02d"` of `seconds + 0.9` (0x00465b70; driver `archive/src/game/game_07.cpp:3099`) | centre |
 | `ui_bof_hint` | text 1.2 `#a0ffa0` | ref_message_01 | 320, 77.2 | | "Press %s to punch!" | centre |
 | Prompts: `ui_tickerbomb_hint/_patience/_none` (1.0 white), `ui_vehicle_entry/_exit`, `ui_pub_entry_hint`, `ui_pub_fail` (1.0 `#a0ffa0`) | text | ref_tickerbomb_text | 321.6, 329.8 | fit to 576 units | context prompts; `%s` = key name (0x00465280); 0x00467450, 0x004662a0, 0x00466210, 0x00467b60 | centre |
 | `ui_teammate_*` (4) | text 0.9 `#ffff80` | ref_team_text | 320, 47.5 | | order feedback, 3.0 s, each hides the others; 0x00467890 | left (x is 320: check) |
@@ -161,7 +161,7 @@ names above are the UI bank objects those tables name (Hud_CreateLevelUi tail, `
   (break at the last space, else mid-word, dropping that character: original bug), appends up to 3 lines; the oldest
   line scrolls off after **6.0 s**. Lines are shown in `ui_chat_01..03` (centred at x 320, scale 0.8) with the
   colour table (0x0046a7e0): index 0 black, 1 `#1fffff`, 2 `#f0f01f`, 3 `#ff1fff`, 4 `#1fffff`, 5 `#ff0000`. Text
-  bank lines go through it with colour 2 (`src/game/game_09.cpp:1730`).
+  bank lines go through it with colour 2 (`archive/src/game/game_09.cpp:1730`).
 - **Prompts:** one text at ref_tickerbomb_text, fitted to 576 units, `%s` replaced by the bound key name;
   the per-class drivers re-evaluate visibility each frame (ticker bomb every 6th call).
 - **Timed messages:** 0x004677c0 shows for 2.0 s, teammate orders 3.0 s (0x00467890).
@@ -192,11 +192,11 @@ Above them the HUD page shows `ui_text_bkd` and `ui_mission_briefing` (title, "O
 item handlers: menus.md. Yes/No (page 22): message 1.4 white at ref_info (y 276.4), "Yes" 1.1 `#a0ffa0` (row 5,
 y 156.4), "No" 1.1 `#ff6060` (row 6, y 132.4).
 
-## 7. The "better" target: the remaster's UI enhancements (hook/enhance)
+## 7. The "better" target: the remaster's UI enhancements (archive/hook/enhance)
 
 `[ui]` and `[camera]` in and.ini, all off by default:
 
-- `ui anchor=1` (hook/enhance/ui_aspect.cpp): keeps the 4:3 proportions on wide screens. Per object, the view
+- `ui anchor=1` (archive/hook/enhance/ui_aspect.cpp): keeps the 4:3 proportions on wide screens. Per object, the view
   matrix gets `x' = k x + c` with `k = (4/3) / aspect`: HUD elements pinned left (`a = 0`), right (`a = 1 - k`)
   or centred (`(1 - k) / 2`) by their ref (HudAnchor table; unlisted refs by x thirds), `ui_hit_*` stretched,
   menu pages pillarboxed; mouse hits mapped back (g_uiCursorToLayout, g_uiHitScale). The exporter writes this
@@ -204,7 +204,7 @@ y 156.4), "No" 1.1 `#ff6060` (row 6, y 132.4).
 - `ui text_scale=1.0`, `text_relative=1`: text size relative to the 640x480 layout (`height / 480` per glyph
   pixel) instead of physical pixels; fixed-layout text (menus, objectives) is capped at text_scale 1 so lines do
   not leave the 4:3 frame.
-- `camera hor_plus=1` (hook/enhance/camera.cpp): Hor+ field of view, so the 3D view widens while the anchored HUD
+- `camera hor_plus=1` (archive/hook/enhance/camera.cpp): Hor+ field of view, so the 3D view widens while the anchored HUD
   keeps its 4:3 shapes.
 
 For the remaster engine: lay out in 640x480 units, scale uniformly by `height / 480`, place each HUD element by
@@ -259,7 +259,7 @@ shadow at 2 px of 480 (scaled). Fixes worth keeping off by default: the anchors 
 
 ## 11. The crosshair (Hud_UpdateCrosshair 0x00406f50, Hud_ProjectMarkers 0x00406840)
 
-Traced 2026-10-14 from `src/ui/ui_01.cpp:297-686` and `src/renderer/render_r0.cpp:87-260`; strings and vtable slots
+Traced 2026-10-14 from `archive/src/ui/ui_01.cpp:297-686` and `archive/src/renderer/render_r0.cpp:87-260`; strings and vtable slots
 read from the unpacked exe. Ported in `engine/src/hud.rs` (`Crosshair`, `AimClass`, `crosshair_aim`,
 `crosshair_pose`).
 

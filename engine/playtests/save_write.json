@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"expect": {"objects.258.removed": true, "objects.174.template": "v_house_2f_a"}},
  {"loadout": {"mg": 140, "mg_clip": 60, "use_mg": true, "stickies": 7, "topsy": 1, "rifle_clip": 4, "health": 220}},

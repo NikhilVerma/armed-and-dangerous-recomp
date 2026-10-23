@@ -23,124 +23,124 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 | subsystem | file | address | name | size | state | levels |
 | --- | --- | --- | --- | ---: | --- | --- |
-| ai | src/ai/ai_01.cpp | 0x00409110 | fn_00409110 | 41 | deferred | 5_m5 |
-| ai | src/ai/ai_01.cpp | 0x00424630 | fn_00424630 | 99 | deferred | bonus_m1, bonus_m3 |
-| ai | src/ai/ai_02.cpp | 0x004271c0 | fn_004271c0 | 65 | deferred | 2_m4 |
-| ai | src/ai/ai_02.cpp | 0x00427c80 | fn_00427c80 | 503 | deferred | 2_m3, 3_m1, 3_m3, bonus_m1 |
-| ai | src/ai/ai_02.cpp | 0x00429ac0 | fn_00429ac0 | 532 | deferred | 2_m4, 3_m4_bd, 5_m5 |
-| ai | src/ai/ai_02.cpp | 0x00429ce0 | fn_00429ce0 | 534 | deferred | 2_m4, 3_m4_bd, 5_m5 |
-| ai | src/ai/ai_03.cpp | 0x0042b9e0 | fn_0042b9e0 | 69 | deferred | 2_m4 |
-| ai | src/ai/ai_03.cpp | 0x0042bb10 | fn_0042bb10 | 333 | deferred | 2_m4 |
-| ai | src/ai/ai_03.cpp | 0x0042c670 | fn_0042c670 | 115 | deferred | 1_m3 |
-| ai | src/ai/ai_03.cpp | 0x0042de30 | fn_0042de30 | 47 | deferred | 5_m4, bonus_m3 |
-| ai | src/ai/ai_03.cpp | 0x00430140 | fn_00430140 | 510 | deferred | bonus_m3 |
-| ai | src/ai/ai_04.cpp | 0x00433b80 | fn_00433b80 | 7 | deferred | bonus_m3 |
-| ai | src/ai/ai_04.cpp | 0x00433b90 | fn_00433b90 | 7 | deferred | 3_m1, 5_m4, bonus_m3 |
-| ai | src/ai/ai_04.cpp | 0x00433ba0 | fn_00433ba0 | 13 | deferred | bonus_m3 |
-| ai | src/ai/ai_04.cpp | 0x00433bc0 | fn_00433bc0 | 168 | deferred | 3_m1, 5_m4, bonus_m3 |
-| ai | src/ai/ai_04.cpp | 0x00434ea0 | GruntObject_Slot66 | 270 | deferred | 1_m3 |
-| ai | src/ai/ai_04.cpp | 0x00435260 | PeasantGenAI_Slot6 | 201 | deferred | 1_m4, 2_m4, 4_m5 |
-| ai | src/ai/ai_04.cpp | 0x00435330 | PeasantGenAI_Slot55 | 77 | deferred | 4_m5 |
-| ai | src/ai/ai_04.cpp | 0x00435380 | PeasantGenAI_Slot64 | 40 | deferred | 4_m5 |
-| ai | src/ai/ai_04.cpp | 0x004353b0 | PeasantGenAI_Slot95 | 112 | deferred | 1_m4, 2_m4, 4_m5 |
-| ai | src/ai/ai_05.cpp | 0x004371e0 | fn_004371e0 | 96 | deferred | 4_m2 |
-| ai | src/ai/ai_05.cpp | 0x00437860 | fn_00437860 | 216 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m3, 5_m4, bonus_m1, bonus_m3 |
-| ai | src/ai/ai_05.cpp | 0x0043c640 | fn_0043c640 | 8 | deferred | 2_m1, 4_m5, 5_m2, 5_m3 |
-| ai | src/ai/ai_05.cpp | 0x0043c650 | fn_0043c650 | 40 | deferred | 1_m3, 5_m4 |
-| ai | src/ai/ai_05.cpp | 0x0043ec60 | fn_0043ec60 | 139 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 3_m2, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m4, bonus_m1, bonus_m3 |
-| ai | src/ai/ai_07.cpp | 0x00447500 | MonkObject_Update | 137 | deferred | 4_m1, 4_m2 |
-| ai | src/ai/ai_07.cpp | 0x0044b710 | Spline_GetEndPoint | 68 | deferred | 2_m4, 3_m4_bd, 5_m5 |
-| ai | src/ai/ai_07.cpp | 0x0044b760 | Spline_EndsAtScaleWall | 74 | deferred | 2_m4, 3_m4_bd, 5_m5 |
-| ai | src/ai/ai_08.cpp | 0x00486c70 | Q111Object_Slot112 | 14 | deferred | 5_m2 |
-| ai | src/ai/ai_08.cpp | 0x00486c80 | Q111Object_Slot149 | 8 | deferred | 5_m2 |
-| ai | src/ai/ai_08.cpp | 0x00487040 | Q111Object_Slot78 | 16 | deferred | 1_m3 |
-| game | src/engine/missing_01.cpp | 0x0049a0b0 | MountedTurret_BoneCallback | 50 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 5_m1, 5_m2, 5_m3, bonus_m1 |
-| game | src/game/game_01.cpp | 0x004056b0 | PeasantObject_Load | 412 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
-| game | src/game/game_01.cpp | 0x00405880 | fn_00405880 | 108 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
-| game | src/game/game_01.cpp | 0x004063f0 | fn_004063f0 | 7 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
-| game | src/game/game_01.cpp | 0x0040df90 | fn_0040df90 | 8 | deferred | 1_m3, 3_m3, bonus_m2 |
-| game | src/game/game_01.cpp | 0x0040dfa0 | fn_0040dfa0 | 16 | deferred | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
-| game | src/game/game_01.cpp | 0x0040dfb0 | fn_0040dfb0 | 77 | deferred | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
-| game | src/game/game_02.cpp | 0x0043aa00 | fn_0043aa00 | 6 | deferred | 2_m1, 3_m1, 4_m1, 5_m4, bonus_m3 |
-| game | src/game/game_04.cpp | 0x004615d0 | PeasantGenAI_Construct | 18 | deferred | 1_m4, 2_m4, 4_m5 |
-| game | src/game/game_04.cpp | 0x004615f0 | FakeGruntObject_Construct | 18 | deferred | 1_m4, 3_m4_bd, 4_m5, 5_m5 |
-| game | src/game/game_06.cpp | 0x0047b8e0 | fn_0047b8e0 | 29 | deferred | 3_m1, 3_m2 |
-| game | src/game/game_06.cpp | 0x0047bba0 | PlayerObject_PlayChestFx | 58 | deferred | 2_m3, 3_m1, 3_m2, 3_m3, 4_m3, bonus_m1 |
-| game | src/game/game_06.cpp | 0x0047df70 | fn_0047df70 | 82 | deferred | 4_m2 |
-| game | src/game/game_06.cpp | 0x0047e050 | fn_0047e050 | 108 | deferred | bonus_m3 |
-| game | src/game/game_06.cpp | 0x0047f210 | fn_0047f210 | 139 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
-| game | src/game/game_06.cpp | 0x0047f2a0 | fn_0047f2a0 | 550 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
-| game | src/game/game_06.cpp | 0x0047f4d0 | fn_0047f4d0 | 11 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 5_m3 |
-| game | src/game/game_07.cpp | 0x00480510 | VindalooProjectile_ReadProps | 203 | deferred | bonus_m3 |
-| game | src/game/game_07.cpp | 0x004805e0 | VindalooProjectile_Flags | 11 | deferred | bonus_m3 |
-| game | src/game/game_07.cpp | 0x004805f0 | VindalooProjectile_Update | 801 | deferred | bonus_m3 |
-| game | src/game/game_07.cpp | 0x00480d60 | RocketBudProjectile_ReadProps | 69 | deferred | 2_m2, 2_m3, 3_m1, bonus_m1 |
-| game | src/game/game_07.cpp | 0x00480e20 | RocketBudProjectile_Update | 155 | deferred | 2_m2, 3_m1 |
-| game | src/game/game_07.cpp | 0x00480f60 | ForgeCannonProjectile_Update | 159 | deferred | 2_m2, 2_m3, bonus_m1 |
-| game | src/game/game_07.cpp | 0x00481000 | ForgeCannonProjectile_Flags | 11 | deferred | 2_m2, 2_m3, bonus_m1 |
-| game | src/game/game_07.cpp | 0x00481020 | fn_00481020 | 11 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5 |
-| game | src/game/game_07.cpp | 0x00481030 | fn_00481030 | 223 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
-| game | src/game/game_07.cpp | 0x00481c90 | fn_00481c90 | 59 | deferred | 1_m1_b, 1_m3, 1_m4, 2_m3, 2_m4, 3_m1, 3_m3, 3_m4_bd, 4_m1, 4_m2, 4_m3, 4_m5, 5_m1, 5_m4, 5_m5, bonus_m1, bonus_m3 |
-| game | src/game/game_07.cpp | 0x00481ce0 | fn_00481ce0 | 18 | deferred | bonus_m3 |
-| game | src/game/game_07.cpp | 0x00481d00 | fn_00481d00 | 9 | deferred | bonus_m3 |
-| game | src/game/game_07.cpp | 0x00481d10 | fn_00481d10 | 149 | deferred | bonus_m3 |
-| game | src/game/game_07.cpp | 0x00481db0 | BlackHoleProjectile_ReadProps | 310 | deferred | 5_m2 |
-| game | src/game/game_07.cpp | 0x00481ef0 | BlackHoleProjectile_Update | 443 | deferred | 5_m2 |
-| game | src/game/game_07.cpp | 0x00482120 | BlackHoleBox_ReadProps | 120 | deferred | 5_m2 |
-| game | src/game/game_07.cpp | 0x004821b0 | BlackHoleBox_Launch | 252 | deferred | 5_m2 |
-| game | src/game/game_07.cpp | 0x004822b0 | BlackHoleBox_Update | 430 | deferred | 5_m2 |
-| game | src/game/game_07.cpp | 0x00482ab0 | CaptainRocket_SetOwner | 129 | deferred | 1_m3, 2_m1, 2_m3, 3_m1, 3_m3, 4_m5, 5_m1, 5_m3, 5_m4, bonus_m1, bonus_m3 |
-| game | src/game/game_07.cpp | 0x00482d10 | CaptainRocket_InitCollision | 70 | deferred | 1_m3, 2_m1, 2_m3, 3_m1, 3_m3, 4_m5, 5_m1, 5_m3, 5_m4, bonus_m1, bonus_m3 |
-| game | src/game/game_07.cpp | 0x00482d60 | CaptainRocket_Damage | 263 | deferred | 5_m1, bonus_m1 |
-| game | src/game/game_07.cpp | 0x004830e0 | MonkBasketProjectile_ReadProps | 150 | deferred | 4_m2 |
-| game | src/game/game_07.cpp | 0x00483180 | MonkBasketProjectile_Launch | 131 | deferred | 4_m2 |
-| game | src/game/game_08.cpp | 0x00497f60 | fn_00497f60 | 97 | deferred | 1_m3, 1_m4, 2_m2, 2_m4, 3_m2, 3_m4_bd, 4_m1, 4_m2, 4_m5, 5_m4, 5_m5, bonus_m1, bonus_m3 |
-| game | src/game/game_08.cpp | 0x00498320 | fn_00498320 | 33 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
-| game | src/game/game_08.cpp | 0x00498350 | fn_00498350 | 57 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
-| game | src/game/game_08.cpp | 0x00498890 | fn_00498890 | 75 | deferred | 1_m1_b, 2_m1, 2_m2, 3_m2, 4_m1, 5_m2, bonus_m1 |
-| game | src/game/game_08.cpp | 0x004993b0 | fn_004993b0 | 12 | deferred | 3_m2, 4_m1, bonus_m1 |
-| game | src/game/game_08.cpp | 0x0049a530 | fn_0049a530 | 137 | deferred | 2_m2, 2_m3, bonus_m1 |
-| game | src/game/game_08.cpp | 0x0049abf0 | fn_0049abf0 | 105 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
-| game | src/game/game_09.cpp | 0x0049c2a0 | fn_0049c2a0 | 123 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
-| game | src/game/game_09.cpp | 0x0049ca90 | fn_0049ca90 | 21 | deferred | 2_m2, 2_m3, 3_m1, 3_m3, 5_m4, bonus_m1, bonus_m2 |
-| game | src/game/game_09.cpp | 0x004a2480 | fn_004a2480 | 69 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
-| game | src/game/game_09.cpp | 0x004a24d0 | fn_004a24d0 | 118 | deferred | bonus_m3 |
-| game | src/game/game_09.cpp | 0x004a2550 | fn_004a2550 | 949 | deferred | bonus_m3 |
-| game | src/game/game_09.cpp | 0x004a2a70 | fn_004a2a70 | 294 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
-| ui | src/ui/ui_01.cpp | 0x00406740 | fn_00406740 | 66 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5, bonus_m3 |
-| audio | src/audio/audio_01.cpp | 0x0040d250 | fn_0040d250 | 317 | deferred | 1_m4, 2_m4, 4_m5 |
-| audio | src/audio/audio_01.cpp | 0x00434180 | fn_00434180 | 257 | deferred | 3_m1 |
-| audio | src/audio/audio_01.cpp | 0x00438cb0 | AIVoice_PlayClimbtaunt | 456 | deferred | 2_m4 |
-| audio | src/audio/audio_01.cpp | 0x00438e80 | fn_00438e80 | 35 | deferred | 2_m4 |
-| audio | src/audio/audio_01.cpp | 0x0043a100 | AIVoice_Q12Hurt | 253 | deferred | 3_m2, 5_m4, bonus_m1 |
-| audio | src/audio/audio_01.cpp | 0x0043a5e0 | AIVoice_MoTaunt | 156 | deferred | 4_m2 |
-| audio | src/audio/audio_01.cpp | 0x0043a6e0 | AIVoice_MoHurt | 198 | deferred | 4_m2 |
-| audio | src/audio/audio_01.cpp | 0x0043c7b0 | fn_0043c7b0 | 20 | deferred | 3_m2, 5_m4, bonus_m1 |
-| anim | src/anim/anim_01.cpp | 0x0043c600 | fn_0043c600 | 33 | deferred | 1_m4, 2_m4, 4_m5 |
-| anim | src/anim/anim_01.cpp | 0x004580a0 | fn_004580a0 | 285 | deferred | 1_m3, 2_m1, 2_m2, 2_m3, 3_m2, 4_m1, 4_m2, 4_m5, 5_m4, 5_m5, bonus_m1, bonus_m3 |
-| camera | src/game/game_01.cpp | 0x0040fa70 | fn_0040fa70 | 22 | deferred | bonus_m3 |
+| ai | archive/src/ai/ai_01.cpp | 0x00409110 | fn_00409110 | 41 | deferred | 5_m5 |
+| ai | archive/src/ai/ai_01.cpp | 0x00424630 | fn_00424630 | 99 | deferred | bonus_m1, bonus_m3 |
+| ai | archive/src/ai/ai_02.cpp | 0x004271c0 | fn_004271c0 | 65 | deferred | 2_m4 |
+| ai | archive/src/ai/ai_02.cpp | 0x00427c80 | fn_00427c80 | 503 | deferred | 2_m3, 3_m1, 3_m3, bonus_m1 |
+| ai | archive/src/ai/ai_02.cpp | 0x00429ac0 | fn_00429ac0 | 532 | deferred | 2_m4, 3_m4_bd, 5_m5 |
+| ai | archive/src/ai/ai_02.cpp | 0x00429ce0 | fn_00429ce0 | 534 | deferred | 2_m4, 3_m4_bd, 5_m5 |
+| ai | archive/src/ai/ai_03.cpp | 0x0042b9e0 | fn_0042b9e0 | 69 | deferred | 2_m4 |
+| ai | archive/src/ai/ai_03.cpp | 0x0042bb10 | fn_0042bb10 | 333 | deferred | 2_m4 |
+| ai | archive/src/ai/ai_03.cpp | 0x0042c670 | fn_0042c670 | 115 | deferred | 1_m3 |
+| ai | archive/src/ai/ai_03.cpp | 0x0042de30 | fn_0042de30 | 47 | deferred | 5_m4, bonus_m3 |
+| ai | archive/src/ai/ai_03.cpp | 0x00430140 | fn_00430140 | 510 | deferred | bonus_m3 |
+| ai | archive/src/ai/ai_04.cpp | 0x00433b80 | fn_00433b80 | 7 | deferred | bonus_m3 |
+| ai | archive/src/ai/ai_04.cpp | 0x00433b90 | fn_00433b90 | 7 | deferred | 3_m1, 5_m4, bonus_m3 |
+| ai | archive/src/ai/ai_04.cpp | 0x00433ba0 | fn_00433ba0 | 13 | deferred | bonus_m3 |
+| ai | archive/src/ai/ai_04.cpp | 0x00433bc0 | fn_00433bc0 | 168 | deferred | 3_m1, 5_m4, bonus_m3 |
+| ai | archive/src/ai/ai_04.cpp | 0x00434ea0 | GruntObject_Slot66 | 270 | deferred | 1_m3 |
+| ai | archive/src/ai/ai_04.cpp | 0x00435260 | PeasantGenAI_Slot6 | 201 | deferred | 1_m4, 2_m4, 4_m5 |
+| ai | archive/src/ai/ai_04.cpp | 0x00435330 | PeasantGenAI_Slot55 | 77 | deferred | 4_m5 |
+| ai | archive/src/ai/ai_04.cpp | 0x00435380 | PeasantGenAI_Slot64 | 40 | deferred | 4_m5 |
+| ai | archive/src/ai/ai_04.cpp | 0x004353b0 | PeasantGenAI_Slot95 | 112 | deferred | 1_m4, 2_m4, 4_m5 |
+| ai | archive/src/ai/ai_05.cpp | 0x004371e0 | fn_004371e0 | 96 | deferred | 4_m2 |
+| ai | archive/src/ai/ai_05.cpp | 0x00437860 | fn_00437860 | 216 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m3, 5_m4, bonus_m1, bonus_m3 |
+| ai | archive/src/ai/ai_05.cpp | 0x0043c640 | fn_0043c640 | 8 | deferred | 2_m1, 4_m5, 5_m2, 5_m3 |
+| ai | archive/src/ai/ai_05.cpp | 0x0043c650 | fn_0043c650 | 40 | deferred | 1_m3, 5_m4 |
+| ai | archive/src/ai/ai_05.cpp | 0x0043ec60 | fn_0043ec60 | 139 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 3_m2, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m4, bonus_m1, bonus_m3 |
+| ai | archive/src/ai/ai_07.cpp | 0x00447500 | MonkObject_Update | 137 | deferred | 4_m1, 4_m2 |
+| ai | archive/src/ai/ai_07.cpp | 0x0044b710 | Spline_GetEndPoint | 68 | deferred | 2_m4, 3_m4_bd, 5_m5 |
+| ai | archive/src/ai/ai_07.cpp | 0x0044b760 | Spline_EndsAtScaleWall | 74 | deferred | 2_m4, 3_m4_bd, 5_m5 |
+| ai | archive/src/ai/ai_08.cpp | 0x00486c70 | Q111Object_Slot112 | 14 | deferred | 5_m2 |
+| ai | archive/src/ai/ai_08.cpp | 0x00486c80 | Q111Object_Slot149 | 8 | deferred | 5_m2 |
+| ai | archive/src/ai/ai_08.cpp | 0x00487040 | Q111Object_Slot78 | 16 | deferred | 1_m3 |
+| game | archive/src/engine/missing_01.cpp | 0x0049a0b0 | MountedTurret_BoneCallback | 50 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 5_m1, 5_m2, 5_m3, bonus_m1 |
+| game | archive/src/game/game_01.cpp | 0x004056b0 | PeasantObject_Load | 412 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
+| game | archive/src/game/game_01.cpp | 0x00405880 | fn_00405880 | 108 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
+| game | archive/src/game/game_01.cpp | 0x004063f0 | fn_004063f0 | 7 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
+| game | archive/src/game/game_01.cpp | 0x0040df90 | fn_0040df90 | 8 | deferred | 1_m3, 3_m3, bonus_m2 |
+| game | archive/src/game/game_01.cpp | 0x0040dfa0 | fn_0040dfa0 | 16 | deferred | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
+| game | archive/src/game/game_01.cpp | 0x0040dfb0 | fn_0040dfb0 | 77 | deferred | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
+| game | archive/src/game/game_02.cpp | 0x0043aa00 | fn_0043aa00 | 6 | deferred | 2_m1, 3_m1, 4_m1, 5_m4, bonus_m3 |
+| game | archive/src/game/game_04.cpp | 0x004615d0 | PeasantGenAI_Construct | 18 | deferred | 1_m4, 2_m4, 4_m5 |
+| game | archive/src/game/game_04.cpp | 0x004615f0 | FakeGruntObject_Construct | 18 | deferred | 1_m4, 3_m4_bd, 4_m5, 5_m5 |
+| game | archive/src/game/game_06.cpp | 0x0047b8e0 | fn_0047b8e0 | 29 | deferred | 3_m1, 3_m2 |
+| game | archive/src/game/game_06.cpp | 0x0047bba0 | PlayerObject_PlayChestFx | 58 | deferred | 2_m3, 3_m1, 3_m2, 3_m3, 4_m3, bonus_m1 |
+| game | archive/src/game/game_06.cpp | 0x0047df70 | fn_0047df70 | 82 | deferred | 4_m2 |
+| game | archive/src/game/game_06.cpp | 0x0047e050 | fn_0047e050 | 108 | deferred | bonus_m3 |
+| game | archive/src/game/game_06.cpp | 0x0047f210 | fn_0047f210 | 139 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
+| game | archive/src/game/game_06.cpp | 0x0047f2a0 | fn_0047f2a0 | 550 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
+| game | archive/src/game/game_06.cpp | 0x0047f4d0 | fn_0047f4d0 | 11 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 5_m3 |
+| game | archive/src/game/game_07.cpp | 0x00480510 | VindalooProjectile_ReadProps | 203 | deferred | bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x004805e0 | VindalooProjectile_Flags | 11 | deferred | bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x004805f0 | VindalooProjectile_Update | 801 | deferred | bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00480d60 | RocketBudProjectile_ReadProps | 69 | deferred | 2_m2, 2_m3, 3_m1, bonus_m1 |
+| game | archive/src/game/game_07.cpp | 0x00480e20 | RocketBudProjectile_Update | 155 | deferred | 2_m2, 3_m1 |
+| game | archive/src/game/game_07.cpp | 0x00480f60 | ForgeCannonProjectile_Update | 159 | deferred | 2_m2, 2_m3, bonus_m1 |
+| game | archive/src/game/game_07.cpp | 0x00481000 | ForgeCannonProjectile_Flags | 11 | deferred | 2_m2, 2_m3, bonus_m1 |
+| game | archive/src/game/game_07.cpp | 0x00481020 | fn_00481020 | 11 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5 |
+| game | archive/src/game/game_07.cpp | 0x00481030 | fn_00481030 | 223 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
+| game | archive/src/game/game_07.cpp | 0x00481c90 | fn_00481c90 | 59 | deferred | 1_m1_b, 1_m3, 1_m4, 2_m3, 2_m4, 3_m1, 3_m3, 3_m4_bd, 4_m1, 4_m2, 4_m3, 4_m5, 5_m1, 5_m4, 5_m5, bonus_m1, bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00481ce0 | fn_00481ce0 | 18 | deferred | bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00481d00 | fn_00481d00 | 9 | deferred | bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00481d10 | fn_00481d10 | 149 | deferred | bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00481db0 | BlackHoleProjectile_ReadProps | 310 | deferred | 5_m2 |
+| game | archive/src/game/game_07.cpp | 0x00481ef0 | BlackHoleProjectile_Update | 443 | deferred | 5_m2 |
+| game | archive/src/game/game_07.cpp | 0x00482120 | BlackHoleBox_ReadProps | 120 | deferred | 5_m2 |
+| game | archive/src/game/game_07.cpp | 0x004821b0 | BlackHoleBox_Launch | 252 | deferred | 5_m2 |
+| game | archive/src/game/game_07.cpp | 0x004822b0 | BlackHoleBox_Update | 430 | deferred | 5_m2 |
+| game | archive/src/game/game_07.cpp | 0x00482ab0 | CaptainRocket_SetOwner | 129 | deferred | 1_m3, 2_m1, 2_m3, 3_m1, 3_m3, 4_m5, 5_m1, 5_m3, 5_m4, bonus_m1, bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00482d10 | CaptainRocket_InitCollision | 70 | deferred | 1_m3, 2_m1, 2_m3, 3_m1, 3_m3, 4_m5, 5_m1, 5_m3, 5_m4, bonus_m1, bonus_m3 |
+| game | archive/src/game/game_07.cpp | 0x00482d60 | CaptainRocket_Damage | 263 | deferred | 5_m1, bonus_m1 |
+| game | archive/src/game/game_07.cpp | 0x004830e0 | MonkBasketProjectile_ReadProps | 150 | deferred | 4_m2 |
+| game | archive/src/game/game_07.cpp | 0x00483180 | MonkBasketProjectile_Launch | 131 | deferred | 4_m2 |
+| game | archive/src/game/game_08.cpp | 0x00497f60 | fn_00497f60 | 97 | deferred | 1_m3, 1_m4, 2_m2, 2_m4, 3_m2, 3_m4_bd, 4_m1, 4_m2, 4_m5, 5_m4, 5_m5, bonus_m1, bonus_m3 |
+| game | archive/src/game/game_08.cpp | 0x00498320 | fn_00498320 | 33 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
+| game | archive/src/game/game_08.cpp | 0x00498350 | fn_00498350 | 57 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
+| game | archive/src/game/game_08.cpp | 0x00498890 | fn_00498890 | 75 | deferred | 1_m1_b, 2_m1, 2_m2, 3_m2, 4_m1, 5_m2, bonus_m1 |
+| game | archive/src/game/game_08.cpp | 0x004993b0 | fn_004993b0 | 12 | deferred | 3_m2, 4_m1, bonus_m1 |
+| game | archive/src/game/game_08.cpp | 0x0049a530 | fn_0049a530 | 137 | deferred | 2_m2, 2_m3, bonus_m1 |
+| game | archive/src/game/game_08.cpp | 0x0049abf0 | fn_0049abf0 | 105 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
+| game | archive/src/game/game_09.cpp | 0x0049c2a0 | fn_0049c2a0 | 123 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
+| game | archive/src/game/game_09.cpp | 0x0049ca90 | fn_0049ca90 | 21 | deferred | 2_m2, 2_m3, 3_m1, 3_m3, 5_m4, bonus_m1, bonus_m2 |
+| game | archive/src/game/game_09.cpp | 0x004a2480 | fn_004a2480 | 69 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
+| game | archive/src/game/game_09.cpp | 0x004a24d0 | fn_004a24d0 | 118 | deferred | bonus_m3 |
+| game | archive/src/game/game_09.cpp | 0x004a2550 | fn_004a2550 | 949 | deferred | bonus_m3 |
+| game | archive/src/game/game_09.cpp | 0x004a2a70 | fn_004a2a70 | 294 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
+| ui | archive/src/ui/ui_01.cpp | 0x00406740 | fn_00406740 | 66 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5, bonus_m3 |
+| audio | archive/src/audio/audio_01.cpp | 0x0040d250 | fn_0040d250 | 317 | deferred | 1_m4, 2_m4, 4_m5 |
+| audio | archive/src/audio/audio_01.cpp | 0x00434180 | fn_00434180 | 257 | deferred | 3_m1 |
+| audio | archive/src/audio/audio_01.cpp | 0x00438cb0 | AIVoice_PlayClimbtaunt | 456 | deferred | 2_m4 |
+| audio | archive/src/audio/audio_01.cpp | 0x00438e80 | fn_00438e80 | 35 | deferred | 2_m4 |
+| audio | archive/src/audio/audio_01.cpp | 0x0043a100 | AIVoice_Q12Hurt | 253 | deferred | 3_m2, 5_m4, bonus_m1 |
+| audio | archive/src/audio/audio_01.cpp | 0x0043a5e0 | AIVoice_MoTaunt | 156 | deferred | 4_m2 |
+| audio | archive/src/audio/audio_01.cpp | 0x0043a6e0 | AIVoice_MoHurt | 198 | deferred | 4_m2 |
+| audio | archive/src/audio/audio_01.cpp | 0x0043c7b0 | fn_0043c7b0 | 20 | deferred | 3_m2, 5_m4, bonus_m1 |
+| anim | archive/src/anim/anim_01.cpp | 0x0043c600 | fn_0043c600 | 33 | deferred | 1_m4, 2_m4, 4_m5 |
+| anim | archive/src/anim/anim_01.cpp | 0x004580a0 | fn_004580a0 | 285 | deferred | 1_m3, 2_m1, 2_m2, 2_m3, 3_m2, 4_m1, 4_m2, 4_m5, 5_m4, 5_m5, bonus_m1, bonus_m3 |
+| camera | archive/src/game/game_01.cpp | 0x0040fa70 | fn_0040fa70 | 22 | deferred | bonus_m3 |
 | render-fx | ? | 0x0041ddc0 | Fx_SetFaceDirection | 68 | deferred | 4_m5 |
 | render-fx | ? | 0x0041fe00 | Fx_SetBackground | 348 | deferred | 5_m1, 5_m2, 5_m3 |
-| render-fx | src/renderer/render_r6.cpp | 0x00419250 | fn_00419250 | 7 | deferred | 5_m1, 5_m3 |
-| havok-ext | src/engine/missing_01.cpp | 0x004a8840 | SpeedTrapAgent_CreateSwapped | 52 | left | 2_m3 |
-| havok-ext | src/physics/physics_04.cpp | 0x004a9180 | SpeedTrapSwappedAgent_arePenetrating | 23 | left | 2_m3 |
-| math | src/engine/engine_02.cpp | 0x004e7760 | Vec2_Length | 22 | left | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
-| math | src/engine/engine_02.cpp | 0x004e77e0 | Vec3_Sub | 25 | left | 4_m2 |
-| math | src/engine/engine_02.cpp | 0x004e78d0 | Vec4_Normalize | 93 | left | 1_m3, 2_m1, 2_m3, 4_m5, 5_m2, 5_m3, 5_m4 |
-| math | src/engine/engine_02.cpp | 0x004e8040 | Vec2_Distance | 27 | left | 4_m2 |
-| physics-glue | src/physics/physics_01.cpp | 0x00405d10 | fn_00405d10 | 1266 | left | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
-| physics-glue | src/physics/physics_01.cpp | 0x0042cb80 | Object_ApplyMaterialFriction | 143 | left | 3_m1, 5_m4, bonus_m3 |
-| physics-glue | src/physics/physics_02.cpp | 0x004583d0 | Body_ApplyAngularImpulse | 106 | left | 1_m1_b, 1_m3, 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m4, bonus_m1 |
-| render-scene | src/renderer/render_r4.cpp | 0x00488130 | fn_00488130 | 15 | left | 5_m1, 5_m2, 5_m3 |
-| unknown | src/engine/engine_01.cpp | 0x00407fe0 | fn_00407fe0 | 6 | left | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5, bonus_m3 |
-| unknown | src/engine/engine_01.cpp | 0x004090b0 | Tokens_NextInt | 27 | left | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
-| unknown | src/engine/engine_01.cpp | 0x0041f4f0 | fn_0041f4f0 | 5 | left | 1_m4, 3_m4_bd, 4_m5, 5_m5 |
+| render-fx | archive/src/renderer/render_r6.cpp | 0x00419250 | fn_00419250 | 7 | deferred | 5_m1, 5_m3 |
+| havok-ext | archive/src/engine/missing_01.cpp | 0x004a8840 | SpeedTrapAgent_CreateSwapped | 52 | left | 2_m3 |
+| havok-ext | archive/src/physics/physics_04.cpp | 0x004a9180 | SpeedTrapSwappedAgent_arePenetrating | 23 | left | 2_m3 |
+| math | archive/src/engine/engine_02.cpp | 0x004e7760 | Vec2_Length | 22 | left | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
+| math | archive/src/engine/engine_02.cpp | 0x004e77e0 | Vec3_Sub | 25 | left | 4_m2 |
+| math | archive/src/engine/engine_02.cpp | 0x004e78d0 | Vec4_Normalize | 93 | left | 1_m3, 2_m1, 2_m3, 4_m5, 5_m2, 5_m3, 5_m4 |
+| math | archive/src/engine/engine_02.cpp | 0x004e8040 | Vec2_Distance | 27 | left | 4_m2 |
+| physics-glue | archive/src/physics/physics_01.cpp | 0x00405d10 | fn_00405d10 | 1266 | left | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
+| physics-glue | archive/src/physics/physics_01.cpp | 0x0042cb80 | Object_ApplyMaterialFriction | 143 | left | 3_m1, 5_m4, bonus_m3 |
+| physics-glue | archive/src/physics/physics_02.cpp | 0x004583d0 | Body_ApplyAngularImpulse | 106 | left | 1_m1_b, 1_m3, 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m4, bonus_m1 |
+| render-scene | archive/src/renderer/render_r4.cpp | 0x00488130 | fn_00488130 | 15 | left | 5_m1, 5_m2, 5_m3 |
+| unknown | archive/src/engine/engine_01.cpp | 0x00407fe0 | fn_00407fe0 | 6 | left | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5, bonus_m3 |
+| unknown | archive/src/engine/engine_01.cpp | 0x004090b0 | Tokens_NextInt | 27 | left | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
+| unknown | archive/src/engine/engine_01.cpp | 0x0041f4f0 | fn_0041f4f0 | 5 | left | 1_m4, 3_m4_bd, 4_m5, 5_m5 |
 
 ## Every newly reached function
 
 ## ai
 
-### src/ai/ai_01.cpp
+### archive/src/ai/ai_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -151,7 +151,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0040de40 | JumpMarker_Slot82 | 14 | explained | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
 | 0x00424630 | fn_00424630 | 99 | deferred | bonus_m1, bonus_m3 |
 
-### src/ai/ai_02.cpp
+### archive/src/ai/ai_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -167,7 +167,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0042a2c0 | fn_0042a2c0 | 564 | ported | 2_m3, 3_m1, 3_m3 |
 | 0x0042a660 | fn_0042a660 | 327 | ported | 1_m3, 5_m4 |
 
-### src/ai/ai_03.cpp
+### archive/src/ai/ai_03.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -179,7 +179,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0042de60 | fn_0042de60 | 264 | ported | 2_m1, 3_m1, 4_m1, 5_m4, bonus_m3 |
 | 0x00430140 | fn_00430140 | 510 | deferred | bonus_m3 |
 
-### src/ai/ai_04.cpp
+### archive/src/ai/ai_04.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -223,7 +223,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x004367a0 | ShrubPatrol_Slot18 | 19 | explained | 3_m4_bd, 4_m5, 5_m5 |
 | 0x004367c0 | ShrubPatrol_Slot14 | 87 | ported | 3_m4_bd, 4_m5, 5_m5 |
 
-### src/ai/ai_05.cpp
+### archive/src/ai/ai_05.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -243,7 +243,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0043ea70 | fn_0043ea70 | 47 | explained | 1_m3, 3_m2 |
 | 0x0043ec60 | fn_0043ec60 | 139 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 3_m2, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m4, bonus_m1, bonus_m3 |
 
-### src/ai/ai_07.cpp
+### archive/src/ai/ai_07.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -266,7 +266,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0044bff0 | AIMarker_Step | 63 | explained | 1_m1_b, 2_m2, 2_m4, 3_m2, 3_m3, 4_m2, 5_m1, 5_m4, 5_m5, bonus_m1, bonus_m2, bonus_m3 |
 | 0x0046f280 | Grid_IsFreeAt | 83 | ported | 4_m2 |
 
-### src/ai/ai_08.cpp
+### archive/src/ai/ai_08.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -285,13 +285,13 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## game
 
-### src/engine/missing_01.cpp
+### archive/src/engine/missing_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x0049a0b0 | MountedTurret_BoneCallback | 50 | deferred | 1_m1_b, 1_m3, 2_m1, 2_m2, 2_m3, 5_m1, 5_m2, 5_m3, bonus_m1 |
 
-### src/game/game_01.cpp
+### archive/src/game/game_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -305,7 +305,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0040dfa0 | fn_0040dfa0 | 16 | deferred | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
 | 0x0040dfb0 | fn_0040dfb0 | 77 | deferred | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
 
-### src/game/game_02.cpp
+### archive/src/game/game_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -316,7 +316,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0043a8c0 | fn_0043a8c0 | 5 | explained | 2_m2, 4_m2, 5_m4, bonus_m3 |
 | 0x0043aa00 | fn_0043aa00 | 6 | deferred | 2_m1, 3_m1, 4_m1, 5_m4, bonus_m3 |
 
-### src/game/game_03.cpp
+### archive/src/game/game_03.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -326,7 +326,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x00454be0 | fn_00454be0 | 51 | explained | 1_m3 |
 | 0x00457aa0 | fn_00457aa0 | 7 | ported | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
 
-### src/game/game_04.cpp
+### archive/src/game/game_04.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -350,14 +350,14 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x00472470 | fn_00472470 | 46 | ported | bonus_m3 |
 | 0x004724e0 | fn_004724e0 | 49 | ported | 5_m4 |
 
-### src/game/game_05.cpp
+### archive/src/game/game_05.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x00472850 | fn_00472850 | 132 | ported | 3_m2, bonus_m2, bonus_m3 |
 | 0x004728e0 | fn_004728e0 | 68 | ported | 3_m3, 4_m3, 5_m4, bonus_m1, bonus_m2 |
 
-### src/game/game_06.cpp
+### archive/src/game/game_06.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -370,7 +370,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0047f2a0 | fn_0047f2a0 | 550 | deferred | 2_m1, 3_m1, 3_m2, 3_m3, 4_m1, 4_m2, 4_m3, 5_m1, 5_m2, 5_m3, 5_m4 |
 | 0x0047f4d0 | fn_0047f4d0 | 11 | deferred | 2_m3, 3_m1, 3_m3, 4_m1, 5_m3 |
 
-### src/game/game_07.cpp
+### archive/src/game/game_07.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -415,7 +415,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x004968b0 | ArmyTimerObject_ReadProps | 942 | ported | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
 | 0x00496c60 | ArmyTimerObject_Fire | 312 | ported | 1_m4, 3_m4_bd, 5_m5 |
 
-### src/game/game_08.cpp
+### archive/src/game/game_08.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -436,7 +436,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0049bcc0 | fn_0049bcc0 | 182 | ported | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
 | 0x0049be70 | fn_0049be70 | 173 | ported | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5 |
 
-### src/game/game_09.cpp
+### archive/src/game/game_09.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -468,13 +468,13 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## ui
 
-### src/ui/ui_01.cpp
+### archive/src/ui/ui_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x00406740 | fn_00406740 | 66 | deferred | 1_m4, 2_m4, 3_m4_bd, 4_m5, 5_m5, bonus_m3 |
 
-### src/ui/ui_02.cpp
+### archive/src/ui/ui_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -482,7 +482,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## audio
 
-### src/audio/audio_01.cpp
+### archive/src/audio/audio_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -505,7 +505,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0044ec60 | AIVoice_PlayFriendlyfire | 234 | explained | 1_m3, 2_m2, 4_m2, 5_m1, 5_m2, 5_m3, 5_m4, bonus_m3 |
 | 0x0047bb30 | Jumper_PlayWingSounds | 102 | ported | 2_m3, 3_m1, 3_m2, 3_m3, 4_m3, bonus_m1 |
 
-### src/audio/audio_02.cpp
+### archive/src/audio/audio_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -514,7 +514,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## anim
 
-### src/anim/anim_01.cpp
+### archive/src/anim/anim_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -529,7 +529,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x0043cb40 | fn_0043cb40 | 171 | ported | 4_m1, 4_m2 |
 | 0x004580a0 | fn_004580a0 | 285 | deferred | 1_m3, 2_m1, 2_m2, 2_m3, 3_m2, 4_m1, 4_m2, 4_m5, 5_m4, 5_m5, bonus_m1, bonus_m3 |
 
-### src/anim/anim_02.cpp
+### archive/src/anim/anim_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -537,7 +537,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## camera
 
-### src/game/game_01.cpp
+### archive/src/game/game_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -555,13 +555,13 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 | 0x004202b0 | Fx_SetUvScale | 416 | ported | 5_m2 |
 | 0x00420450 | fn_00420450 | 203 | ported | 5_m2 |
 
-### src/renderer/render_r3.cpp
+### archive/src/renderer/render_r3.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x0046d950 | Particle_AllocZeroed | 69 | explained | 1_m4, 3_m4_bd, 4_m5, 5_m5 |
 
-### src/renderer/render_r6.cpp
+### archive/src/renderer/render_r6.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -569,13 +569,13 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## havok-ext
 
-### src/engine/missing_01.cpp
+### archive/src/engine/missing_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x004a8840 | SpeedTrapAgent_CreateSwapped | 52 | left | 2_m3 |
 
-### src/physics/physics_04.cpp
+### archive/src/physics/physics_04.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -583,13 +583,13 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## math
 
-### src/engine/engine_01.cpp
+### archive/src/engine/engine_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x0040de50 | fn_0040de50 | 319 | ported | 2_m3, 3_m1, 3_m3, 4_m3, bonus_m1 |
 
-### src/engine/engine_02.cpp
+### archive/src/engine/engine_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -600,14 +600,14 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## physics-glue
 
-### src/physics/physics_01.cpp
+### archive/src/physics/physics_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
 | 0x00405d10 | fn_00405d10 | 1266 | left | 2_m3, 3_m1, 3_m3, 4_m1, 4_m2, bonus_m2 |
 | 0x0042cb80 | Object_ApplyMaterialFriction | 143 | left | 3_m1, 5_m4, bonus_m3 |
 
-### src/physics/physics_02.cpp
+### archive/src/physics/physics_02.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -615,7 +615,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## render-post
 
-### src/renderer/render_r3.cpp
+### archive/src/renderer/render_r3.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -627,7 +627,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## render-scene
 
-### src/renderer/render_r4.cpp
+### archive/src/renderer/render_r4.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |
@@ -635,7 +635,7 @@ Functions the original executes on the other levels (tools/coverage_level.py --l
 
 ## unknown
 
-### src/engine/engine_01.cpp
+### archive/src/engine/engine_01.cpp
 
 | address | name | size | state | levels |
 | --- | --- | ---: | --- | --- |

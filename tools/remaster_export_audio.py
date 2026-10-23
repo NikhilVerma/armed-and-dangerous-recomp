@@ -40,7 +40,7 @@ from big_kinds import aud, fx, inst, prop, text  # noqa: E402
 GAME = ROOT / "orig" / "pc" / "GameData"
 EXE = GAME / "game.unpacked.exe"
 
-# Definition flags (+0x20). Readers in src/audio/audio_02.cpp, src/renderer/auto_004fb1f0.cpp, auto_004fb170.cpp.
+# Definition flags (+0x20). Readers in archive/src/audio/audio_02.cpp, archive/src/renderer/auto_004fb1f0.cpp, auto_004fb170.cpp.
 FLAGS = {
     0x1: "unique_per_object",            # 0x004f32f0 UniqueVoice: one live voice per (definition, object)
     0x2: "unique_restarts",              # with 0x1: the old voice is stopped instead of reused
@@ -312,7 +312,7 @@ def export_sounds(level, out, ambient_names):
 
 # ---------------------------------------------------------------------------------------------------- voice
 # Code that plays character lines, by speaker prefix and line category (the suffix after the id). From the
-# recovered functions' comments (src/audio/audio_01.cpp, audio_02.cpp); the exact string sets are in the code.
+# recovered functions' comments (archive/src/audio/audio_01.cpp, audio_02.cpp); the exact string sets are in the code.
 BARKS = {
     ("ca", "fight"): "0x00437940 AIVoice_PlayFight", ("ca", "help"): "0x004375e0 AIVoice_PlayHelp",
     ("ca", "capnbase"): "0x00437510 AIVoice_PlayCapnbase", ("ca", "opengate"): "0x00437760 AIVoice_PlayOpengate",
@@ -402,7 +402,7 @@ def export_voice(sounds, texts, instances, props, exe, fx_users):
                 fn = BARKS.get((key[0], c))
                 if fn:
                     trig.append({"type": "code", "function": fn,
-                                 "evidence": "speaker prefix + line category, src/audio/audio_01.cpp/audio_02.cpp"})
+                                 "evidence": "speaker prefix + line category, archive/src/audio/audio_01.cpp/audio_02.cpp"})
                     break
         for prev, ps in sounds.items():
             if ps.get("follow_on") == name:

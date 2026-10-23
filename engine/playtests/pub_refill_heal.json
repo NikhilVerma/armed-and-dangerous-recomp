@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "0x00467fe0 on entry: every special Roman holds is topped up (0x004a13a0 with 100000 over the 0x004a1630 list, should_refill_ammo set) and his living companions are healed in full (Jonesy 0x00475d30 / Q 0x00475d40, +0x454 = max_health); the pub's line is one of its own (0x00468dd0)"},
  {"wait": 0.5},
  {"loadout": {"stickies": 2}},

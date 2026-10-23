@@ -110,7 +110,7 @@ pub struct GraphicsSettings {
     /// 0 low .. 3 ultra (Bevy's quality levels: XeGTAO's slices x steps, High = 3 x 3 as the old remaster)
     pub ao_quality: u8,
     /// XeGTAO's radius in game units (1 unit = 0.2 m; the effect reaches 1.457 times it): the old remaster's 24
-    /// ("below ~20 the term is nearly white at the game's scale", hook/enhance/shadows.cpp)
+    /// ("below ~20 the term is nearly white at the game's scale", archive/hook/enhance/shadows.cpp)
     pub ao_radius: f32,
     /// 0..1: how much of the occlusion applies
     pub ao_strength: f32,

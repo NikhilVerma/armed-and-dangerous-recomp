@@ -5,7 +5,7 @@
 //! `--load FILE`; the snapshot is applied once the level is built. The intro (camera path and its white overlay) is
 //! not replayed.
 //!
-//! What is saved, and why (the original's save, src/save/save_01.cpp, serialises the whole object graph through the
+//! What is saved, and why (the original's save, archive/src/save/save_01.cpp, serialises the whole object graph through the
 //! class descriptor tables: SaveGame_Write 0x0048c620 writes a 0x124-byte header (level, the level manager's index,
 //! the difficulty Game+0x550, the format hash, the time, a 128 x 76 thumbnail) and then every object's described
 //! members, Havok body states and lists (0x0048b780 / 0x0048bda0); SaveGame_Load 0x0048c9b0 reloads the level and

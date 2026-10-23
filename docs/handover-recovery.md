@@ -2,7 +2,7 @@
 
 Read this with AGENTS.md, docs/decision.md, docs/recovery-guide.md and docs/patterns.md. It records how the
 2026-10-05 recovery round works, every technique and pitfall learned in it, where things stand, and how to resume.
-Live progress is never kept by hand: run `python tools/recovery_status.py` (per batch) and see symbols/functions.csv.
+Live progress is never kept by hand: run `python archive/tools/recovery_status.py` (per batch) and see symbols/functions.csv.
 
 ## 1. Goal and scope
 
@@ -17,42 +17,42 @@ Live progress is never kept by hand: run `python tools/recovery_status.py` (per 
 
 ## 2. The pipeline
 
-1. Classify every function (done 2026-10-05: tools/merge_classify.py merged six classifier CSVs and the Havok map).
-2. Batches: `tools/make_batches.py` splits the remaining S0 game code into ~20 KB batches per source directory into
-   symbols/recovery_batches.json (key -> file src/<dir>/<key>.cpp, addresses). It refuses to overwrite (in-flight
+1. Classify every function (done 2026-10-05: archive/tools/merge_classify.py merged six classifier CSVs and the Havok map).
+2. Batches: `archive/tools/make_batches.py` splits the remaining S0 game code into ~20 KB batches per source directory into
+   symbols/recovery_batches.json (key -> file archive/src/<dir>/<key>.cpp, addresses). It refuses to overwrite (in-flight
    work depends on the assignment); `--force` only for a new round after everything is integrated.
 3. Recovery agents: one per batch, prompt docs/recovery-agent-prompt.md with BATCH_KEY / BATCH_FILE filled in.
-   Static only (no game runs, no full builds), one new file per batch, compile-check with tools/check_compile.ps1.
+   Static only (no game runs, no full builds), one new file per batch, compile-check with archive/tools/check_compile.ps1.
    Up to 8 in parallel worked well; they write early and append, so a stopped agent leaves a compiling partial file
    and can be resumed (the API rate limit stopped all 8 once; each was resumed from its transcript).
-4. Integrate a finished batch: `python tools/mark_recovered.py --hooks src/<dir>/<key>.cpp keep` (tracker: name from
+4. Integrate a finished batch: `python archive/tools/mark_recovered.py --hooks archive/src/<dir>/<key>.cpp keep` (tracker: name from
    the HOOK line, stage S1, subsystem kept), append the agent's original bugs to docs/original-bugs.md (mark
    **Deviation** where the recovery cannot reproduce the original, e.g. uninitialised stack).
-5. Verify: build without the files still being written, `pwsh tools/build.ps1 -Exclude "game_07,ai_05"` (one
+5. Verify: build without the files still being written, `pwsh archive/tools/build.ps1 -Exclude "game_07,ai_05"` (one
    comma-separated string), **check the DLL is fresh and contains the new names** (a failed build leaves the old DLL
    and a stale PASS means nothing), then `python tools/compare.py --scenario all`.
-6. On a failure: `python tools/bisect_hooks.py --files <files> --scenario level` toggles hooks within those files
-   (by and.ini, no rebuild) to the culprit; a crash: `python tools/symbolize.py --log work/instances/main/and.log`
+6. On a failure: `python archive/tools/bisect_hooks.py --files <files> --scenario level` toggles hooks within those files
+   (by and.ini, no rebuild) to the culprit; a crash: `python archive/tools/symbolize.py --log work/instances/main/and.log`
    maps "hook dll +X" offsets to function and source line via the PDB.
-7. Promote: `python tools/promote_verified.py --label <label>` moves S1 functions the scenarios execute to S2 (the
+7. Promote: `python archive/tools/promote_verified.py --label <label>` moves S1 functions the scenarios execute to S2 (the
    rest stay S1: "not executed: compare cannot verify").
-8. Commit: main only with a green tools/check.ps1 (needs git on PATH: C:\Program Files\Git\cmd). Work in progress
+8. Commit: main only with a green archive/tools/check.ps1 (needs git on PATH: C:\Program Files\Git\cmd). Work in progress
    goes to the branch `wip/full-decomp` (pushed) so nothing is lost; verified batches merge into main.
 
 ## 3. Tools added in this round
 
 | Tool | Purpose |
 | --- | --- |
-| tools/merge_classify.py | merge classifier CSVs into the tracker (fills empty subsystems; evidence-backed corrections) |
-| tools/make_batches.py | split S0 game code into recovery batches (symbols/recovery_batches.json) |
-| tools/recovery_status.py | per-batch progress from files + tracker (`--markdown` for a table) |
-| tools/mark_recovered.py | record a recovered file's HOOKs in the tracker (S1); `--hooks <file> keep` |
-| tools/promote_verified.py | S1 -> S2 for functions the comparison executes, after a PASS |
-| tools/symbolize.py | crash offsets in and.log -> function + source line (dbghelp + PDB) |
-| tools/hook_room.py | hooked functions with fewer than 5 bytes before the next function (none so far) |
-| tools/build.ps1 -Exclude | leave in-progress sources out of the build (hook/CMakeLists.txt AND_EXCLUDE) |
+| archive/tools/merge_classify.py | merge classifier CSVs into the tracker (fills empty subsystems; evidence-backed corrections) |
+| archive/tools/make_batches.py | split S0 game code into recovery batches (symbols/recovery_batches.json) |
+| archive/tools/recovery_status.py | per-batch progress from files + tracker (`--markdown` for a table) |
+| archive/tools/mark_recovered.py | record a recovered file's HOOKs in the tracker (S1); `--hooks <file> keep` |
+| archive/tools/promote_verified.py | S1 -> S2 for functions the comparison executes, after a PASS |
+| archive/tools/symbolize.py | crash offsets in and.log -> function + source line (dbghelp + PDB) |
+| archive/tools/hook_room.py | hooked functions with fewer than 5 bytes before the next function (none so far) |
+| archive/tools/build.ps1 -Exclude | leave in-progress sources out of the build (archive/hook/CMakeLists.txt AND_EXCLUDE) |
 | tools/compare.py --only @file | hook-name lists too long for the command line (bisect_hooks.py uses it) |
-| tools/tracker_sync.py | now keeps S1 and reads file-local `*_HOOK` wrappers |
+| archive/tools/tracker_sync.py | now keeps S1 and reads file-local `*_HOOK` wrappers |
 
 ## 4. Techniques and pitfalls (each one cost time once)
 
@@ -65,10 +65,10 @@ Binary / ABI:
   (0x0046e2c0, 0x0042d0f0, 0x00493b70, `_stricmp` 0x005448ee); results in **st0** listed as eax/none (0x004e7880
   vec3 length, 0x004e78d0, 0x004e8040..0x004e8080, 0x004e7760, 0x004e7800, 0x00471970, 0x00475990, 0x004759e0,
   0x0046a6a0, 0x004f48d0, 0x0048a030). Generated orig:: wrappers would leave st0 on the x87 stack: call through a
-  small asm shim that pops it (examples in src/ai/ai_06.cpp, src/game/game_01.cpp).
+  small asm shim that pops it (examples in archive/src/ai/ai_06.cpp, archive/src/game/game_01.cpp).
 - **Tail jumps** ("no ret found"): recover as call-then-return when the jump leaves the caller's frame intact; the
-  target's `ret N` decides who pops (hand-written entry stubs: src/renderer/render_r6.cpp, src/ai/ai_03.cpp
-  0x0042d650 pops 4, src/ui/ui_03.cpp 0x00491b60).
+  target's `ret N` decides who pops (hand-written entry stubs: archive/src/renderer/render_r6.cpp, archive/src/ai/ai_03.cpp
+  0x0042d650 pops 4, archive/src/ui/ui_03.cpp 0x00491b60).
 - **Register inputs the caller never set on purpose** (upper bytes after `xor al,al`, leftovers): pass 0 or the
   known low byte; the callees checked so far read only the low byte.
 - **EBP inputs** are unsupported by the generated stubs; 0x0043e710 is skipped (EBP + two x87 stack arguments).
@@ -77,7 +77,7 @@ Binary / ABI:
   pointer such as 0x00448db0 / 0x00489050); 0x004f00bb is padding before Renderer_Release 0x004f00c0.
 - **Identical-code folding**: tiny game functions are shared with Havok and across vtables (0x00418600 ReturnZero in
   390 slots; 0x00412fa0, 0x00414220 called from Havok). Hooking them is fine (same code).
-- **3-4 byte functions**: a hook writes 5 bytes; tools/hook_room.py confirms padding follows each (all OK so far).
+- **3-4 byte functions**: a hook writes 5 bytes; archive/tools/hook_room.py confirms padding follows each (all OK so far).
 - **Floats**: x87 at single precision (D3D9 and the Vulkan device set it): compute in float in the disassembly's
   order. fsin/fcos/fpatan: use asm helpers where exact bits matter (std:: double math may differ in the last bit).
 - **Uninitialised stack in the original**: recovered frames are zeroed; where the original reads garbage the
@@ -95,7 +95,7 @@ Binary / ABI:
 - **Trace coverage gap (likely)**: the recorded traces (work/traces, used by recover.py and promote_verified.py for
   "executed in recorded runs") seem to miss virtual calls: per-frame input virtuals (0x004f8b20, 0x004f8f00,
   0x004e4d40) show as never executed. So "not executed" overstates; many S1 virtual methods are probably exercised
-  by the scenarios and could be promoted once the tracer records indirect calls (check tools/record.py).
+  by the scenarios and could be promoted once the tracer records indirect calls (check archive/tools/record.py).
 
 Harness (2026-10-06, verification phase):
 - **Hook install is fast now**: HooksInstallAll reads the [hooks] section once and enables all hooks with one
@@ -107,7 +107,7 @@ Harness (2026-10-06, verification phase):
   the second hook, MH_ERROR_ALREADY_CREATED, and the recovered function silently stays unhooked). The remaster menu
   (Text_Lookup, UI_Init, Hud_CreateLevelUi) and [test] trace_fatal (LoadingScreen_ErrorLoop) were converted.
 - **Promotion uses hook coverage**: `python tools/coverage.py` (DLL counting stubs: counts virtual and indirect calls,
-  and recovered functions, which tools/record.py skips) then `tools/promote_verified.py --coverage work/coverage.json`.
+  and recovered functions, which archive/tools/record.py skips) then `archive/tools/promote_verified.py --coverage work/coverage.json`.
 
 - **Hook names come from two forms**: `HOOK(0x..., "Name", ...)` and file-local wrapper macros such as
   `R2A_HOOK(0041bd30, Name, ...)` / `R7_PIXEL_HOOK(...)` (address without 0x, unquoted name). compare.py and
@@ -139,16 +139,16 @@ Environment:
 ## 5. Where things stand (2026-10-06)
 
 - **Static recovery is complete.** All 37 batches of round 2 are recovered, plus the functions Ghidra never identified
-  (src/engine/missing_01.cpp, src/renderer/missing_02.cpp) and the cleanup items. Game code (libraries excluded):
-  3,496 functions, S0 0-1 (0x004193a0 last), S1 2,723, S2 768, S3 4 (`python tools/recovery_status.py`).
+  (archive/src/engine/missing_01.cpp, archive/src/renderer/missing_02.cpp) and the cleanup items. Game code (libraries excluded):
+  3,496 functions, S0 0-1 (0x004193a0 last), S1 2,723, S2 768, S3 4 (`python archive/tools/recovery_status.py`).
 - Rendering was compared green before round 2 (f4014f6 on main). In round 2 only audio_01, game_01, game_02 and ui_01
   have been compared (green). **Everything else is S1: compile-checked, never run.**
 - **Open problem**: with physics_01 + anim_01 hooked, level/reset/play diverge at frame 39 (first frame after the
   level loads; frame hash differs, no crash). The bisection over those two files was interrupted (no game runs while the
-  human plays); rerun: `python tools/bisect_hooks.py --files src/physics/physics_01.cpp src/anim/anim_01.cpp --scenario
+  human plays); rerun: `python archive/tools/bisect_hooks.py --files archive/src/physics/physics_01.cpp archive/src/anim/anim_01.cpp --scenario
   level` on a freshly built DLL (tools/compare.py now ignores names the DLL lacks).
   Suspects: the zero-initialised query bytes in 0x00414110 (a documented deviation) or a recovery error.
-- physics_03 / physics_04 showed 31 "S0" functions in tools/recovery_status.py: they are Havok library code fenced
+- physics_03 / physics_04 showed 31 "S0" functions in archive/tools/recovery_status.py: they are Havok library code fenced
   after the batches were made (hkInertiaTensorComputer, display builders, three Havok singletons, the hard key-frame
   utility; evidence in docs/subsystems/physics.md). recovery_status.py now counts fenced rows separately (2026-10-16).
 - 0x004eb5d0 ECX question: resolved statically (every original call site passes edx = 0, so the ECX slot is never
@@ -157,18 +157,18 @@ Environment:
 
 ### Cleanup list (after the round)
 
-- Done: 0x0043e710 recovered as Character_DropPickup (src/game/cleanup_01.cpp; EBP input spurious; `_CIpow` shim);
+- Done: 0x0043e710 recovered as Character_DropPickup (archive/src/game/cleanup_01.cpp; EBP input spurious; `_CIpow` shim);
   game_02 now calls it directly. 0x00447040 (GoliathObject_Update) was already recovered and tracked in ai_07.
-- Functions missing from the tracker: tools/find_missing_functions.py + agent reports (work/classify/missing_*.csv);
-  recovered into src/engine/missing_01.cpp (tracker rows to add from that agent's report).
+- Functions missing from the tracker: archive/tools/find_missing_functions.py + agent reports (work/classify/missing_*.csv);
+  recovered into archive/src/engine/missing_01.cpp (tracker rows to add from that agent's report).
 
 ## 6. How to resume (verification phase)
 
-1. Build everything (`pwsh tools/build.ps1`), check the DLL is fresh, run `python tools/compare.py --scenario all`.
-   Expect failures: round 2 was never run. Bisect per subsystem directory (`tools/bisect_hooks.py --files src/<dir>/*.cpp`),
-   fix each culprit against its disassembly, repeat until green; then `tools/promote_verified.py`.
+1. Build everything (`pwsh archive/tools/build.ps1`), check the DLL is fresh, run `python tools/compare.py --scenario all`.
+   Expect failures: round 2 was never run. Bisect per subsystem directory (`archive/tools/bisect_hooks.py --files archive/src/<dir>/*.cpp`),
+   fix each culprit against its disassembly, repeat until green; then `archive/tools/promote_verified.py`.
 2. Start with the frame-39 divergence (physics_01 + anim_01).
 3. Fix the tracer so it records virtual / indirect calls (trace coverage gap), re-record, re-promote.
 4. Write scenarios that execute the remaining S1 functions (device lost/restore, env maps, other levels, menus,
    save/load, movies, input remapping) so they can reach S2.
-5. Merge `wip/full-decomp` into main with a green tools/check.ps1. Then the modern rebuild (docs/decision.md).
+5. Merge `wip/full-decomp` into main with a green archive/tools/check.ps1. Then the modern rebuild (docs/decision.md).

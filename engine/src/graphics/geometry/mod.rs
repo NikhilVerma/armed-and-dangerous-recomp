@@ -1,5 +1,5 @@
 //! Geometry, surface detail and shadow tone: the old remaster's options that the Bevy engine lacked, ported (the old
-//! D3D9 hook's Vulkan renderer: hook/enhance/render.cpp and shadows.cpp register them, src/rhi/vulkan implements
+//! D3D9 hook's Vulkan renderer: archive/hook/enhance/render.cpp and shadows.cpp register them, archive/src/rhi/vulkan implements
 //! them). Each is a small piece with its provenance:
 //!
 //! - `tessellation*`: [`tessellation`] (vk_tessellation.cpp): Phong-tessellated characters, refined once at load.

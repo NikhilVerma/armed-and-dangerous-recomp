@@ -1,4 +1,4 @@
-//! The rocket towers and the rocket buds (src/game/game_03.cpp:1065-1140, game_09.cpp:280-720).
+//! The rocket towers and the rocket buds (archive/src/game/game_03.cpp:1065-1140, game_09.cpp:280-720).
 //!
 //! **Rocket tower** (template v_rockettower, class 82 RocketTowerBuilding, vtable 0x005a87c0): a default object (no
 //! damage of its own: p_rockettower takes_damage 0) that makes its turret at load (slot 8 0x004510b0): a

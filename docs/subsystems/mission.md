@@ -25,10 +25,10 @@ the UI bank, each formatted with the key bound to an input action.
 - The class name is the resolved `behavior` property, else the template name. Resolution
   (`ObjectSystem_CreateObject` 0x0045f020) takes the instance's property, then the template's property set.
 - The name hash is looked up in the behaviour table that `ObjectSystem_InitBehaviourTable` (0x0045df60, 197 names)
-  builds. The id picks the vtable from `kCreateCases` (`src/game/game_04.cpp:286`). An unknown name makes a
+  builds. The id picks the vtable from `kCreateCases` (`archive/src/game/game_04.cpp:286`). An unknown name makes a
   `DefaultGameObject` (vtable 0x005a2bf0).
 - Property reads (0x00453400 int, 0x00453450 trigger, 0x004534a0 float, 0x004534f0 bool, 0x004533a0 string) take
-  the instance block first, then the template's set: `ParamSet_*`, `src/game/game_03.cpp:3083` and above.
+  the instance block first, then the template's set: `ParamSet_*`, `archive/src/game/game_03.cpp:3083` and above.
 
 The `lev_1_m1` logic classes:
 
@@ -61,7 +61,7 @@ The player is not placed by code: the `trotter` instance (id 4) is the player st
 
 - **Ids** are plain integers chosen by the level designer: 1, 7, 98, 556, 900 ... in `lev_1_m1`. Id 0 means "none".
   Sending 0 logs `"%s sent 0 trigger\nBAD BAD BAD"` (0x005aff44).
-- **Dispatch:** `Object_SendTrigger(objsys, id, sender)` (0x00461870, `src/game/game_04.cpp:602`) walks the
+- **Dispatch:** `Object_SendTrigger(objsys, id, sender)` (0x00461870, `archive/src/game/game_04.cpp:602`) walks the
   listener list (object system +0xe70, every object) and calls each object's vtable slot +0x38 `(sender, id)`. The
   walk stops at the first handler that returns true. Every handler read for this level returns false, so in
   practice it is a **broadcast to all objects**. Each handler compares the id with its own fields.
@@ -105,7 +105,7 @@ The player is not placed by code: the `trotter` instance (id 4) is the player st
 | `listen_trigger_open` | pub | open the pub | 0x0046a770 |
 | `listen_activate_trigger` | pickup_generator | start generating | 0x00471c30 |
 | `receive_trigger_activate` / `_deactivate` / `_reset` / `_kill` | barracks | start / stop releasing troops, refill, destroy | 0x0040d1b0 |
-| `receive_trigger_activate` | AI | wake up and run its `mode` | GenericAIObject set-up (`src/ai/ai_01.cpp:2290`); tower 0x00497xxx `ai_08.cpp:3370` |
+| `receive_trigger_activate` | AI | wake up and run its `mode` | GenericAIObject set-up (`archive/src/ai/ai_01.cpp:2290`); tower 0x00497xxx `ai_08.cpp:3370` |
 | `receive_trigger_kill` / `_deactivate` / `_start_blocking` | DefaultGameObject | destroy (death fx, husk, its own `send_trigger_on_death`) / deactivate / start blocking | 0x00450fb0 |
 
 ### Broadcast volumes (`bb_40x40`, `bb_300x300`)
@@ -125,7 +125,7 @@ The player is not placed by code: the `trotter` instance (id 4) is the player st
 
 ## The mission object
 
-`MissionObject_Load` (0x0044c170, `src/game/game_02.cpp:1918`) reads its properties into the Game object (property
+`MissionObject_Load` (0x0044c170, `archive/src/game/game_02.cpp:1918`) reads its properties into the Game object (property
 names resolved from the exe):
 
 - **Triggers:** `send_trigger_start`, `receive_trigger_success`, `receive_trigger_pre_success`,
@@ -140,7 +140,7 @@ names resolved from the exe):
   never used.
 - **Other modes:** `start_in_turret_tag`, `camera_startup_path_anim`, `ai_target_tag`, alarm and army settings,
   peasant counts, `score_value` (template 1000), voice-delay timers, shadow colour, `env_type` (1 = cold: grunts
-  shiver, `src/anim/anim_01.cpp:1114`).
+  shiver, `archive/src/anim/anim_01.cpp:1114`).
 
 ## Start of a level
 
@@ -153,15 +153,15 @@ names resolved from the exe):
 3. **Start trigger.** The first mission update sends `send_trigger_start`.
 4. **Start movie.** Once the mission timer passes, `start_movie` is pushed as "PlayMovie", **except on `lev_1_m1`**
    (`_stricmp(level, "lev_1_m1")`, 0x005b1738). `pre_1_1_opening` already plays in the boot intro list
-   `LucasAnim,pm_logo,pre_1_1_opening` (0x005bc108, `src/game/start_level.cpp:120`).
+   `LucasAnim,pm_logo,pre_1_1_opening` (0x005bc108, `archive/src/game/start_level.cpp:120`).
 5. **Start text.** `MissionObject_ShowStart` (0x0044daf0) shows `start_text` once.
    - It waits while a camera path is active (0x00410150) or a cinematic runs (Game+0xdce).
    - It calls `0x00403410(text, flags 1)`.
 
 ## Messages, objectives and the compass
 
-`0x00403410(game, text, flags)` (`src/game/game_01.cpp:801`) is the one message box. The widget is
-`ui_mission_briefing`, update 0x00466060 (`src/ui/ui_02.cpp:792`). Flags:
+`0x00403410(game, text, flags)` (`archive/src/game/game_01.cpp:801`) is the one message box. The widget is
+`ui_mission_briefing`, update 0x00466060 (`archive/src/ui/ui_02.cpp:792`). Flags:
 
 | Flag | Effect |
 | --- | --- |
@@ -181,7 +181,7 @@ names resolved from the exe):
   - flags 3 (queued, pause, continue prompt);
   - flags 0x13 when an objective matched the same trigger: the text is also stored as the objectives text, and
     0x0044f560 runs, which **guess:** plays a jingle.
-- **Compass:** `ui_compass_objective` (0x00466790, `src/ui/ui_02.cpp:1209`) points at the nearest object of lists
+- **Compass:** `ui_compass_objective` (0x00466790, `archive/src/ui/ui_02.cpp:1209`) points at the nearest object of lists
   +0xefc / +0xf04, else at the nearest object whose `tag` (object +0x390) equals Game+0x2658.
   - Game+0x2658 starts as `compass_objective_tag`.
   - A ui_ear's `objective_tag_0N` replaces it.
@@ -200,7 +200,7 @@ names resolved from the exe):
 5. The ear removes itself unless `reapeat` is set.
 
 Subtitles: the text bank has an entry with the sound's name ("Roman: Oh, I'm freezing."). **guess:** it is shown
-as the subtitle when subtitles are on (option `SubtitlesGame`, `src/save/save_01.cpp:192`).
+as the subtitle when subtitles are on (option `SubtitlesGame`, `archive/src/save/save_01.cpp:192`).
 
 ## Tutorial prompts ("Press X to ...")
 
@@ -220,9 +220,9 @@ as the subtitle when subtitles are on (option `SubtitlesGame`, `src/save/save_01
 | `ui_vehicle_entry` / `_exit` | Press %s to enter / exit mounted gun | Use | near an enterable turret / inside one | 0x004662a0, 0x00466210 |
 | `ui_bof_hint` | Press %s to punch! | Fire (8) | once (Game+0x578) when the punching glove comes out (Game+0xcbc, player update `game_06.cpp:2929`); **guess:** out of ammo | 0x004671b0 |
 | `ui_stats_ok` | Press %s to continue | MenuSelect (0x1b) | appended to paused messages | 0x00466060 |
-| `pub_award_*`, `pub_notify_*` | You gain the Ticker Bombs! Press %s to Continue, ... | MenuSelect / MenuCancel | pub screen | `src/game/game_04.cpp:1320` |
+| `pub_award_*`, `pub_notify_*` | You gain the Ticker Bombs! Press %s to Continue, ... | MenuSelect / MenuCancel | pub screen | `archive/src/game/game_04.cpp:1320` |
 
-Key-name substitution (`0x00465280`, `src/ui/ui_01.cpp:3640`):
+Key-name substitution (`0x00465280`, `archive/src/ui/ui_01.cpp:3640`):
 
 1. For each of the prompt's two actions, the first binding on the active device is looked up (0x00415750); the
    second action is 0x23 (none).
@@ -230,7 +230,7 @@ Key-name substitution (`0x00465280`, `src/ui/ui_01.cpp:3640`):
    in the text bank: "Left Stick Up", key names, ...
 3. The prompt's text is formatted with `_vswprintf` (0x00465970).
 
-`hook/enhance` can override the key through `g_promptKey`. Action names: `ControlAction*` ids, switch 0x004155a0,
+`archive/hook/enhance` can override the key through `g_promptKey`. Action names: `ControlAction*` ids, switch 0x004155a0,
 jump table 0x00415688. Use = 0x14, Fire = 8, MenuSelect = 0x1b, MenuCancel = 0x1c.
 
 ## Win and lose
@@ -267,7 +267,7 @@ restore. The game splits long missions into levels instead (`lev_1_m1` -> `lev_1
 ## Level-specific code (all of it, for lev_1_m1)
 
 - `MissionObject_Update` skips the start movie on `lev_1_m1` (above).
-- `PlayerObject_Update` (0x004788a0, `src/game/game_06.cpp:2451`): while the camera path `camera_path_l1m1`
+- `PlayerObject_Update` (0x004788a0, `archive/src/game/game_06.cpp:2451`): while the camera path `camera_path_l1m1`
   (0x0059ed8c) plays on `lev_1_m1`, the stick's forward value is 1.0. **The player walks forward by himself during
   the opening fly-in.**
 - `MissionObject_OnTrigger` adds the success bonus on `lev_1_m1_b` and `lev_2_m1` (not this level).

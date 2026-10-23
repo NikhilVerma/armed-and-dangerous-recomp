@@ -120,7 +120,7 @@ SHOWS = {
     "ui_memory_warning": ("memory warning (debug)", ""),
 }
 
-# The remaster's widescreen anchor per HUD layout reference (hook/enhance/ui_aspect.cpp HudAnchor). Others: by x.
+# The remaster's widescreen anchor per HUD layout reference (archive/hook/enhance/ui_aspect.cpp HudAnchor). Others: by x.
 ANCHOR = {
     "left": {"ref_health_enemy", "ref_health_jonesy", "ref_health_q", "ref_peasant", "ref_team_text",
              "ref_captured", "ref_safe", "ref_return", "ref_chat_01", "ref_chat_02", "ref_chat_03", "ref_chat_04",
@@ -440,7 +440,7 @@ def main():
                   "note": "pos = layout point in 640x480 pixels, y up (0x00464b10). pos_top_left = (x, 480 - y). "
                           "Meshes: vertices are pixels around pos. Text: centred on pos (align 0.5, 0.5). "
                           "Text size: glyph pixels * scale in SCREEN pixels in the original (does not grow with "
-                          "resolution); remaster: scale with height / 480 (hook/enhance/ui_aspect.cpp)."},
+                          "resolution); remaster: scale with height / 480 (archive/hook/enhance/ui_aspect.cpp)."},
         "colours": {"text_selected": "#ffffff", "text_disabled": "#404040", "text_flag_0x800": "#7f0000",
                     "text_bkd_fill": "#4080c0c0 (ARGB 0xc04080c0)", "text_bkd_outline": "#4080c0"},
         "pulse": {"amplitude": 0.15, "rate": 5.0, "fade_step_per_frame": 0.2,

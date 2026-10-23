@@ -1,7 +1,7 @@
 //! Vehicles and big units of the later levels: the rocket towers and rocket buds (RocketTowerBuilding /
-//! RocketTowerTurret / RocketBudTurret, src/game/game_03.cpp and game_09.cpp), the turret bosses (SaucerObject,
-//! ZeppelinObject, ColossusObject: src/ai/ai_04.cpp, ai_07.cpp), the projectiles they fire (game_07.cpp) and the
-//! scripted flight paths they follow (the IC "mover" anims, src/ai/ai_03.cpp / ai_06.cpp). The forge cannon, a
+//! RocketTowerTurret / RocketBudTurret, archive/src/game/game_03.cpp and game_09.cpp), the turret bosses (SaucerObject,
+//! ZeppelinObject, ColossusObject: archive/src/ai/ai_04.cpp, ai_07.cpp), the projectiles they fire (game_07.cpp) and the
+//! scripted flight paths they follow (the IC "mover" anims, archive/src/ai/ai_03.cpp / ai_06.cpp). The forge cannon, a
 //! mountable gun, is turret.rs's (it shares the StigTurret base).
 //!
 //! Each unit is a plugin of its own over the shared parts here:

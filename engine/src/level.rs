@@ -1085,7 +1085,7 @@ pub fn spawn(
             continue;
         }
         // characters: property sets with an AI mode (grunts). Their AI here is a stand-in driven by the game's
-        // own parameters (speeds, ranges); the recovered AI (src/ai) replaces it later.
+        // own parameters (speeds, ranges); the recovered AI (archive/src/ai) replaces it later.
         // (the grunt-class templates by ai::Kind: grunt, grunt_regular, captain, captain_sniper)
         if p.has("mode") && ai::Kind::from_template(&inst.template).is_some() {
             // window / tower grunts (AI_ResolveStartObjects 0x00425e20): placed at the generic_txt bone of the object

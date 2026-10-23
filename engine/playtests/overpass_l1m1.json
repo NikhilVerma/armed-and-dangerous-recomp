@@ -1,5 +1,5 @@
 {"comment": "player report 2026-10-18 (session 2026-10-18_17-00-51 bookmark 3): the archway's falling keystone kills the grunts under it. Three grunts spawned under v_archway_a (87); destroying it drops fx_debri_arch_1 through the broken arch; its on-hit blast (0x76: 300 damage, radius 30 / 60) goes off on the ground, not at the top",
- "load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+ "load": "states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"warp": [54, 300, 15, 0]},
  {"spawn": [71, 174, 13]},

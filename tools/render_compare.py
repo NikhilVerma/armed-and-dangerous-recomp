@@ -1,6 +1,6 @@
 """Render comparison: the original game and the remaster engine from the same camera, scored.
 
-The original's frame and camera come from tools/shot.py (and-frame-N.camera.json, hook/src/testshot.cpp); the
+The original's frame and camera come from tools/shot.py (and-frame-N.camera.json, archive/hook/src/testshot.cpp); the
 engine renders the same view with `--camera <dump> --no-hud --size 640x480 --snap <png>` (engine/src/camdump.rs).
 The original draws its 3D view into the letterbox strip (y 11.25 %, height 77.5 %) with the strip's own aspect
 (aspect 0: the viewport's aspect over Renderer_GetAspect, which is 1.0 at 640x480), so the engine renders the strip

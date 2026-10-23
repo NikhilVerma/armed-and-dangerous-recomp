@@ -1,7 +1,7 @@
 //! Level of detail (settings `lod_max`, `lod_scale`): an object draws one of its template's LOD models, chosen by its
 //! distance as the original chooses it, or always its finest.
 //!
-//! The rule is Object_SelectLod 0x00452f50 (src/renderer/render_r5.cpp): d = the object's depth along the camera's view
+//! The rule is Object_SelectLod 0x00452f50 (archive/src/renderer/render_r5.cpp): d = the object's depth along the camera's view
 //! direction (clamped at 0), m = tan(fov / 2) * d * A + B, with (A, B) the model LOD quality's pair from the table
 //! 0x005b0c78 (read from the exe: (16, 100), (8, 50), (4, 25), (2, 0), (1, 0); the game runs at quality 4, (1, 0):
 //! docs/structs/Game.md +0x4a4). The LODs are walked in order, skipping the collision and shadow LODs (template record
@@ -10,7 +10,7 @@
 //! -1 for the last LOD and the collision / shadow ones, else 0, then the property set's `lodcutoff_<i>`; a negative
 //! cutoff counts as itself + 2^32 (0x005bcb28), i.e. never.
 //!
-//! The old remaster's two switches (hook/enhance/render.cpp, used in Object_SelectLod): `lod_max` draws the finest at
+//! The old remaster's two switches (archive/hook/enhance/render.cpp, used in Object_SelectLod): `lod_max` draws the finest at
 //! every distance (d = 0), `lod_scale` divides d (the finer meshes kept to that multiple of the distance; Remaster 2).
 //! Since 2026-10-13 the engine drew the finest everywhere (the human's decision, docs/decision.md), which is the
 //! Remaster's `lod_max`; the Original switches as the game does.

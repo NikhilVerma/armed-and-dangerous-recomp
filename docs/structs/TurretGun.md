@@ -6,13 +6,13 @@ Size 0xb98; base GenericAIObject > Object; vtables -. Fields below: offsets the 
 
 | Offset | Type | Name / meaning | Evidence | Uses (r/w) |
 | --- | --- | --- | --- | --- |
-| +0xb58 | u32 |  | src/ai/ai_04.cpp:2509 | 3 (1/1) |
+| +0xb58 | u32 |  | archive/src/ai/ai_04.cpp:2509 | 3 (1/1) |
 | +0xb5c | u32 | **m_state** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2686 samples of 14 objects; values [1] | 4 (1/3) |
 | +0xb60 | ? | **m_targetTag** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2686 samples of 14 objects; values [0, 600] | 1 (0/0) |
 | +0xb88 | u32 | **m_priorityTargetTag** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2686 samples of 14 objects; values [0, 1, 2, 600] | 2 (2/0) |
 | +0xb8c | u8 | **m_stopAndFire** (table) pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 2 (1/0) |
 | +0xb8d | u8 | **m_alarm** (table) bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 2 (0/2) |
 | +0xb8e | u8 | **m_lostLOS** (table) bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 7 (1/6) |
-| +0xb8f | u8 | **m_stopCount** (table) | src/ai/ai_04.cpp:2521 | 2 (1/1) |
+| +0xb8f | u8 | **m_stopCount** (table) | archive/src/ai/ai_04.cpp:2521 | 2 (1/1) |
 | +0xb90 | ptr | pointer to vtable 0x0058b098 (PMS_List?) (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets vtable 0x0058b098 (PMS_List?) x340; seen ptr | 7 (5/2) |
 | +0xb94 | ptr | pointer to PlayerObject (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets PlayerObject x8; seen ptr | 9 (6/2) |

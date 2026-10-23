@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"expect": {"mission_obj.sites.252.alpha": 0.5, "mission_obj.sites.252.enabled": true, "mission_obj.compass_target": "234,252", "tickers": 4}},
  {"warp": [-84, 30, 13, 0]},

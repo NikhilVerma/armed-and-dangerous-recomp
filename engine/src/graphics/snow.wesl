@@ -1,6 +1,6 @@
 // GPU snowfall (graphics/snow.rs): one compute thread per flake moves it (state in a storage buffer), then each flake
 // is drawn as a soft sprite stretched along its motion over the shutter time. Ported from the old remaster's Vulkan
-// snow (src/rhi/vulkan/vk_snow.cpp), in Bevy's world space: Y is up, the ground plane is x, z.
+// snow (archive/src/rhi/vulkan/vk_snow.cpp), in Bevy's world space: Y is up, the ground plane is x, z.
 //
 // Simulation, per flake:
 //   - born in the sky above the camera, it falls at its terminal speed (larger flakes a little faster)

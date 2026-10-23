@@ -9,7 +9,7 @@ difficulty table, read only). What each number means and its evidence: docs/subs
 
 Values are the level's retail property sets (p_trotter, p_globalsettings, p_mission with the mission instance's
 overrides, the weapons' sets) and, where a set has no key, the code default the game uses (PlayerObject_Load
-0x00473da0, src/game/game_05.cpp:557-724). Notes that are the same for every level (controls table, formulas, camera
+0x00473da0, archive/src/game/game_05.cpp:557-724). Notes that are the same for every level (controls table, formulas, camera
 behaviour) are constants of this tool, each with its evidence. Units: game units, seconds, radians unless noted; Z up.
 """
 import argparse
@@ -23,7 +23,7 @@ GRAVITY = 64.348        # Havok world cinfo (docs/subsystems/havok-layouts.md): 
 HALF = 0.5              # the constant 0x005bcb4c the load multiplies every anti_gravity by
 ASPECT = 1.702128       # camera +0x154: horizontal -> vertical FOV
 
-# PlayerObject_Load 0x00473da0 (src/game/game_05.cpp:573-711): key -> code default when p_trotter has no value
+# PlayerObject_Load 0x00473da0 (archive/src/game/game_05.cpp:573-711): key -> code default when p_trotter has no value
 DEFAULTS = {
     "friction_min": 0.3, "friction_max": 2.0, "friction_exponent": 4.0,
     "fwd_max_speed": 10.0, "side_max_speed": 10.0, "fwd_max_speed_min": 4.0, "side_max_speed_min": 4.0,

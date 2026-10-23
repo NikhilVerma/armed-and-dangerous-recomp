@@ -1,7 +1,7 @@
 //! The brightness option on the picture. The original hands it to Renderer_SetGamma 0x005091c0 as the gamma of the
 //! device's ramp (clamped to 0..2; entry i = (i / 255)^(1 / gamma)), which a window does not get. The old remaster's
-//! `brightness_shader` (hook/enhance/display.cpp `Display_Gamma`) applied the same curve in its present pass
-//! (src/rhi/vulkan/vk_present.cpp: `c = pow(c, 1 / gamma)`). Here it is Bevy's colour grading gamma on the game view
+//! `brightness_shader` (archive/hook/enhance/display.cpp `Display_Gamma`) applied the same curve in its present pass
+//! (archive/src/rhi/vulkan/vk_present.cpp: `c = pow(c, 1 / gamma)`). Here it is Bevy's colour grading gamma on the game view
 //! (tonemapping.wesl: `pow(color, 1 / gamma)` in linear light, which for the display's power-law transfer is the same
 //! curve as the ramp on the encoded value). Without it the engine's exposure step applies (one stop per 1.0 of the
 //! option, 1.5 = unchanged; options.rs before 2026-10-19). The HUD is drawn by its own camera after the grading, so

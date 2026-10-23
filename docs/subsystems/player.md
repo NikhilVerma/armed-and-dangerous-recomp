@@ -11,7 +11,7 @@ Guesses are labelled **guess**. "(exe)" = read from `orig/pc/GameData/game.unpac
 
 | Item | Value | Evidence |
 | --- | --- | --- |
-| Template | `trotter` (the player is Roman; there is no `roman` template) | lev_1_m1_big07_obj; PlayerObject_Load 0x00473da0 plays "Trotter_ref" (src/game/game_05.cpp:544) |
+| Template | `trotter` (the player is Roman; there is no `roman` template) | lev_1_m1_big07_obj; PlayerObject_Load 0x00473da0 plays "Trotter_ref" (archive/src/game/game_05.cpp:544) |
 | Property set | `p_trotter` (big06_prop) | templates.json |
 | Model / LODs | `trotter_2`, `trotter_2`, `trotter_coll_0` (collision LOD 2) | templates.json, p_trotter collision_lod_index 2 |
 | Skeleton | anim `Trotter_ref` (bones Center, belly, chest, neck, head, L/R arm chain, legs; refs ref_hit_00..06, ref_rhand, ref_q_00, ref_molmer_00, camera nodes) | lev_1_m1_big03_anim, node dictionary (docs/formats/big-anim.md 3.1) |
@@ -27,7 +27,7 @@ are 1 / 0), `player_set_num_stickybomb 5`, `player_has_jetpack 0`, `player_has_t
 ## 2. Controls (PC defaults)
 
 Default table 0x00588ed8 (exe; {action, primary, secondary} triples), loaded by Controls_LoadDefaultBindings
-0x004144a0 (src/input/input_01.cpp:120). Action names: jump table of 0x004155a0 (exe). Key codes: DIK scan codes;
+0x004144a0 (archive/src/input/input_01.cpp:120). Action names: jump table of 0x004155a0 (exe). Key codes: DIK scan codes;
 0x10000.. mouse axes, 0x10004.. mouse buttons (docs/subsystems/qol.md).
 
 | Action (id) | Primary | Secondary |
@@ -58,7 +58,7 @@ Default table 0x00588ed8 (exe; {action, primary, secondary} triples), loaded by 
 ## 3. Movement
 
 All values: p_trotter (lev_1_m1). Code defaults in parentheses where they differ (PlayerObject_Load 0x00473da0,
-src/game/game_05.cpp:557-724).
+archive/src/game/game_05.cpp:557-724).
 
 | Parameter | Value | Use (evidence) |
 | --- | --- | --- |
@@ -293,7 +293,7 @@ sticky.rs, topsy.rs, charanim.rs (Roman), turret.rs (the player's side, unchange
 address in the source; `python tools/port_queue.py game` lists what is left, docs/port/game.csv the functions replaced
 or not needed, each with its reason.
 
-What the original does and the remaster now does (static, from src/game/game_05..09.cpp):
+What the original does and the remaster now does (static, from archive/src/game/game_05..09.cpp):
 
 | Mechanic | Original | Evidence |
 | --- | --- | --- |

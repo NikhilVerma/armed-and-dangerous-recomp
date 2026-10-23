@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"expect": {"audio.ambient.277.active": false, "audio.ambient.277.started": 0, "audio.ambient.276.active": true}},
  {"warp": [-25, 895, 127, 0]},

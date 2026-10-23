@@ -1,5 +1,5 @@
 //! The Q1-12 (`q112`, Q112Object, vtable 0x005a2440): a heavy chaingun robot through the shared grunt states (ai.rs,
-//! `Kind::Q112`), with its own parts here (src/ai/ai_01.cpp, ai_04.cpp, ai_06.cpp, audio/audio_01.cpp):
+//! `Kind::Q112`), with its own parts here (archive/src/ai/ai_01.cpp, ai_04.cpp, ai_06.cpp, audio/audio_01.cpp):
 //!
 //! - **The swing** (0x00428160, state 0xb; Q112Object_Slot6 0x00435090: +0x5fc 25, +0x600 35; 100 damage and 13000
 //!   impact by its name, 0x0043eae0) is the AI's close attack it shares with the grunts and archers: ai/melee.rs.

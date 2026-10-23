@@ -1,5 +1,5 @@
 // Per-object motion blur, the reconstruction (graphics/motion_blur.rs), ported from the old remaster's
-// src/rhi/vulkan/vk_motionblur.cpp kReconstruct (McGuire et al. 2012): samples along the neighbourhood's dominant
+// archive/src/rhi/vulkan/vk_motionblur.cpp kReconstruct (McGuire et al. 2012): samples along the neighbourhood's dominant
 // velocity, each weighted by whether it is in front of / behind this pixel and whether its own (or this pixel's) blur
 // reaches here.
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;

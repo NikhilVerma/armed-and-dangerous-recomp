@@ -1,7 +1,7 @@
 //! The turret bosses: the saucer (behaviour saucer, SaucerObject 0x005a5e98), the zeppelin (zeppelin, ZeppelinObject
 //! 0x005af500: the mini_zeppelin) and the colossus (colossus, ColossusObject 0x005aa238). AI characters with a weapon on
 //! their "ref_turret" node that pick a target, turn the weapon to it and fire volleys of missiles. Recovered code:
-//! src/ai/ai_04.cpp:2420-3100 (init 0x00435420, targeting 0x00435b50, volley 0x00435940, damage 0x00435fa0 /
+//! archive/src/ai/ai_04.cpp:2420-3100 (init 0x00435420, targeting 0x00435b50, volley 0x00435940, damage 0x00435fa0 /
 //! 0x00436600, death 0x00436010), ai_03.cpp:2523-2645 (the turret gunner 0x0042ecf0), ai_06.cpp:2700-2745 (the
 //! colossus's walk states), ai_07.cpp:672 (the update 0x00447400).
 //!

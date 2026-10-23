@@ -4,7 +4,7 @@ Status: 2026-10-03; bones, blend data and skinning (3.3, 3.7, 3.8) added 2026-10
 shared with `anim`) and `common.py` (docs/formats/big-common.md).
 Roundtrip: `.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip "orig/pc/GameData/**/*_skin.big"` ->
 25 ok. Files are `<level>_big05_skin.big`, magic `0x0BADF00D`. The loader is **0x0045af30
-ObjectSystem_LoadSkins** (`src/loader/auto_00410ec0.cpp`). There are 8535 skins and 11176 meshes over the 25
+ObjectSystem_LoadSkins** (`archive/src/loader/auto_00410ec0.cpp`). There are 8535 skins and 11176 meshes over the 25
 files. The `land` kind embeds one chunk of the same format (docs/formats/big-land.md); everything below
 section 2 applies to it as well.
 
@@ -77,7 +77,7 @@ Name lists inside the object graph use one generic container. It is fixed up by 
 | container | +0x00 | Heap header pointer | 0x004f0e60 relocates |
 | | +0x04 | Table pointer | 0x004f0e60 relocates, then calls 0x004e1320 on it |
 | | +0x08 | Flags. Bit 0: second index by id. Bit 1: name compare is case-insensitive (0x004f0c40 instead of 0x004f0c00) | 0x004f0e60 `test byte [ebp+8], 2` / `, 1` |
-| table | +0x1C | Entry count | Container_At (src/loader/auto_004ef270.cpp) |
+| table | +0x1C | Entry count | Container_At (archive/src/loader/auto_004ef270.cpp) |
 | | +0x20 | Index count (1, or 2 with flags bit 0) | same |
 | | +0x24 | Index rows, 0x1c bytes each. Row +0x10 is the sorted entry-pointer array | same. Compare table 0x005caa58 = {4, name compare}, {2, 0x004f0be0 id compare} |
 | entry | +0x00 | u16 entry size | survey |
@@ -201,16 +201,16 @@ that image. How the renderer turns the path into the bank name was not traced (g
 | +0x00 | Not visited by the walk. Values vary at random (0 in most bones, -1 in 1700, the rest look like leftover tool memory) | survey, 0x004e8620 |
 | +0x04 | Mesh pointer | 0x004e8620 |
 | +0x08 | u16 id in the bone-name dictionary (root+0x18) | SkinBinding_Create 0x004ed290 looks it up by id, then by name in the anim's node tree |
-| +0x0C | f32[16] **inverse bind matrix**, row-major for column vectors (translation in elements 3, 7, 11): maps a model-space bind-pose vertex into the bone's space | fn_004ed5d0 (src/anim/anim_02.cpp) multiplies the node's world matrix by it; inverting it reproduces the grunt_ref node transforms (3.8) |
+| +0x0C | f32[16] **inverse bind matrix**, row-major for column vectors (translation in elements 3, 7, 11): maps a model-space bind-pose vertex into the bone's space | fn_004ed5d0 (archive/src/anim/anim_02.cpp) multiplies the node's world matrix by it; inverting it reproduces the grunt_ref node transforms (3.8) |
 | +0x4C | u32 flags (0x11, 0x17, ...) | 0x004e8620 swaps it |
 
 Palette entries (mesh+0x94) index this bone array (u16 each).
 
 ### 3.8 Skinning
 
-Evidence: SkinBinding_Create 0x004ed290 and AnimSkinBinding_Create 0x004ed410 (src/loader/auto_004e6570.cpp),
-fn_004ed5d0 (src/anim/anim_02.cpp), Skin_BuildPalette 0x004edbe0 (src/renderer/render_r4.cpp), 0x004feb90
-(src/renderer/auto_004fde30.cpp), docs/subsystems/camera.md (c42..c44).
+Evidence: SkinBinding_Create 0x004ed290 and AnimSkinBinding_Create 0x004ed410 (archive/src/loader/auto_004e6570.cpp),
+fn_004ed5d0 (archive/src/anim/anim_02.cpp), Skin_BuildPalette 0x004edbe0 (archive/src/renderer/render_r4.cpp), 0x004feb90
+(archive/src/renderer/auto_004fde30.cpp), docs/subsystems/camera.md (c42..c44).
 
 - **There is no skeleton asset.** The skeleton is an anim's node tree (docs/formats/big-anim.md 3.2, 7):
   AnimSkinBinding_Create binds every skin of a model to the anim's tree (default +0x2c, or one named), and

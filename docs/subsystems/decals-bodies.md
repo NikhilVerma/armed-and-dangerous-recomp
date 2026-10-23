@@ -1,6 +1,6 @@
 # Decals and corpses: limits, timers, hook points
 
-Status: 2026-10-04, static reconnaissance only (no runtime check yet). Source: `work/decomp/`, `tools/recover.py
+Status: 2026-10-04, static reconnaissance only (no runtime check yet). Source: `work/decomp/`, `archive/tools/recover.py
 --asm`, constants read from `game.unpacked.exe`. Goal: docs/goals/remaster-basics.md item 3 (persistent decals
 and bodies). Anything marked **guess** has not been confirmed.
 
@@ -53,7 +53,7 @@ Decal object fields: +0x08 colour (alpha in the top byte, written while fading, 
 - Surfaces opt in through the object property `decal_receive` (default 1) -> object+0x3ec bit 0x8 (0x00451360).
   0x00416e90 clears bits 0x18 on objects whose model has animated parts (**guess** on what the test means).
 
-### Receivers: placed objects (2026-10-14, static reading of src/renderer/render_r0.cpp, ported to engine/src/decals.rs)
+### Receivers: placed objects (2026-10-14, static reading of archive/src/renderer/render_r0.cpp, ported to engine/src/decals.rs)
 
 - **0x00417260** Decal_Build makes a projector {decal, flags 0x40000008, 6 planes, planes, point}: the box of
   +-size along the placement's three (unnormalised) axes. With no target entity it gathers the world grid cells

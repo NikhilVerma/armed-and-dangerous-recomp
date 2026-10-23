@@ -2,7 +2,7 @@
 
 Requested by the human on 2026-10-04 ("for the start"). It runs after, or interleaved with,
 `docs/goals/modern-renderer.md`; the dependencies are noted per item. The rules are the same as before:
-features live in `hook/enhance/` behind `and.ini` switches that are off by default, the code they build on is
+features live in `archive/hook/enhance/` behind `and.ini` switches that are off by default, the code they build on is
 recovered first and passes the comparison test, and `src/` stays faithful.
 
 ## Features
@@ -21,7 +21,7 @@ recovered first and passes the comparison test, and `src/` stays faithful.
 2. **Menus that can be overridden or extended**, so the remaster options get their own page.
    - Needs recovery of the front-end/menu system: the pause menu seen in the play scenario (Continue, Save Game,
      Quickload, Restart, Options, Abandon) and the main and options menus.
-   - Then a way to register extra pages and items from `hook/enhance/` (labels, toggles, sliders, lists) that
+   - Then a way to register extra pages and items from `archive/hook/enhance/` (labels, toggles, sliders, lists) that
      read and write `and.ini`.
 3. **Persistent decals and bodies.**
    - Find the limits and timers that remove decals (`fx_decal_*`, ParticlePool_Create pool sizes) and corpses
@@ -30,7 +30,7 @@ recovered first and passes the comparison test, and `src/` stays faithful.
    - Needs the fx and character-lifetime code recovered. Watch the `.big` per-level budgets
      (docs/formats/big-fx.md).
 4. **FOV.**
-   - Slider plus Hor+ scaling. Needs the camera code; the Xbox prototypes name `src\camera.cpp`.
+   - Slider plus Hor+ scaling. Needs the camera code; the Xbox prototypes name `archive\src\camera.cpp`.
    - Separate first-person/sniper zoom handling.
 5. **Tessellation.**
    - D3D9 has no hull or domain shaders, so this lands in the Vulkan backend.
@@ -55,7 +55,7 @@ recovered first and passes the comparison test, and `src/` stays faithful.
 ## Status (2026-10-04)
 
 Recon: docs/subsystems/camera.md, ui.md, menus.md, decals-bodies.md, qol.md. Every switch is registered with the
-settings registry (hook/enhance/settings.h) for the Remaster page.
+settings registry (archive/hook/enhance/settings.h) for the Remaster page.
 
 | Item | State | Switches | Recovered under it (S2, compare identical) | Evidence |
 | --- | --- | --- | --- | --- |
@@ -79,4 +79,4 @@ path already sees most pads), UI scale and subtitle size/background.
   - decals and bodies persisting past their original limits
   - tessellated characters (Vulkan backend)
   - the options page
-- Tracker, docs and journal are updated, and `tools/check.ps1` is green.
+- Tracker, docs and journal are updated, and `archive/tools/check.ps1` is green.

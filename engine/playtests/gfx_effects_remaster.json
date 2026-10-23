@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "preset": "remaster", "steps": [
+{"load": "states/after_pub.json", "preset": "remaster", "steps": [
  {"wait": 2.0},
  {"expect": {"render_fx.hdr": true, "render_fx.dither": true, "render_fx.aces": false, "render_fx.prepass": true,
              "render_fx.motion_blur": true, "render_fx.blur_exposure": [0.49, 0.51],

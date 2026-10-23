@@ -1,7 +1,7 @@
 # Companions: team orders and barks (Q = Q111Object, Jonesy = MolmerObject)
 
-Traced 2026-10-14 from the recovered code (src/ai/ai_08.cpp, src/audio/audio_01.cpp, src/audio/audio_02.cpp,
-src/game/game_06.cpp, src/ui/ui_02.cpp) and constants read from game.unpacked.exe. None of the order code runs in the
+Traced 2026-10-14 from the recovered code (archive/src/ai/ai_08.cpp, archive/src/audio/audio_01.cpp, archive/src/audio/audio_02.cpp,
+archive/src/game/game_06.cpp, archive/src/ui/ui_02.cpp) and constants read from game.unpacked.exe. None of the order code runs in the
 recorded sessions ("not executed in recorded runs"), so everything below is static. Movement, targeting, the fire cycle,
 hits and death are in player.md 7 and engine/src/ai.rs (Companion). Port: engine/src/ai.rs `team_orders`.
 

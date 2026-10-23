@@ -1,6 +1,6 @@
 //! Arrows: the archers' projectiles fly with their model and stay stuck where they hit for a while.
 //!
-//! The original's ArrowProjectile (vtable 0x005a9a40, src/game/game_07.cpp): its property read (0x00482460) adds
+//! The original's ArrowProjectile (vtable 0x005a9a40, archive/src/game/game_07.cpp): its property read (0x00482460) adds
 //! linger_lifetime (+0x588, default 10; p_grunt_normal_arrow 2.5) to the projectile's; the launch (0x00482510) and
 //! the fly-by sound (0x00482620) are player.rs's. The hit (0x00482780): the arrow is moved to the hit point, its trail
 //! (fx_start, +0x5d8) released, its damage done, and it sticks to what it hit (0x0047e9f0: to the part of a character

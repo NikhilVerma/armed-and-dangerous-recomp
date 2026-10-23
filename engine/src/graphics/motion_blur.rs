@@ -1,5 +1,5 @@
 //! Per-object motion blur by shutter speed: the old remaster's ([render] shutter_speed, registered in
-//! hook/enhance/weather.cpp; the passes in src/rhi/vulkan/vk_motionblur.cpp, the uniforms in vk_device.cpp
+//! archive/hook/enhance/weather.cpp; the passes in archive/src/rhi/vulkan/vk_motionblur.cpp, the uniforms in vk_device.cpp
 //! `MotionBlur`). The player (docs/player-feedback.md, "Standing preferences"): per object, never from camera pans;
 //! the setting is a shutter speed (an exposure of 1/N s), not a shutter angle. Bevy's own `MotionBlur` blurs camera
 //! motion too and takes a shutter angle, hence this port.

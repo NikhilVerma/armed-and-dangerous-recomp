@@ -1,8 +1,8 @@
 # Campaign flow: from one level to the next
 
-Static decompilation, 2026-10-16 (src/ui/ui_01.cpp 0x0044a230 / 0x0044a390, src/game/start_level.cpp 0x00403690,
-src/game/game_01.cpp 0x00401e80..0x00401f40, src/game/game_02.cpp MissionObject_Load 0x0044c170, src/game/game_05.cpp
-0x00475650, src/game/game_09.cpp the weapon state, src/ui/ui_03.cpp UiScreen_Activate 0x004921a0). None of these ran in
+Static decompilation, 2026-10-16 (archive/src/ui/ui_01.cpp 0x0044a230 / 0x0044a390, archive/src/game/start_level.cpp 0x00403690,
+archive/src/game/game_01.cpp 0x00401e80..0x00401f40, archive/src/game/game_02.cpp MissionObject_Load 0x0044c170, archive/src/game/game_05.cpp
+0x00475650, archive/src/game/game_09.cpp the weapon state, archive/src/ui/ui_03.cpp UiScreen_Activate 0x004921a0). None of these ran in
 the recorded coverage runs; the remaster's behaviour is checked by its playtests (engine/playtests/campaign_*.json).
 The remaster: engine/src/campaign.rs (module doc), levelreset.rs (`RestartTo::Level`), mission.rs `Loadout`,
 player.rs `apply_loadout`.

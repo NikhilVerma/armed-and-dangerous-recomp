@@ -1,7 +1,7 @@
 """Comparison test: does recovered code behave exactly like the original?
 
 Runs the game twice under identical deterministic conditions (virtual clock, scripted level load, fixed exit
-frame, no enhancements) and compares the per-frame Direct3D call-stream hashes (hook/src/d3d_trace.cpp):
+frame, no enhancements) and compares the per-frame Direct3D call-stream hashes (archive/hook/src/d3d_trace.cpp):
   baseline   every recovered function switched off ([hooks] X=0): the original game
   candidate  recovered functions switched on (all, or --only NAMES)
 PASS when every frame's call count and hash match. On failure, prints the first divergent frame.
@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, "work", "compare")
 
 def hook_names():
     names = []
-    for dirpath, _, files in os.walk(os.path.join(ROOT, "src")):
+    for dirpath, _, files in os.walk(os.path.join(ROOT, "archive", "src")):
         for f in files:
             if f.endswith(".cpp"):
                 text = open(os.path.join(dirpath, f), encoding="utf-8").read()
@@ -79,7 +79,7 @@ def write_ini(hooks_on, level, frames, keys="", test=None, render=None, extra_se
               "hash_frames": (DUMP + ':1:1') if DUMP and ':' not in DUMP else DUMP, "dump_hashed": 1 if DUMP else 0,
               "record_input": 0, "fixed_dt_ms": 0, "no_movies": 1,
               "parallel": 1,
-              # never a window on the desk, no focus, no sound (hook/src/testoffscreen.cpp); a run may pass offscreen=0
+              # never a window on the desk, no focus, no sound (archive/hook/src/testoffscreen.cpp); a run may pass offscreen=0
               "offscreen": 1}
     values.update(test or {})  # scenario settings replace the defaults (an ini key must appear once)
     lines += [f"{k}={v}" for k, v in values.items()]
@@ -95,7 +95,7 @@ def launch(game_dir):
     # a hook DLL from before [test] offscreen would show the window: refuse to start the game with it
     dll = os.path.join(game_dir, "dinput8.dll")
     if not os.path.exists(dll) or b"test: offscreen v2" not in open(dll, "rb").read():
-        raise RuntimeError(f"{dll}: no [test] offscreen support (rebuild: pwsh tools/build.ps1); not starting a visible game")
+        raise RuntimeError(f"{dll}: no [test] offscreen support (rebuild: pwsh archive/tools/build.ps1); not starting a visible game")
     # no error dialogs on the desk ("Bad Image", crash boxes): the child inherits this process's error mode
     import ctypes
     ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)  # FAILCRITICALERRORS | NOGPFAULTERRORBOX | NOOPENFILEERRORBOX
@@ -134,7 +134,7 @@ def guard_offscreen(proc):
             u.EnumWindows(each, 0)
             if found:
                 proc.kill()
-                print(f"  guard: the game showed a window on the desktop at {found[0]}: killed (fix hook/src/testoffscreen.cpp)")
+                print(f"  guard: the game showed a window on the desktop at {found[0]}: killed (fix archive/hook/src/testoffscreen.cpp)")
                 return
             time.sleep(0.01)
     threading.Thread(target=watch, daemon=True).start()
@@ -203,7 +203,7 @@ def main():
     only = [n for n in spec.split(",") if n]
     unknown = [n for n in only if n not in names]
     if unknown and from_file:
-        # Generated lists (tools/bisect_hooks.py) name every HOOK in src/, including files the built DLL does not
+        # Generated lists (archive/tools/bisect_hooks.py) name every HOOK in src/, including files the built DLL does not
         # contain yet (build.ps1 -Exclude): ignore those instead of failing every run.
         print(f"note: {len(unknown)} hook(s) not in the built DLL ignored, e.g. {unknown[:3]}")
         only = [n for n in only if n in names]

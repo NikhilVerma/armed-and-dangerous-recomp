@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "p_powderkeg blast: 150 within 20 of a body's surface, linear to 0 at 50 (AreaDamage_Apply 0x0047f020); impact 30000 > 10050 throws a body it kills at 30000 x 0.15 / 80 = 56 units/s (Character_GoRagdoll 0x00431310)"},
  {"wait": 0.5},
  {"loadout": {"health": 5000}},

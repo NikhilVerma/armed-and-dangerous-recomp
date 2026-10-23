@@ -1,4 +1,4 @@
-//! The 3D view's resolution as a multiple of the window's (old remaster hook/enhance/display.cpp `render_scale`: the
+//! The 3D view's resolution as a multiple of the window's (old remaster archive/hook/enhance/display.cpp `render_scale`: the
 //! game rendered its back buffer at window size x scale and Present stretched it to the window, so 2.0 is 2x
 //! supersampling and 0.5 half resolution), and `dpi_aware` (off: Windows draws an application that does not declare
 //! itself DPI aware at the desktop's scaled size and enlarges it; the old remaster called

@@ -30,12 +30,12 @@ re-reading is the fix.
   with the original shows a difference; update that file and the journal at the end of every session.
 - **Open player feedback:** `docs/player-feedback.md` is the backlog of the player's in-game feedback. Read it at session start and after every compaction, and update its status column as items land.
 - **Resuming the recovery round:** read `docs/handover-recovery.md` (pipeline, tools, pitfalls, how to resume) and run
-  `python tools/recovery_status.py`. Work in progress lives on branch `wip/full-decomp`; main stays green.
+  `python archive/tools/recovery_status.py`. Work in progress lives on branch `wip/full-decomp`; main stays green.
 - **Human's goals (docs/decision.md, 2026-10-03):** (1) every function exported and recompilable, (2) migrate
   piece by piece via hooks, (3) early enhancements: resolution, HDR, frame rate, FOV, (4) the rest, including a
-  later move from Havok to an open-source physics engine. Enhancements go in `hook/enhance/`, each behind an
+  later move from Havok to an open-source physics engine. Enhancements go in `archive/hook/enhance/`, each behind an
   `and.ini` switch that is off by default; tests always run with them off; `src/` stays faithful. This
-  amends the "do not modernise before M5" rule below for `hook/enhance/` only.
+  amends the "do not modernise before M5" rule below for `archive/hook/enhance/` only.
 
 ## Tools, not dumps
 
@@ -71,7 +71,7 @@ re-reading is the fix.
 
 ## Session routine
 
-1. Start: read `AGENTS.md`, `docs/decision.md` and the latest journal entry. Run `tools/check.ps1` and
+1. Start: read `AGENTS.md`, `docs/decision.md` and the latest journal entry. Run `archive/tools/check.ps1` and
    confirm green.
 2. Work: pick from the queue, follow the per-function loop of the current approach.
 3. End: tests green, commit, update the tracker, write `docs/journal/<date>.md` with what was done, what was

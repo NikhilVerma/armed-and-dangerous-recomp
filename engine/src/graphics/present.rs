@@ -1,5 +1,5 @@
 //! The output pass: the old remaster's present pass ([render] tonemap_aces and dither, registered in
-//! hook/enhance/render.cpp; the shader in src/rhi/vulkan/vk_present.cpp), last in the 3D camera's post-processing
+//! archive/hook/enhance/render.cpp; the shader in archive/src/rhi/vulkan/vk_present.cpp), last in the 3D camera's post-processing
 //! (after TAA, bloom and sharpening): the filmic ACES curve (Narkowicz's fit, on the game's values as the old
 //! pass ran it) and triangular dither noise of +-1 step of the 8-bit output against banding (present.wesl).
 //!

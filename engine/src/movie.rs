@@ -2,7 +2,7 @@
 //! with the picture. Game-neutral: a game asks for a play list with `PlayMovies` and hears back through
 //! `MovieEvent`; where the files are, the volume and whether subtitles show are `MovieSettings`.
 //!
-//! The original (src/movie/movie_01.cpp, the movie screens of src/ui/ui_03.cpp) plays DivX AVI files through
+//! The original (archive/src/movie/movie_01.cpp, the movie screens of archive/src/ui/ui_03.cpp) plays DivX AVI files through
 //! DivxMediaLib.dll. The remaster plays what tools/remaster_export_movies.py made from them, one folder per movie
 //! under `MovieSettings::dir`: `video.rmjv` (every frame a baseline JPEG, decoded with zune-jpeg: pure Rust, no
 //! codec shipped), `audio.wav` (the soundtrack as stored) and `movie.json` (size, rate, subtitle lines with their

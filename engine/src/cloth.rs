@@ -1,6 +1,6 @@
 //! Q's cape: a cloth model hung on his shoulders that swings as he moves.
 //!
-//! The original (src/ai/ai_08.cpp): Q111Object's setup 0x00486f40 creates the template "q111_cape" (when the level has
+//! The original (archive/src/ai/ai_08.cpp): Q111Object's setup 0x00486f40 creates the template "q111_cape" (when the level has
 //! it) as a ClothObject (vtable 0x005aca40, behaviour cloth, property set p_cloth: its model q111_cape_0, the collision
 //! LOD q111_cape_coll), keeps it at +0xbd0 (read back by 0x004876b0), gives it the anchor table 0x005fb94c (0x004879c0:
 //! the cape's bones chest, l_shoulder and r_shoulder held to Q's bones of the same names) and attaches it to Q

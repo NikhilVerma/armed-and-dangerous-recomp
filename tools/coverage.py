@@ -19,17 +19,18 @@ ROOT = compare.ROOT if hasattr(compare, "ROOT") else os.path.dirname(os.path.dir
 
 
 def unsafe_hooked():
-    """Hooked functions where a branch lands inside their first 5 bytes (tools/record.py unsafe_to_patch)."""
+    """Hooked functions where a branch lands inside their first 5 bytes (archive/tools/record.py unsafe_to_patch)."""
     import re
     cache = os.path.join(ROOT, "work", "coverage_unsafe.json")
     try:
-        import record  # needs capstone, pefile and frida (the .venv python)
+        sys.path.insert(0, os.path.join(ROOT, "archive", "tools"))
+        import record  # archive/tools/record.py; needs capstone, pefile and frida (the .venv python)
     except ImportError:
         print(f"note: no capstone/frida here; using {cache}")
         return {f"{int(a, 16):08x}" for a in json.load(open(cache))}
     funcs = json.load(open(os.path.join(ROOT, "work", "exports", "functions.json")))
     hooked = set()
-    for dirpath, _, files in os.walk(os.path.join(ROOT, "src")):
+    for dirpath, _, files in os.walk(os.path.join(ROOT, "archive", "src")):
         for f in files:
             if f.endswith(".cpp"):
                 text = open(os.path.join(dirpath, f), encoding="utf-8").read()

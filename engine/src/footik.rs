@@ -2,7 +2,7 @@
 //! 0x00472cc0). Game-neutral: any character with a `FootPlacement` and a skeleton whose legs are hip -> knee ->
 //! ankle chains gets it; the player has one (PlayerObject_Load binds the leg callback, table 0x005fb760).
 //!
-//! What the original does (src/anim/anim_01.cpp):
+//! What the original does (archive/src/anim/anim_01.cpp):
 //! - For each ankle ("l_ankle", "r_ankle": 0x005ce328) of the animated pose, a ray from 6 above it (0x005bccf0) straight
 //!   down finds the ground. The ray is 12 long (0x41400000) for the first foot and doubles after each hit; a miss
 //!   gives height 0 and length 0 (the next foot casts no ray: reproduced). The foot's ground height relative to the

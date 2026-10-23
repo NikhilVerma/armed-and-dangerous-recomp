@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "an open pub takes Roman in again (the Use handler 0x004788a0 has no once-only latch); its exit trigger 900 went out the first time only (0x0046a720)"},
  {"wait": 0.5},
  {"expect": {"mission_obj.pub_done": true, "mission_obj.pub_open": true}},

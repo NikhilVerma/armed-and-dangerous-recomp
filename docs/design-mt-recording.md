@@ -65,7 +65,7 @@ more worker threads.
 - Correctness. Every piece of state PrepareDraw reads must be captured in the packet. Missing one gives wrong
   rendering that only shows in some scenes.
   - Mitigation: a debug switch that translates packets on the game thread in order (same code path, one thread) and
-    compares frame hashes with the threaded path (tools/compare_backends.py style), plus the playground scenes.
+    compares frame hashes with the threaded path (archive/tools/compare_backends.py style), plus the playground scenes.
 - The D3D9 trace and the test harness hash frames. Threaded output must be bit-identical to single-threaded output;
   only command order inside a render pass is preserved, so it is.
 - Driver cost of secondary command buffers (NVIDIA: small at 200 draws per chunk).

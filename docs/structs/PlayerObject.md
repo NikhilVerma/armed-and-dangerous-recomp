@@ -9,246 +9,246 @@ Size 0xe64; base Object; vtables 0x005aa888. Fields below: offsets the recovered
 | +0x460 | ptr | pointer to vtable 0x005b0ad8 (SpeedTrapShape?) (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets vtable 0x005b0ad8 (SpeedTrapShape?) x598; seen ptr | 6 (3/3) |
 | +0x464 | ptr | pointer to vtable 0x005b0ad8 (SpeedTrapShape?) (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets vtable 0x005b0ad8 (SpeedTrapShape?) x598; seen ptr | 5 (3/2) |
 | +0x468 | f32 | **m_maxLinearSpeed** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 40.0..40.0 | 4 (2/2) |
-| +0x46c | f32 | **m_targetLinearSpeed** (table) | src/game/game_05.cpp:764; values [0, 1109393408] | 3 (1/2) |
-| +0x470 | f32 | **m_targetLocalLinearVelocityNext** (table) | src/game/game_05.cpp:763 | 5 (3/2) |
-| +0x474 | f32 |  | src/game/game_05.cpp:762; values [-2147483648, -1038090240, 1109393408] | 5 (3/2) |
-| +0x478 | u32 |  | src/game/game_05.cpp:761 | 3 (1/2) |
-| +0x47c | f32 | **m_targetLocalLinearVelocity** (table) | src/game/game_05.cpp:757 | 10 (6/2) |
-| +0x480 | f32 |  | src/game/game_05.cpp:756; values [-2147483648, -1038090240, 1109393408] | 8 (6/2) |
-| +0x484 | f32 |  | src/game/game_05.cpp:755 | 6 (4/2) |
-| +0x488 | f32 | **m_targetLocalLinearVelocityAbs** (table) | src/game/game_05.cpp:760 | 4 (2/2) |
-| +0x48c | f32 |  | src/game/game_05.cpp:759; values [0, 1109393408] | 4 (2/2) |
-| +0x490 | f32 |  | src/game/game_05.cpp:758 | 2 (0/2) |
-| +0x494 | f32 | **m_targetLocalLinearVelocityNonZero** (table) | src/game/game_05.cpp:766; values [-2147483648, -1103455215, 0, 1035108052, 1052212233, 1061237928] | 5 (3/1) |
-| +0x498 | f32 |  | src/game/game_05.cpp:767; seen f32 -40.0..40.0 | 6 (5/1) |
-| +0x49c | f32 |  | src/game/game_05.cpp:768; values [-2147483648, 0] | 3 (2/1) |
-| +0x4a0 | f32 | **m_targetLocalLinearVelocityNonZeroAbs** (table) | src/game/game_05.cpp:766; values [0, 1035108052, 1044028433, 1052212233, 1061237928, 1063105498] | 4 (2/2) |
-| +0x4a4 | f32 |  | src/game/game_05.cpp:767; seen f32 0.1564..40.0 | 2 (0/2) |
-| +0x4a8 | f32 |  | src/game/game_05.cpp:768 | 2 (0/2) |
-| +0x4ac | f32 | **m_targetWorldLinearVelocity** (table) | src/game/game_05.cpp:1746; seen int -1252779576..1107987986 | 2 (1/0) |
-| +0x4b0 | f32 |  | src/game/game_05.cpp:1747; seen int -2147483648..1109393408 | 1 (1/0) |
-| +0x4b4 | f32 |  | src/game/game_05.cpp:1748 | 1 (1/0) |
-| +0x4b8 | f32 | **m_actualLinearSpeed** (table) | src/game/game_05.cpp:773; seen int 0..1109750402 | 2 (0/2) |
-| +0x4bc | f32 | **m_actualLinearSpeedHorizontal** (table) | src/game/game_05.cpp:1907; seen int 0..1109561287 | 7 (6/1) |
-| +0x4c0 | f32 | **m_actualLinearVelocity** (table) | src/game/game_05.cpp:769; seen int -1400257680..1108018168 | 7 (3/0) |
-| +0x4c4 | f32 |  | src/game/game_05.cpp:1750; seen int -1474577504..1109380076 | 2 (2/0) |
-| +0x4c8 | f32 |  | src/anim/anim_01.cpp:3029; seen int -1280223345..1101579692 | 12 (12/0) |
-| +0x4cc | f32 | **m_actualLinearVelocityNonZeroAccum** (table) | src/game/game_05.cpp:1743; seen int -1406574045..1124687039 | 8 (5/3) |
-| +0x4d0 | f32 |  | src/game/game_05.cpp:1744; seen int -1391792790..1126044279 | 8 (5/3) |
-| +0x4d4 | f32 |  | src/game/game_05.cpp:1745; seen f32 -48.2664..34.1324 | 6 (3/3) |
-| +0x4d8 | f32 | **m_actualLinearVelocityNonZero** (table) | src/game/game_05.cpp:772; seen f32 -0.9997..0.9998 | 3 (0/1) |
-| +0x4dc | f32 |  | src/game/game_05.cpp:1760; seen f32 -1.0..1.0 | 1 (0/1) |
-| +0x4e0 | u32 |  | src/game/game_05.cpp:1761; values [-2147483648, 0] | 1 (0/1) |
-| +0x4e4 | f32 | **m_actualAngularSpeed** (table) | src/game/game_05.cpp:776; seen int 0..1041380217 | 3 (1/2) |
-| +0x4e8 | u32 | **m_actualAngularVelocity** (table) | src/game/game_05.cpp:774; seen int -2147483648..59074952 | 5 (1/0) |
-| +0x4ec | u32 |  | src/game/game_05.cpp:1767; seen int -2147483647..51556388 | 1 (1/0) |
-| +0x4f0 | u32 |  | src/game/game_05.cpp:1768; seen int -2147483648..1041380217 | 1 (1/0) |
-| +0x4f4 | u32 | **m_actualAngularVelocityNonZero** (table) | src/game/game_05.cpp:775 | 3 (0/2) |
-| +0x4f8 | u32 |  | src/game/game_05.cpp:1767; values [-2147483648, 0] | 2 (0/2) |
-| +0x4fc | f32 |  | src/game/game_05.cpp:1768; seen f32 -0.0375..1.0 | 1 (0/1) |
+| +0x46c | f32 | **m_targetLinearSpeed** (table) | archive/src/game/game_05.cpp:764; values [0, 1109393408] | 3 (1/2) |
+| +0x470 | f32 | **m_targetLocalLinearVelocityNext** (table) | archive/src/game/game_05.cpp:763 | 5 (3/2) |
+| +0x474 | f32 |  | archive/src/game/game_05.cpp:762; values [-2147483648, -1038090240, 1109393408] | 5 (3/2) |
+| +0x478 | u32 |  | archive/src/game/game_05.cpp:761 | 3 (1/2) |
+| +0x47c | f32 | **m_targetLocalLinearVelocity** (table) | archive/src/game/game_05.cpp:757 | 10 (6/2) |
+| +0x480 | f32 |  | archive/src/game/game_05.cpp:756; values [-2147483648, -1038090240, 1109393408] | 8 (6/2) |
+| +0x484 | f32 |  | archive/src/game/game_05.cpp:755 | 6 (4/2) |
+| +0x488 | f32 | **m_targetLocalLinearVelocityAbs** (table) | archive/src/game/game_05.cpp:760 | 4 (2/2) |
+| +0x48c | f32 |  | archive/src/game/game_05.cpp:759; values [0, 1109393408] | 4 (2/2) |
+| +0x490 | f32 |  | archive/src/game/game_05.cpp:758 | 2 (0/2) |
+| +0x494 | f32 | **m_targetLocalLinearVelocityNonZero** (table) | archive/src/game/game_05.cpp:766; values [-2147483648, -1103455215, 0, 1035108052, 1052212233, 1061237928] | 5 (3/1) |
+| +0x498 | f32 |  | archive/src/game/game_05.cpp:767; seen f32 -40.0..40.0 | 6 (5/1) |
+| +0x49c | f32 |  | archive/src/game/game_05.cpp:768; values [-2147483648, 0] | 3 (2/1) |
+| +0x4a0 | f32 | **m_targetLocalLinearVelocityNonZeroAbs** (table) | archive/src/game/game_05.cpp:766; values [0, 1035108052, 1044028433, 1052212233, 1061237928, 1063105498] | 4 (2/2) |
+| +0x4a4 | f32 |  | archive/src/game/game_05.cpp:767; seen f32 0.1564..40.0 | 2 (0/2) |
+| +0x4a8 | f32 |  | archive/src/game/game_05.cpp:768 | 2 (0/2) |
+| +0x4ac | f32 | **m_targetWorldLinearVelocity** (table) | archive/src/game/game_05.cpp:1746; seen int -1252779576..1107987986 | 2 (1/0) |
+| +0x4b0 | f32 |  | archive/src/game/game_05.cpp:1747; seen int -2147483648..1109393408 | 1 (1/0) |
+| +0x4b4 | f32 |  | archive/src/game/game_05.cpp:1748 | 1 (1/0) |
+| +0x4b8 | f32 | **m_actualLinearSpeed** (table) | archive/src/game/game_05.cpp:773; seen int 0..1109750402 | 2 (0/2) |
+| +0x4bc | f32 | **m_actualLinearSpeedHorizontal** (table) | archive/src/game/game_05.cpp:1907; seen int 0..1109561287 | 7 (6/1) |
+| +0x4c0 | f32 | **m_actualLinearVelocity** (table) | archive/src/game/game_05.cpp:769; seen int -1400257680..1108018168 | 7 (3/0) |
+| +0x4c4 | f32 |  | archive/src/game/game_05.cpp:1750; seen int -1474577504..1109380076 | 2 (2/0) |
+| +0x4c8 | f32 |  | archive/src/anim/anim_01.cpp:3029; seen int -1280223345..1101579692 | 12 (12/0) |
+| +0x4cc | f32 | **m_actualLinearVelocityNonZeroAccum** (table) | archive/src/game/game_05.cpp:1743; seen int -1406574045..1124687039 | 8 (5/3) |
+| +0x4d0 | f32 |  | archive/src/game/game_05.cpp:1744; seen int -1391792790..1126044279 | 8 (5/3) |
+| +0x4d4 | f32 |  | archive/src/game/game_05.cpp:1745; seen f32 -48.2664..34.1324 | 6 (3/3) |
+| +0x4d8 | f32 | **m_actualLinearVelocityNonZero** (table) | archive/src/game/game_05.cpp:772; seen f32 -0.9997..0.9998 | 3 (0/1) |
+| +0x4dc | f32 |  | archive/src/game/game_05.cpp:1760; seen f32 -1.0..1.0 | 1 (0/1) |
+| +0x4e0 | u32 |  | archive/src/game/game_05.cpp:1761; values [-2147483648, 0] | 1 (0/1) |
+| +0x4e4 | f32 | **m_actualAngularSpeed** (table) | archive/src/game/game_05.cpp:776; seen int 0..1041380217 | 3 (1/2) |
+| +0x4e8 | u32 | **m_actualAngularVelocity** (table) | archive/src/game/game_05.cpp:774; seen int -2147483648..59074952 | 5 (1/0) |
+| +0x4ec | u32 |  | archive/src/game/game_05.cpp:1767; seen int -2147483647..51556388 | 1 (1/0) |
+| +0x4f0 | u32 |  | archive/src/game/game_05.cpp:1768; seen int -2147483648..1041380217 | 1 (1/0) |
+| +0x4f4 | u32 | **m_actualAngularVelocityNonZero** (table) | archive/src/game/game_05.cpp:775 | 3 (0/2) |
+| +0x4f8 | u32 |  | archive/src/game/game_05.cpp:1767; values [-2147483648, 0] | 2 (0/2) |
+| +0x4fc | f32 |  | archive/src/game/game_05.cpp:1768; seen f32 -0.0375..1.0 | 1 (0/1) |
 | +0x500 | f32 | **m_actualLocation** (table) position x (+4 y, +8 z): equals the object's position (vt+0x54) (0.97) | dynamic: 4678/4713 samples; seen f32 -702.6181..3123.6057 | 6 (4/0) |
-| +0x504 | f32 |  | src/physics/physics_03.cpp:1488; seen f32 -2587.9143..3047.0032 | 1 (1/0) |
-| +0x508 | f32 |  | src/physics/physics_03.cpp:1489; seen f32 -235.7192..968.4371 | 4 (4/0) |
-| +0x50c | f32 | **m_lastContactLocation** (table) | src/game/game_05.cpp:753; seen f32 -702.6181..3123.5833 | 2 (0/1) |
-| +0x518 | f32 | **m_lastPlatformLocation** (table) | src/game/game_05.cpp:754; seen f32 -702.6181..3123.6057 | 3 (0/2) |
-| +0x520 | f32 |  | src/physics/physics_03.cpp:1597; seen f32 -235.7192..968.5829 | 2 (2/0) |
-| +0x524 | u32 | **m_oldLinearVelocity** (table) | src/game/game_05.cpp:771; seen int -1414184632..1108018168 | 2 (0/1) |
-| +0x530 | u32 | **m_lastLinearVelocity** (table) | src/game/game_05.cpp:770; seen int -1416587272..1108007700 | 3 (1/1) |
-| +0x538 | f32 |  | src/physics/physics_03.cpp:1536; seen int -1245288800..1100875044 | 1 (1/0) |
-| +0x53c | f32 | **m_linearDisplacement** (table) | src/game/game_05.cpp:779; seen int -1283457024..1146595215 | 5 (2/2) |
-| +0x540 | f32 |  | src/game/game_05.cpp:778; seen int -1241513984..1059746816 | 4 (2/2) |
-| +0x544 | f32 |  | src/game/game_05.cpp:777; seen int -1300234240..1078535808 | 4 (2/2) |
-| +0x548 | u8 | **m_animFlagsPrevious** (table) | src/game/game_05.cpp:781; values [1, 3, 2048, 34816, 34817, 131072] | 5 (3/2) |
+| +0x504 | f32 |  | archive/src/physics/physics_03.cpp:1488; seen f32 -2587.9143..3047.0032 | 1 (1/0) |
+| +0x508 | f32 |  | archive/src/physics/physics_03.cpp:1489; seen f32 -235.7192..968.4371 | 4 (4/0) |
+| +0x50c | f32 | **m_lastContactLocation** (table) | archive/src/game/game_05.cpp:753; seen f32 -702.6181..3123.5833 | 2 (0/1) |
+| +0x518 | f32 | **m_lastPlatformLocation** (table) | archive/src/game/game_05.cpp:754; seen f32 -702.6181..3123.6057 | 3 (0/2) |
+| +0x520 | f32 |  | archive/src/physics/physics_03.cpp:1597; seen f32 -235.7192..968.5829 | 2 (2/0) |
+| +0x524 | u32 | **m_oldLinearVelocity** (table) | archive/src/game/game_05.cpp:771; seen int -1414184632..1108018168 | 2 (0/1) |
+| +0x530 | u32 | **m_lastLinearVelocity** (table) | archive/src/game/game_05.cpp:770; seen int -1416587272..1108007700 | 3 (1/1) |
+| +0x538 | f32 |  | archive/src/physics/physics_03.cpp:1536; seen int -1245288800..1100875044 | 1 (1/0) |
+| +0x53c | f32 | **m_linearDisplacement** (table) | archive/src/game/game_05.cpp:779; seen int -1283457024..1146595215 | 5 (2/2) |
+| +0x540 | f32 |  | archive/src/game/game_05.cpp:778; seen int -1241513984..1059746816 | 4 (2/2) |
+| +0x544 | f32 |  | archive/src/game/game_05.cpp:777; seen int -1300234240..1078535808 | 4 (2/2) |
+| +0x548 | u8 | **m_animFlagsPrevious** (table) | archive/src/game/game_05.cpp:781; values [1, 3, 2048, 34816, 34817, 131072] | 5 (3/2) |
 | +0x54c | u32 | **m_flagsPrevious** (table) flags bitfield (bits 0x2000, 0x200000, 0x4000, 0x400000, 0x80000) (0.8) | static: masked / set / cleared with constants; dynamic 219/219 changes flip 1-2 bits; values [0, 2048, 4096, 6144, 16384, 20480] | 8 (6/2) |
-| +0x550 | f32 | **m_landSpeed** (table) | src/anim/anim_01.cpp:3039 | 4 (2/2) |
-| +0x554 | u32 | **m_primaryAnim** (table) | src/game/game_05.cpp:783; values [0, 9, 10, 13, 14, 30] | 7 (5/2) |
+| +0x550 | f32 | **m_landSpeed** (table) | archive/src/anim/anim_01.cpp:3039 | 4 (2/2) |
+| +0x554 | u32 | **m_primaryAnim** (table) | archive/src/game/game_05.cpp:783; values [0, 9, 10, 13, 14, 30] | 7 (5/2) |
 | +0x558 | u32 | **m_secondaryAnim** (table) state / enum (compared with 0, 6, 7) (0.7) | static: equality tests against several constants; dynamic values [0, 1, 3, 5, 7] | 9 (7/2) |
-| +0x55c | f32 | **m_walkRunSwitchOver** (table) property "anim_walk_run_switch" (float, default 0.4) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:708; seen f32 0.3..0.3 | 3 (2/0) |
-| +0x560 | f32 | **m_normalTwistLimit** (table) property "normal_twist_limit" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:709; seen f32 0.6109..0.6109 | 4 (2/1) |
-| +0x564 | f32 | **m_runningTwistLimit** (table) property "running_twist_limit" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:710; seen f32 0.6109..0.6109 | 4 (2/1) |
+| +0x55c | f32 | **m_walkRunSwitchOver** (table) property "anim_walk_run_switch" (float, default 0.4) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:708; seen f32 0.3..0.3 | 3 (2/0) |
+| +0x560 | f32 | **m_normalTwistLimit** (table) property "normal_twist_limit" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:709; seen f32 0.6109..0.6109 | 4 (2/1) |
+| +0x564 | f32 | **m_runningTwistLimit** (table) property "running_twist_limit" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:710; seen f32 0.6109..0.6109 | 4 (2/1) |
 | +0x568 | ptr | pointer to FxData (0.85) | dynamic targets FxData x25; seen ptr | 7 (3/2) |
-| +0x56c | f32 | **m_fastestFallingSpeed** (table) | src/game/game_05.cpp:787; seen f32 -26.8118..0.0 | 5 (2/3) |
-| +0x570 | f32 | **m_platTimer** (table) | src/anim/anim_01.cpp:2736; seen f32 0.0..0.5 | 14 (10/4) |
-| +0x574 | f32 | **m_surfaceNormal** (table) | src/game/game_05.cpp:788; seen int -2147483648..1059750581 | 7 (2/3) |
-| +0x578 | f32 |  | src/game/game_05.cpp:789; seen f32 -0.5051..0.9003 | 4 (1/3) |
-| +0x57c | f32 |  | src/game/game_05.cpp:790; seen f32 0.0011..1.0 | 7 (4/3) |
+| +0x56c | f32 | **m_fastestFallingSpeed** (table) | archive/src/game/game_05.cpp:787; seen f32 -26.8118..0.0 | 5 (2/3) |
+| +0x570 | f32 | **m_platTimer** (table) | archive/src/anim/anim_01.cpp:2736; seen f32 0.0..0.5 | 14 (10/4) |
+| +0x574 | f32 | **m_surfaceNormal** (table) | archive/src/game/game_05.cpp:788; seen int -2147483648..1059750581 | 7 (2/3) |
+| +0x578 | f32 |  | archive/src/game/game_05.cpp:789; seen f32 -0.5051..0.9003 | 4 (1/3) |
+| +0x57c | f32 |  | archive/src/game/game_05.cpp:790; seen f32 0.0011..1.0 | 7 (4/3) |
 | +0x580 | ptr | pointer to DefaultGameObject (0.85) | dynamic targets DefaultGameObject x4, BuildingObject x1; seen ptr | 7 (3/4) |
-| +0x584 | u32 |  | src/game/game_05.cpp:2081; values [0, 1, 2, 3, 4, 5] | 8 (6/2) |
+| +0x584 | u32 |  | archive/src/game/game_05.cpp:2081; values [0, 1, 2, 3, 4, 5] | 8 (6/2) |
 | +0x588 | f32 | **m_deadTimer** (table) countdown timer (seconds): falls by the frame time (0.95) | dynamic: 69/70 changes equal -dt; seen f32 1.5..5.0 | 6 (2/4) |
-| +0x58c | u32 | **m_hitDir** (table) | src/game/game_06.cpp:502; values [0, 65554, 1037888091, 1057657167] | 3 (0/2) |
-| +0x590 | u32 |  | src/game/game_06.cpp:503; values [-1085299687, -2031600, 0, 1058887289] | 2 (0/2) |
-| +0x594 | f32 |  | src/game/game_06.cpp:504; values [-589824, 0, 1058203291, 1058220853] | 4 (1/3) |
-| +0x598 | u32 | **m_hitBody** (table) | src/game/game_06.cpp:508; values [-4587510, 0, 6] | 3 (1/2) |
-| +0x59c | u32 | **m_hitScale** (table) | src/game/game_06.cpp:507; values [0, 5111860, 1157316608] | 3 (1/2) |
-| +0x5a0 | f32 | **m_friction** (table) | src/game/game_05.cpp:2113; seen f32 0.3..2.0 | 2 (1/1) |
-| +0x5a4 | f32 | **m_frictionMax** (table) property "friction_max" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:574; seen f32 2.0..2.0 | 2 (1/0) |
-| +0x5a8 | f32 | **m_frictionMin** (table) property "friction_min" (float, default 0.3) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:573; seen f32 0.3..0.3 | 2 (1/0) |
-| +0x5ac | f32 | **m_frictionExponent** (table) property "friction_exponent" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:575; seen f32 4.0..4.0 | 2 (1/0) |
+| +0x58c | u32 | **m_hitDir** (table) | archive/src/game/game_06.cpp:502; values [0, 65554, 1037888091, 1057657167] | 3 (0/2) |
+| +0x590 | u32 |  | archive/src/game/game_06.cpp:503; values [-1085299687, -2031600, 0, 1058887289] | 2 (0/2) |
+| +0x594 | f32 |  | archive/src/game/game_06.cpp:504; values [-589824, 0, 1058203291, 1058220853] | 4 (1/3) |
+| +0x598 | u32 | **m_hitBody** (table) | archive/src/game/game_06.cpp:508; values [-4587510, 0, 6] | 3 (1/2) |
+| +0x59c | u32 | **m_hitScale** (table) | archive/src/game/game_06.cpp:507; values [0, 5111860, 1157316608] | 3 (1/2) |
+| +0x5a0 | f32 | **m_friction** (table) | archive/src/game/game_05.cpp:2113; seen f32 0.3..2.0 | 2 (1/1) |
+| +0x5a4 | f32 | **m_frictionMax** (table) property "friction_max" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:574; seen f32 2.0..2.0 | 2 (1/0) |
+| +0x5a8 | f32 | **m_frictionMin** (table) property "friction_min" (float, default 0.3) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:573; seen f32 0.3..0.3 | 2 (1/0) |
+| +0x5ac | f32 | **m_frictionExponent** (table) property "friction_exponent" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:575; seen f32 4.0..4.0 | 2 (1/0) |
 | +0x5b0 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; values [-1] | 10 (5/5) |
-| +0x5b4 | u32 |  | src/game/game_05.cpp:384; seen int 0..511 | 5 (2/3) |
-| +0x5b8 | ? | **m_twistOriginTransform** (table) | src/game/game_05.cpp:466; seen int -1105159152..1065353216 | 2 (0/0) |
-| +0x5fc | f32 | **m_twistOriginTransformScaled** (table) | src/game/game_05.cpp:493; seen f32 -1.0..1.0 | 2 (0/0) |
-| +0x640 | f32 | **m_landingTimer** (table) | src/anim/anim_01.cpp:3035 | 8 (3/5) |
+| +0x5b4 | u32 |  | archive/src/game/game_05.cpp:384; seen int 0..511 | 5 (2/3) |
+| +0x5b8 | ? | **m_twistOriginTransform** (table) | archive/src/game/game_05.cpp:466; seen int -1105159152..1065353216 | 2 (0/0) |
+| +0x5fc | f32 | **m_twistOriginTransformScaled** (table) | archive/src/game/game_05.cpp:493; seen f32 -1.0..1.0 | 2 (0/0) |
+| +0x640 | f32 | **m_landingTimer** (table) | archive/src/anim/anim_01.cpp:3035 | 8 (3/5) |
 | +0x644 | f32 | **m_landingTime** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 0.25..0.25 | 3 (2/1) |
-| +0x648 | f32 | **m_duckOffset** (table) | src/anim/anim_01.cpp:3042 | 5 (2/3) |
-| +0x64c | f32 | **m_legSurfaceNormal** (table) | src/game/game_05.cpp:799; seen f32 -0.3646..0.1961 | 1 (0/1) |
-| +0x650 | f32 |  | src/game/game_05.cpp:798; seen f32 -0.505..0.2344 | 1 (0/1) |
-| +0x654 | f32 |  | src/anim/anim_01.cpp:2965; seen f32 0.8572..1.0 | 3 (1/1) |
-| +0x658 | f32 |  | src/game/game_05.cpp:804; seen f32 -0.365..0.1961 | 1 (0/1) |
-| +0x65c | f32 |  | src/game/game_05.cpp:803; seen f32 -0.505..0.2346 | 1 (0/1) |
-| +0x660 | f32 |  | src/game/game_05.cpp:797; seen f32 0.8572..1.0 | 2 (1/1) |
-| +0x664 | f32 | **m_legSurfaceDisplacement** (table) | src/anim/anim_01.cpp:3057; seen f32 -1.5946..0.9914 | 3 (1/1) |
-| +0x668 | f32 |  | src/game/game_05.cpp:811; seen f32 -1.5236..0.9919 | 1 (0/1) |
-| +0x66c | f32 | **m_legSurfaceNormalDisplay** (table) | src/game/game_05.cpp:800; seen f32 -0.3646..0.1961 | 1 (0/1) |
-| +0x670 | f32 |  | src/game/game_05.cpp:801; seen f32 -0.505..0.2344 | 1 (0/1) |
-| +0x674 | f32 |  | src/game/game_05.cpp:802; seen f32 0.8572..1.0 | 1 (0/1) |
-| +0x678 | f32 |  | src/game/game_05.cpp:813; seen f32 -0.365..0.1961 | 1 (0/1) |
-| +0x67c | f32 |  | src/game/game_05.cpp:814; seen f32 -0.505..0.2346 | 1 (0/1) |
-| +0x680 | f32 |  | src/game/game_05.cpp:815; seen f32 0.8572..1.0 | 1 (0/1) |
-| +0x684 | f32 | **m_legSurfaceDisplacementDisplay** (table) | src/anim/anim_01.cpp:3060; seen int 0..1066643847 | 3 (0/3) |
-| +0x688 | u32 |  | src/game/game_05.cpp:812; seen f32 0.0..1.0193 | 1 (0/1) |
+| +0x648 | f32 | **m_duckOffset** (table) | archive/src/anim/anim_01.cpp:3042 | 5 (2/3) |
+| +0x64c | f32 | **m_legSurfaceNormal** (table) | archive/src/game/game_05.cpp:799; seen f32 -0.3646..0.1961 | 1 (0/1) |
+| +0x650 | f32 |  | archive/src/game/game_05.cpp:798; seen f32 -0.505..0.2344 | 1 (0/1) |
+| +0x654 | f32 |  | archive/src/anim/anim_01.cpp:2965; seen f32 0.8572..1.0 | 3 (1/1) |
+| +0x658 | f32 |  | archive/src/game/game_05.cpp:804; seen f32 -0.365..0.1961 | 1 (0/1) |
+| +0x65c | f32 |  | archive/src/game/game_05.cpp:803; seen f32 -0.505..0.2346 | 1 (0/1) |
+| +0x660 | f32 |  | archive/src/game/game_05.cpp:797; seen f32 0.8572..1.0 | 2 (1/1) |
+| +0x664 | f32 | **m_legSurfaceDisplacement** (table) | archive/src/anim/anim_01.cpp:3057; seen f32 -1.5946..0.9914 | 3 (1/1) |
+| +0x668 | f32 |  | archive/src/game/game_05.cpp:811; seen f32 -1.5236..0.9919 | 1 (0/1) |
+| +0x66c | f32 | **m_legSurfaceNormalDisplay** (table) | archive/src/game/game_05.cpp:800; seen f32 -0.3646..0.1961 | 1 (0/1) |
+| +0x670 | f32 |  | archive/src/game/game_05.cpp:801; seen f32 -0.505..0.2344 | 1 (0/1) |
+| +0x674 | f32 |  | archive/src/game/game_05.cpp:802; seen f32 0.8572..1.0 | 1 (0/1) |
+| +0x678 | f32 |  | archive/src/game/game_05.cpp:813; seen f32 -0.365..0.1961 | 1 (0/1) |
+| +0x67c | f32 |  | archive/src/game/game_05.cpp:814; seen f32 -0.505..0.2346 | 1 (0/1) |
+| +0x680 | f32 |  | archive/src/game/game_05.cpp:815; seen f32 0.8572..1.0 | 1 (0/1) |
+| +0x684 | f32 | **m_legSurfaceDisplacementDisplay** (table) | archive/src/anim/anim_01.cpp:3060; seen int 0..1066643847 | 3 (0/3) |
+| +0x688 | u32 |  | archive/src/game/game_05.cpp:812; seen f32 0.0..1.0193 | 1 (0/1) |
 | +0x68c | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 3 (0/1) |
 | +0x690 | u32 | flags bitfield (bits 0x30) (0.6) | static: masked / set / cleared with constants; dynamic 30/32 changes flip 1-2 bits; values [0, 50, 52] | 12 (2/10) |
-| +0x694 | u32 |  | src/game/game_05.cpp:1542; values [-2147483648, -1297370777, -1179933332, -1140900948, -1104671228, -1089407673] | 5 (0/3) |
-| +0x698 | f32 |  | src/game/game_05.cpp:1543; seen f32 -1.0..1.0 | 3 (0/3) |
-| +0x69c | u32 |  | src/game/game_05.cpp:1544; values [-2147483648, 0] | 3 (0/3) |
-| +0x6a0 | u32 |  | src/game/game_05.cpp:821; values [0, 4, 5, 57, 59, 63] | 2 (0/2) |
-| +0x6a4 | u32 |  | src/game/game_05.cpp:822; values [-1, 0, 58, 60, 64, 71] | 2 (0/2) |
+| +0x694 | u32 |  | archive/src/game/game_05.cpp:1542; values [-2147483648, -1297370777, -1179933332, -1140900948, -1104671228, -1089407673] | 5 (0/3) |
+| +0x698 | f32 |  | archive/src/game/game_05.cpp:1543; seen f32 -1.0..1.0 | 3 (0/3) |
+| +0x69c | u32 |  | archive/src/game/game_05.cpp:1544; values [-2147483648, 0] | 3 (0/3) |
+| +0x6a0 | u32 |  | archive/src/game/game_05.cpp:821; values [0, 4, 5, 57, 59, 63] | 2 (0/2) |
+| +0x6a4 | u32 |  | archive/src/game/game_05.cpp:822; values [-1, 0, 58, 60, 64, 71] | 2 (0/2) |
 | +0x6a8 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; values [-1, 0] | 2 (0/2) |
 | +0x6ac | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; values [-1, 0] | 2 (0/2) |
 | +0x6b0 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 0.0..0.6109 | 3 (0/3) |
-| +0x6b8 | u32 |  | src/game/game_05.cpp:820; values [0, 9, 10, 13, 14, 30] | 2 (0/2) |
+| +0x6b8 | u32 |  | archive/src/game/game_05.cpp:820; values [0, 9, 10, 13, 14, 30] | 2 (0/2) |
 | +0x6bc | u32 | flags bitfield (0.5) | dynamic: 59/59 changes flip 1-2 bits; values [0, 1, 3, 5, 7] | 2 (0/2) |
-| +0x800 | ? |  | src/game/game_05.cpp:1528 | 1 (0/0) |
-| +0x804 | u32 |  | src/anim/anim_01.cpp:2953; values [0, 50, 52] | 7 (2/5) |
-| +0x808 | u32 |  | src/game/game_05.cpp:1562; values [-2147483648, -1297370777, -1140900948, -1139869825, -1089407516, 0] | 1 (1/0) |
-| +0x80c | u32 |  | src/game/game_05.cpp:1563; seen f32 -1.0..1.0 | 1 (1/0) |
-| +0x810 | u32 |  | src/game/game_05.cpp:1564; values [-2147483648, 0] | 1 (1/0) |
-| +0x814 | u32 |  | src/game/game_05.cpp:825; values [0, 4, 5, 57, 59, 63] | 1 (0/1) |
-| +0x818 | u32 |  | src/game/game_05.cpp:826; values [-1, 0, 58, 60, 64, 71] | 1 (0/1) |
-| +0x81c | u32 |  | src/game/game_05.cpp:827; values [-1, 0] | 1 (0/1) |
-| +0x820 | u32 |  | src/game/game_05.cpp:828; values [-1, 0] | 1 (0/1) |
-| +0x82c | u32 |  | src/game/game_05.cpp:819; values [0, 9, 10, 13, 14, 30] | 1 (0/1) |
-| +0x830 | u32 |  | src/game/game_05.cpp:817; values [0, 1, 3, 5, 7] | 1 (0/1) |
-| +0x974 | f32 | **m_twistOrigin** (table) | src/game/game_05.cpp:434 | 3 (1/2) |
-| +0x978 | u32 | **m_twistBottom** (table) | src/game/game_05.cpp:831 | 1 (0/1) |
-| +0x97c | u32 | **m_twistTop** (table) | src/game/game_05.cpp:832 | 1 (0/1) |
-| +0x980 | f32 | **m_turnDir** (table) | src/game/game_05.cpp:833 | 2 (1/1) |
-| +0x984 | f32 | **m_movingTimer** (table) | src/game/game_05.cpp:794; values [0, 1015580520, 1015580776, 1028443188, 1028443316, 1034594906] | 5 (1/4) |
-| +0x988 | f32 | **m_turningTimer** (table) | src/game/game_05.cpp:793 | 6 (2/4) |
-| +0x98c | f32 | **m_roll** (table) | src/game/game_05.cpp:744 | 3 (1/2) |
-| +0x990 | f32 | **m_rollFactor, m_rollFactor, m_rollFactor** (table) property "roll_factor" (float, default 0.005) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:610; seen f32 0.005..0.005 | 2 (1/0) |
-| +0x994 | f32 | **m_YSpeedMin** (table) property "fwd_max_speed_min" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:578; seen f32 4.0..4.0 | 3 (2/0) |
-| +0x998 | f32 | **m_XSpeedMin** (table) property "side_max_speed_min" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:579; seen f32 4.0..4.0 | 3 (2/0) |
-| +0x99c | f32 | **m_normalMovementCoefficients** (table) property "control_exponent" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:596; seen f32 2.0..2.0 | 2 (0/1) |
-| +0x9a0 | u32 | property "control_bias" (wrapper, default 0) (0.9) | reader at src/game/game_05.cpp:597 | 1 (0/1) |
-| +0x9a4 | f32 | **m_zoomMovementCoefficients** (table) property "zoom_control_exponent" (float, default 5.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:600; seen f32 3.0..3.0 | 2 (0/1) |
-| +0x9a8 | u32 | property "zoom_control_control_bias" (wrapper, default 0) (0.9) | reader at src/game/game_05.cpp:601 | 1 (0/1) |
-| +0x9ac | f32 | **m_fwdMaxSpeed** (table) property "fwd_max_speed" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:576; seen f32 40.0..40.0 | 4 (3/0) |
-| +0x9b0 | f32 | **m_sideMaxSpeed** (table) property "side_max_speed" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:577; seen f32 40.0..40.0 | 4 (3/0) |
-| +0x9b4 | f32 | **m_slidingTimer** (table) | src/ai/ai_07.cpp:3920; seen int 0..1065353216 | 8 (3/5) |
+| +0x800 | ? |  | archive/src/game/game_05.cpp:1528 | 1 (0/0) |
+| +0x804 | u32 |  | archive/src/anim/anim_01.cpp:2953; values [0, 50, 52] | 7 (2/5) |
+| +0x808 | u32 |  | archive/src/game/game_05.cpp:1562; values [-2147483648, -1297370777, -1140900948, -1139869825, -1089407516, 0] | 1 (1/0) |
+| +0x80c | u32 |  | archive/src/game/game_05.cpp:1563; seen f32 -1.0..1.0 | 1 (1/0) |
+| +0x810 | u32 |  | archive/src/game/game_05.cpp:1564; values [-2147483648, 0] | 1 (1/0) |
+| +0x814 | u32 |  | archive/src/game/game_05.cpp:825; values [0, 4, 5, 57, 59, 63] | 1 (0/1) |
+| +0x818 | u32 |  | archive/src/game/game_05.cpp:826; values [-1, 0, 58, 60, 64, 71] | 1 (0/1) |
+| +0x81c | u32 |  | archive/src/game/game_05.cpp:827; values [-1, 0] | 1 (0/1) |
+| +0x820 | u32 |  | archive/src/game/game_05.cpp:828; values [-1, 0] | 1 (0/1) |
+| +0x82c | u32 |  | archive/src/game/game_05.cpp:819; values [0, 9, 10, 13, 14, 30] | 1 (0/1) |
+| +0x830 | u32 |  | archive/src/game/game_05.cpp:817; values [0, 1, 3, 5, 7] | 1 (0/1) |
+| +0x974 | f32 | **m_twistOrigin** (table) | archive/src/game/game_05.cpp:434 | 3 (1/2) |
+| +0x978 | u32 | **m_twistBottom** (table) | archive/src/game/game_05.cpp:831 | 1 (0/1) |
+| +0x97c | u32 | **m_twistTop** (table) | archive/src/game/game_05.cpp:832 | 1 (0/1) |
+| +0x980 | f32 | **m_turnDir** (table) | archive/src/game/game_05.cpp:833 | 2 (1/1) |
+| +0x984 | f32 | **m_movingTimer** (table) | archive/src/game/game_05.cpp:794; values [0, 1015580520, 1015580776, 1028443188, 1028443316, 1034594906] | 5 (1/4) |
+| +0x988 | f32 | **m_turningTimer** (table) | archive/src/game/game_05.cpp:793 | 6 (2/4) |
+| +0x98c | f32 | **m_roll** (table) | archive/src/game/game_05.cpp:744 | 3 (1/2) |
+| +0x990 | f32 | **m_rollFactor, m_rollFactor, m_rollFactor** (table) property "roll_factor" (float, default 0.005) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:610; seen f32 0.005..0.005 | 2 (1/0) |
+| +0x994 | f32 | **m_YSpeedMin** (table) property "fwd_max_speed_min" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:578; seen f32 4.0..4.0 | 3 (2/0) |
+| +0x998 | f32 | **m_XSpeedMin** (table) property "side_max_speed_min" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:579; seen f32 4.0..4.0 | 3 (2/0) |
+| +0x99c | f32 | **m_normalMovementCoefficients** (table) property "control_exponent" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:596; seen f32 2.0..2.0 | 2 (0/1) |
+| +0x9a0 | u32 | property "control_bias" (wrapper, default 0) (0.9) | reader at archive/src/game/game_05.cpp:597 | 1 (0/1) |
+| +0x9a4 | f32 | **m_zoomMovementCoefficients** (table) property "zoom_control_exponent" (float, default 5.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:600; seen f32 3.0..3.0 | 2 (0/1) |
+| +0x9a8 | u32 | property "zoom_control_control_bias" (wrapper, default 0) (0.9) | reader at archive/src/game/game_05.cpp:601 | 1 (0/1) |
+| +0x9ac | f32 | **m_fwdMaxSpeed** (table) property "fwd_max_speed" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:576; seen f32 40.0..40.0 | 4 (3/0) |
+| +0x9b0 | f32 | **m_sideMaxSpeed** (table) property "side_max_speed" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:577; seen f32 40.0..40.0 | 4 (3/0) |
+| +0x9b4 | f32 | **m_slidingTimer** (table) | archive/src/ai/ai_07.cpp:3920; seen int 0..1065353216 | 8 (3/5) |
 | +0x9b8 | f32 | **m_slidingTime** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 1.0..1.0 | 4 (1/3) |
-| +0x9bc | f32 | **m_landingTurboPowerMin** (table) property "landing_turbo_power_min" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:580; seen f32 2.0..2.0 | 2 (1/0) |
-| +0x9c0 | f32 | **m_landingTurboPowerMax** (table) property "landing_turbo_power_max" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:581; seen f32 4.0..4.0 | 2 (1/0) |
-| +0x9c4 | f32 | **m_landingJumpPowerMin** (table) property "landing_jump_power_min" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:582; seen f32 3.0..3.0 | 2 (1/0) |
-| +0x9c8 | f32 | **m_landingJumpPowerMax** (table) property "landing_jump_power_max" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:583; seen f32 2.0..2.0 | 2 (1/0) |
-| +0x9cc | f32 | **m_landingPowerMin** (table) property "landing_power_min" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:584; seen f32 3.0..3.0 | 2 (1/0) |
-| +0x9d0 | f32 | **m_landingPowerMax** (table) property "landing_power_max" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:585; seen f32 2.0..2.0 | 2 (1/0) |
-| +0x9d4 | f32 | **m_MovementPowerMin** (table) property "movement_power_min" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:586; seen f32 7.0..7.0 | 3 (2/0) |
-| +0x9d8 | f32 | **m_MovementPowerMax** (table) property "movement_power_max" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:587; seen f32 10.0..10.0 | 3 (2/0) |
-| +0x9dc | f32 | **m_targetingCoefficients** (table) property "targeting_exponent" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:588; seen f32 2.0..2.0 | 3 (0/1) |
-| +0x9e0 | u32 | property "targeting_bias" (wrapper, default 0) (0.9) | reader at src/game/game_05.cpp:589 | 1 (0/1) |
-| +0x9e4 | f32 | **m_zoomTargetingCoefficients** (table) property "zoom_targeting_exponent" (float, default 5.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:592; seen f32 3.0..3.0 | 3 (0/1) |
-| +0x9e8 | u32 | property "zoom_targeting_bias" (wrapper, default 0) (0.9) | reader at src/game/game_05.cpp:593 | 1 (0/1) |
-| +0x9ec | f32 | **m_turnMaxSpeed** (table) property "turn_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:608; seen f32 0.3..0.3 | 2 (1/0) |
-| +0x9f0 | f32 | **m_turnPowerMin** (table) property "turn_power_min" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:606; seen f32 40.0..40.0 | 1 (0/0) |
-| +0x9f4 | f32 | **m_turnPowerMax** (table) property "turn_power_max" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:607; seen f32 20.0..20.0 | 1 (0/0) |
-| +0x9f8 | f32 | **m_pitchMaxSpeed** (table) property "pitch_max_speed" (float, default 1.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:609; seen f32 0.95..0.95 | 2 (1/0) |
-| +0x9fc | f32 | **m_zoomTurnMaxSpeeds** (table) property "machinegun_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:611; seen f32 0.05..0.05 | 2 (1/0) |
-| +0xa00 | f32 | property "sniper_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:613; seen f32 0.02..0.02 | 1 (0/0) |
-| +0xa04 | f32 | property "rifle_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:615; seen f32 0.05..0.05 | 1 (0/0) |
-| +0xa08 | f32 | property "vindaloo_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:621; seen f32 0.05..0.05 | 1 (0/0) |
-| +0xa0c | f32 | property "gurner_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:619; seen f32 0.05..0.05 | 1 (0/0) |
-| +0xa10 | f32 | property "sharkgun_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:617; seen f32 0.05..0.05 | 1 (0/0) |
-| +0xa14 | f32 | **m_zoomPitchMaxSpeeds** (table) property "machinegun_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:612; seen f32 0.25..0.25 | 2 (1/0) |
-| +0xa18 | f32 | property "sniper_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:614; seen f32 0.1..0.1 | 1 (0/0) |
-| +0xa1c | f32 | property "rifle_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:616; seen f32 0.25..0.25 | 1 (0/0) |
-| +0xa20 | f32 | property "vindaloo_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:622; seen f32 0.25..0.25 | 1 (0/0) |
-| +0xa24 | f32 | property "gurner_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:620; seen f32 0.25..0.25 | 1 (0/0) |
-| +0xa28 | f32 | property "sharkgun_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:618; seen f32 0.25..0.25 | 1 (0/0) |
-| +0xa2c | f32 | **m_targetingControlDrag** (table) property "targeting_control_drag" (float, default 0.5) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:604; seen f32 1.0..1.0 | 3 (2/0) |
-| +0xa30 | f32 | **m_zoomTargetingControlDrag** (table) property "zoom_targeting_control_drag" (float, default 0.25) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:605; seen f32 1.0..1.0 | 3 (2/0) |
-| +0xa34 | u32 | **m_animFlags** (table) bit 0x80000000 = property "fxo_rocket_turret" (0.8); flags bitfield (bits 0x10, 0x100, 0x1000, 0x100000, 0x10000000, 0x190000, 0x2000, 0x20000000) (0.8) | statement at src/game/game_05.cpp:1987; values [0, 2048, 4096, 6144, 16384, 20480] | 110 (46/64) |
-| +0xa38 | f32 | **m_jumpFwdMaxSpeed** (table) property "jump_fwd_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:644; seen f32 6.5..6.5 | 2 (1/0) |
-| +0xa3c | f32 | **m_jumpSideMaxSpeed** (table) property "jump_side_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:645; seen f32 6.5..6.5 | 2 (1/0) |
-| +0xa40 | f32 | **m_jumpMovementPowerMin** (table) property "jump_movement_power" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:646; seen f32 4.0..4.0 | 3 (2/0) |
+| +0x9bc | f32 | **m_landingTurboPowerMin** (table) property "landing_turbo_power_min" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:580; seen f32 2.0..2.0 | 2 (1/0) |
+| +0x9c0 | f32 | **m_landingTurboPowerMax** (table) property "landing_turbo_power_max" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:581; seen f32 4.0..4.0 | 2 (1/0) |
+| +0x9c4 | f32 | **m_landingJumpPowerMin** (table) property "landing_jump_power_min" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:582; seen f32 3.0..3.0 | 2 (1/0) |
+| +0x9c8 | f32 | **m_landingJumpPowerMax** (table) property "landing_jump_power_max" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:583; seen f32 2.0..2.0 | 2 (1/0) |
+| +0x9cc | f32 | **m_landingPowerMin** (table) property "landing_power_min" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:584; seen f32 3.0..3.0 | 2 (1/0) |
+| +0x9d0 | f32 | **m_landingPowerMax** (table) property "landing_power_max" (wrapper, default 0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:585; seen f32 2.0..2.0 | 2 (1/0) |
+| +0x9d4 | f32 | **m_MovementPowerMin** (table) property "movement_power_min" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:586; seen f32 7.0..7.0 | 3 (2/0) |
+| +0x9d8 | f32 | **m_MovementPowerMax** (table) property "movement_power_max" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:587; seen f32 10.0..10.0 | 3 (2/0) |
+| +0x9dc | f32 | **m_targetingCoefficients** (table) property "targeting_exponent" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:588; seen f32 2.0..2.0 | 3 (0/1) |
+| +0x9e0 | u32 | property "targeting_bias" (wrapper, default 0) (0.9) | reader at archive/src/game/game_05.cpp:589 | 1 (0/1) |
+| +0x9e4 | f32 | **m_zoomTargetingCoefficients** (table) property "zoom_targeting_exponent" (float, default 5.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:592; seen f32 3.0..3.0 | 3 (0/1) |
+| +0x9e8 | u32 | property "zoom_targeting_bias" (wrapper, default 0) (0.9) | reader at archive/src/game/game_05.cpp:593 | 1 (0/1) |
+| +0x9ec | f32 | **m_turnMaxSpeed** (table) property "turn_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:608; seen f32 0.3..0.3 | 2 (1/0) |
+| +0x9f0 | f32 | **m_turnPowerMin** (table) property "turn_power_min" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:606; seen f32 40.0..40.0 | 1 (0/0) |
+| +0x9f4 | f32 | **m_turnPowerMax** (table) property "turn_power_max" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:607; seen f32 20.0..20.0 | 1 (0/0) |
+| +0x9f8 | f32 | **m_pitchMaxSpeed** (table) property "pitch_max_speed" (float, default 1.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:609; seen f32 0.95..0.95 | 2 (1/0) |
+| +0x9fc | f32 | **m_zoomTurnMaxSpeeds** (table) property "machinegun_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:611; seen f32 0.05..0.05 | 2 (1/0) |
+| +0xa00 | f32 | property "sniper_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:613; seen f32 0.02..0.02 | 1 (0/0) |
+| +0xa04 | f32 | property "rifle_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:615; seen f32 0.05..0.05 | 1 (0/0) |
+| +0xa08 | f32 | property "vindaloo_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:621; seen f32 0.05..0.05 | 1 (0/0) |
+| +0xa0c | f32 | property "gurner_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:619; seen f32 0.05..0.05 | 1 (0/0) |
+| +0xa10 | f32 | property "sharkgun_turn_max_speed" (float, default 0.025) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:617; seen f32 0.05..0.05 | 1 (0/0) |
+| +0xa14 | f32 | **m_zoomPitchMaxSpeeds** (table) property "machinegun_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:612; seen f32 0.25..0.25 | 2 (1/0) |
+| +0xa18 | f32 | property "sniper_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:614; seen f32 0.1..0.1 | 1 (0/0) |
+| +0xa1c | f32 | property "rifle_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:616; seen f32 0.25..0.25 | 1 (0/0) |
+| +0xa20 | f32 | property "vindaloo_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:622; seen f32 0.25..0.25 | 1 (0/0) |
+| +0xa24 | f32 | property "gurner_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:620; seen f32 0.25..0.25 | 1 (0/0) |
+| +0xa28 | f32 | property "sharkgun_pitch_max_speed" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:618; seen f32 0.25..0.25 | 1 (0/0) |
+| +0xa2c | f32 | **m_targetingControlDrag** (table) property "targeting_control_drag" (float, default 0.5) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:604; seen f32 1.0..1.0 | 3 (2/0) |
+| +0xa30 | f32 | **m_zoomTargetingControlDrag** (table) property "zoom_targeting_control_drag" (float, default 0.25) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:605; seen f32 1.0..1.0 | 3 (2/0) |
+| +0xa34 | u32 | **m_animFlags** (table) bit 0x80000000 = property "fxo_rocket_turret" (0.8); flags bitfield (bits 0x10, 0x100, 0x1000, 0x100000, 0x10000000, 0x190000, 0x2000, 0x20000000) (0.8) | statement at archive/src/game/game_05.cpp:1987; values [0, 2048, 4096, 6144, 16384, 20480] | 110 (46/64) |
+| +0xa38 | f32 | **m_jumpFwdMaxSpeed** (table) property "jump_fwd_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:644; seen f32 6.5..6.5 | 2 (1/0) |
+| +0xa3c | f32 | **m_jumpSideMaxSpeed** (table) property "jump_side_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:645; seen f32 6.5..6.5 | 2 (1/0) |
+| +0xa40 | f32 | **m_jumpMovementPowerMin** (table) property "jump_movement_power" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:646; seen f32 4.0..4.0 | 3 (2/0) |
 | +0xa44 | f32 | **m_jumpMovementPowerMax** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 4.0..4.0 | 2 (1/1) |
-| +0xa48 | f32 | **m_jumpImpulse** (table) property "jump_impulse" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:656; seen f32 70.0..70.0 | 2 (1/0) |
-| +0xa4c | f32 | **m_jumpAntiGravity** (table) property "jump_anti_gravity" (float, default 0.25) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:657; seen f32 2.5..2.5 | 4 (2/1) |
-| +0xa50 | f32 | **m_fallingSpeed** (table) property "fall_speed" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:648; seen f32 -50.0..-50.0 | 2 (1/0) |
-| +0xa54 | f32 | **m_fallingSpeedTurboGlided** (table) property "fall_speed_turbo_glided" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:650; seen f32 -50.0..-50.0 | 1 (0/0) |
-| +0xa58 | f32 | **m_fallingSpeedTurbo** (table) property "fall_speed_turbo" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:649; seen f32 -200.0..-200.0 | 2 (1/0) |
-| +0xa5c | f32 | **m_fallingSpeedJump** (table) property "fall_speed_jump" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:651; seen f32 -70.0..-70.0 | 2 (1/0) |
-| +0xa60 | f32 | **m_fallingTimer** (table) | src/game/game_05.cpp:795 | 7 (4/3) |
-| +0xa64 | f32 | **m_fallingLandHardTime** (table) property "fall_land_hard_time" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:652; seen f32 0.6..0.6 | 2 (1/0) |
-| +0xa68 | f32 | **m_landingSpeed** (table) property "land_speed" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:653; seen f32 30.0..30.0 | 3 (2/0) |
-| +0xa6c | f32 | **m_landingSpeedJump** (table) property "land_speed_jump" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:654; seen f32 20.0..20.0 | 2 (1/0) |
-| +0xa70 | f32 | **m_landingSpeedTurbo** (table) property "land_speed_turbo" (float, default 35.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:655; seen f32 40.0..40.0 | 2 (1/0) |
+| +0xa48 | f32 | **m_jumpImpulse** (table) property "jump_impulse" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:656; seen f32 70.0..70.0 | 2 (1/0) |
+| +0xa4c | f32 | **m_jumpAntiGravity** (table) property "jump_anti_gravity" (float, default 0.25) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:657; seen f32 2.5..2.5 | 4 (2/1) |
+| +0xa50 | f32 | **m_fallingSpeed** (table) property "fall_speed" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:648; seen f32 -50.0..-50.0 | 2 (1/0) |
+| +0xa54 | f32 | **m_fallingSpeedTurboGlided** (table) property "fall_speed_turbo_glided" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:650; seen f32 -50.0..-50.0 | 1 (0/0) |
+| +0xa58 | f32 | **m_fallingSpeedTurbo** (table) property "fall_speed_turbo" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:649; seen f32 -200.0..-200.0 | 2 (1/0) |
+| +0xa5c | f32 | **m_fallingSpeedJump** (table) property "fall_speed_jump" (float, default -50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:651; seen f32 -70.0..-70.0 | 2 (1/0) |
+| +0xa60 | f32 | **m_fallingTimer** (table) | archive/src/game/game_05.cpp:795 | 7 (4/3) |
+| +0xa64 | f32 | **m_fallingLandHardTime** (table) property "fall_land_hard_time" (float, default 0.1) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:652; seen f32 0.6..0.6 | 2 (1/0) |
+| +0xa68 | f32 | **m_landingSpeed** (table) property "land_speed" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:653; seen f32 30.0..30.0 | 3 (2/0) |
+| +0xa6c | f32 | **m_landingSpeedJump** (table) property "land_speed_jump" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:654; seen f32 20.0..20.0 | 2 (1/0) |
+| +0xa70 | f32 | **m_landingSpeedTurbo** (table) property "land_speed_turbo" (float, default 35.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:655; seen f32 40.0..40.0 | 2 (1/0) |
 | +0xa74 | f32 | **m_landingSpeedThreshold** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 30.0..30.0 | 6 (2/4) |
-| +0xa78 | f32 | **m_turboFwdMaxSpeed** (table) property "turbo_fwd_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:623; seen f32 23.0..23.0 | 2 (1/0) |
-| +0xa7c | f32 | **m_turboSideMaxSpeed** (table) property "turbo_side_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:624; seen f32 10.0..10.0 | 2 (1/0) |
-| +0xa80 | f32 | **m_turboForce** (table) property "turbo_force" (float, default 175.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:625; seen f32 1000.0..1000.0 | 2 (1/0) |
-| +0xa84 | f32 | **m_turboBoostForce** (table) property "turbo_boost_force" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:626; seen f32 1750.0..1750.0 | 2 (1/0) |
-| +0xa88 | f32 | **m_turboAntiGravity** (table) property "turbo_anti_gravity" (float, default 0.25) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:628; seen f32 2.5..2.5 | 5 (3/1) |
-| +0xa8c | f32 | **m_turboMovementPowerMin** (table) property "turbo_movement_power" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:637; seen f32 2.5..2.5 | 3 (2/0) |
+| +0xa78 | f32 | **m_turboFwdMaxSpeed** (table) property "turbo_fwd_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:623; seen f32 23.0..23.0 | 2 (1/0) |
+| +0xa7c | f32 | **m_turboSideMaxSpeed** (table) property "turbo_side_max_speed" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:624; seen f32 10.0..10.0 | 2 (1/0) |
+| +0xa80 | f32 | **m_turboForce** (table) property "turbo_force" (float, default 175.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:625; seen f32 1000.0..1000.0 | 2 (1/0) |
+| +0xa84 | f32 | **m_turboBoostForce** (table) property "turbo_boost_force" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:626; seen f32 1750.0..1750.0 | 2 (1/0) |
+| +0xa88 | f32 | **m_turboAntiGravity** (table) property "turbo_anti_gravity" (float, default 0.25) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:628; seen f32 2.5..2.5 | 5 (3/1) |
+| +0xa8c | f32 | **m_turboMovementPowerMin** (table) property "turbo_movement_power" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:637; seen f32 2.5..2.5 | 3 (2/0) |
 | +0xa90 | f32 | **m_turboMovementPowerMax** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; seen f32 2.5..2.5 | 2 (1/1) |
-| +0xa94 | f32 | **m_turboTime** (table) property "turbo_time" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:627; seen f32 0.2..0.2 | 2 (1/0) |
-| +0xa98 | f32 | **m_turboGlideFwdMaxSpeed** (table) property "turbo_glide_fwd_max_speed" (float, default 50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:634; seen f32 50.0..50.0 | 2 (1/0) |
-| +0xa9c | f32 | **m_turboGlideBkdMaxSpeed** (table) property "turbo_glide_bkd_max_speed" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:635; seen f32 55.0..55.0 | 2 (1/0) |
-| +0xaa0 | f32 | **m_turboGlideSideMaxSpeed** (table) property "turbo_glide_side_max_speed" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:636; seen f32 50.0..50.0 | 2 (1/0) |
-| +0xaa4 | f32 | **m_turboGlideXYVel** (table) property "turbo_glide_xyvel" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:631; seen f32 40.0..40.0 | 2 (1/0) |
-| +0xaa8 | f32 | **m_turboGlideZVel** (table) property "turbo_glide_zvel" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:630; seen f32 25.0..25.0 | 2 (1/0) |
-| +0xaac | f32 | **m_turboGlidePowerMin** (table) property "turbo_glide_power_min" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:632; seen f32 4.7..4.7 | 2 (1/0) |
-| +0xab0 | f32 | **m_turboGlidePowerMax** (table) property "turbo_glide_power_max" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:633; seen f32 4.7..4.7 | 2 (1/0) |
-| +0xab4 | f32 | **m_turboGlideAntiGravity** (table) property "turbo_glide_anti_gravity" (wrapper) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:641; seen f32 0.5..0.5 | 4 (2/1) |
-| +0xab8 | u32 |  | src/game/game_05.cpp:398 | 5 (0/1) |
+| +0xa94 | f32 | **m_turboTime** (table) property "turbo_time" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:627; seen f32 0.2..0.2 | 2 (1/0) |
+| +0xa98 | f32 | **m_turboGlideFwdMaxSpeed** (table) property "turbo_glide_fwd_max_speed" (float, default 50.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:634; seen f32 50.0..50.0 | 2 (1/0) |
+| +0xa9c | f32 | **m_turboGlideBkdMaxSpeed** (table) property "turbo_glide_bkd_max_speed" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:635; seen f32 55.0..55.0 | 2 (1/0) |
+| +0xaa0 | f32 | **m_turboGlideSideMaxSpeed** (table) property "turbo_glide_side_max_speed" (float, default 4.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:636; seen f32 50.0..50.0 | 2 (1/0) |
+| +0xaa4 | f32 | **m_turboGlideXYVel** (table) property "turbo_glide_xyvel" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:631; seen f32 40.0..40.0 | 2 (1/0) |
+| +0xaa8 | f32 | **m_turboGlideZVel** (table) property "turbo_glide_zvel" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:630; seen f32 25.0..25.0 | 2 (1/0) |
+| +0xaac | f32 | **m_turboGlidePowerMin** (table) property "turbo_glide_power_min" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:632; seen f32 4.7..4.7 | 2 (1/0) |
+| +0xab0 | f32 | **m_turboGlidePowerMax** (table) property "turbo_glide_power_max" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:633; seen f32 4.7..4.7 | 2 (1/0) |
+| +0xab4 | f32 | **m_turboGlideAntiGravity** (table) property "turbo_glide_anti_gravity" (wrapper) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:641; seen f32 0.5..0.5 | 4 (2/1) |
+| +0xab8 | u32 |  | archive/src/game/game_05.cpp:398 | 5 (0/1) |
 | +0xabc | ptr | pointer to DefaultGameObject (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets DefaultGameObject x60; seen ptr | 18 (14/1) |
 | +0xac0 | u32 | pointer (base) (0.7) | static: base x2 | 9 (6/2) |
-| +0xac4 | u32 |  | src/game/game_05.cpp:745 | 1 (0/1) |
-| +0xac8 | u32 |  | src/game/game_05.cpp:746 | 1 (0/1) |
+| +0xac4 | u32 |  | archive/src/game/game_05.cpp:745 | 1 (0/1) |
+| +0xac8 | u32 |  | archive/src/game/game_05.cpp:746 | 1 (0/1) |
 | +0xacc | u8 | **m_isZoomMode** (table) bool (stores 0 / 1) (0.7); flags bitfield (0.5) | static: only 0 / 1 stored; values [-5046272, -720896, 0, 256, 10420224, 10420480] | 7 (4/3) |
 | +0xacd | u8 | **m_resetAnim** (table) bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 7 (1/6) |
 | +0xad0 | ptr | **Jonesy (trace companions)** pointer to MolmerObject (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets MolmerObject x14; seen ptr | 11 (5/4) |
 | +0xad4 | ptr | **Q (trace companions)** pointer to Q111Object (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets Q111Object x14; seen ptr | 9 (3/4) |
 | +0xad8 | u32 | pointer (base, ref, vcall) (0.7) | static: base x2, ref x1, vcall x1 | 10 (7/3) |
-| +0xadc | ? | **m_topsyCameraBone** (table) property "topsy_camera_bone" (string) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:726; values [1701667171] | 2 (0/0) |
+| +0xadc | ? | **m_topsyCameraBone** (table) property "topsy_camera_bone" (string) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:726; values [1701667171] | 2 (0/0) |
 | +0xafc | u32 | pointer (ref, vcall, base) (0.7) | static: ref x2, vcall x1, base x2 | 12 (8/4) |
-| +0xb00 | u32 | **m_hurtLastTime, m_hurtLastTime** (table) | src/ai/ai_07.cpp:3981; values [0, 1065912499, 1068149467, 1078355596, 1081920762, 1082864460] | 4 (1/3) |
-| +0xb04 | f32 | **m_fatigueTimer** (table) | src/game/game_05.cpp:732; seen int 0..1065073600 | 4 (1/3) |
-| +0xbcc | u32 | **m_hurtAmount** (table) | src/ai/ai_07.cpp:3911; values [0, 1092616192, 1097859072, 1103626240, 1106247680, 1120403456] | 3 (1/2) |
-| +0xbd0 | f32 | property "landing_damage_min_hurt" (float, default 70.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:713; seen f32 150.0..150.0 | 2 (1/0) |
-| +0xbd4 | f32 | property "landing_damage_min_hurt_turbo" (float, default 70.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:717; seen f32 100.0..100.0 | 1 (0/0) |
-| +0xbd8 | f32 | property "landing_damage_max_hurt" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:714; seen f32 300.0..300.0 | 2 (1/0) |
-| +0xbdc | f32 | property "landing_damage_max_hurt_turbo" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:718; seen f32 100.0..100.0 | 1 (0/0) |
-| +0xbe0 | f32 | property "landing_damage_min_speed" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:715; seen f32 150.0..150.0 | 2 (1/0) |
-| +0xbe4 | f32 | property "landing_damage_min_speed_turbo" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:719; seen f32 350.0..350.0 | 1 (0/0) |
-| +0xbe8 | f32 | property "landing_damage_max_speed" (float, default 100.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:716; seen f32 200.0..200.0 | 2 (1/0) |
-| +0xbec | f32 | property "landing_damage_max_speed_turbo" (float, default 100.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:720; seen f32 350.0..350.0 | 1 (0/0) |
-| +0xbf0 | f32 | property "death_falling_time" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:721; seen f32 1.0..1.0 | 2 (1/0) |
-| +0xbf4 | f32 | property "death_falling_distance" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:722; seen f32 110.0..110.0 | 2 (1/0) |
-| +0xbf8 | f32 | property "turbo_death_falling_time" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:723; seen f32 6.0..6.0 | 2 (1/0) |
-| +0xbfc | f32 | property "turbo_death_falling_distance" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_05.cpp:724; seen f32 600.0..600.0 | 2 (1/0) |
-| +0xc00 | f32 | **m_reloadTimer** (table) | src/game/game_05.cpp:805; seen int 0..1056405376 | 6 (2/4) |
+| +0xb00 | u32 | **m_hurtLastTime, m_hurtLastTime** (table) | archive/src/ai/ai_07.cpp:3981; values [0, 1065912499, 1068149467, 1078355596, 1081920762, 1082864460] | 4 (1/3) |
+| +0xb04 | f32 | **m_fatigueTimer** (table) | archive/src/game/game_05.cpp:732; seen int 0..1065073600 | 4 (1/3) |
+| +0xbcc | u32 | **m_hurtAmount** (table) | archive/src/ai/ai_07.cpp:3911; values [0, 1092616192, 1097859072, 1103626240, 1106247680, 1120403456] | 3 (1/2) |
+| +0xbd0 | f32 | property "landing_damage_min_hurt" (float, default 70.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:713; seen f32 150.0..150.0 | 2 (1/0) |
+| +0xbd4 | f32 | property "landing_damage_min_hurt_turbo" (float, default 70.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:717; seen f32 100.0..100.0 | 1 (0/0) |
+| +0xbd8 | f32 | property "landing_damage_max_hurt" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:714; seen f32 300.0..300.0 | 2 (1/0) |
+| +0xbdc | f32 | property "landing_damage_max_hurt_turbo" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:718; seen f32 100.0..100.0 | 1 (0/0) |
+| +0xbe0 | f32 | property "landing_damage_min_speed" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:715; seen f32 150.0..150.0 | 2 (1/0) |
+| +0xbe4 | f32 | property "landing_damage_min_speed_turbo" (float, default 40.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:719; seen f32 350.0..350.0 | 1 (0/0) |
+| +0xbe8 | f32 | property "landing_damage_max_speed" (float, default 100.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:716; seen f32 200.0..200.0 | 2 (1/0) |
+| +0xbec | f32 | property "landing_damage_max_speed_turbo" (float, default 100.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:720; seen f32 350.0..350.0 | 1 (0/0) |
+| +0xbf0 | f32 | property "death_falling_time" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:721; seen f32 1.0..1.0 | 2 (1/0) |
+| +0xbf4 | f32 | property "death_falling_distance" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:722; seen f32 110.0..110.0 | 2 (1/0) |
+| +0xbf8 | f32 | property "turbo_death_falling_time" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:723; seen f32 6.0..6.0 | 2 (1/0) |
+| +0xbfc | f32 | property "turbo_death_falling_distance" (float, default 200.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_05.cpp:724; seen f32 600.0..600.0 | 2 (1/0) |
+| +0xc00 | f32 | **m_reloadTimer** (table) | archive/src/game/game_05.cpp:805; seen int 0..1056405376 | 6 (2/4) |
 | +0xc04 | u32 | **m_stationaryTimer** (table) stopwatch / accumulator (seconds): grows by the frame time (0.95) | dynamic: 2667/2755 changes equal +dt; seen f32 0.0..5.8 | 11 (2/9) |
-| +0xc08 | u32 | **m_stationaryAnim** (table) | src/game/game_05.cpp:808 | 5 (1/4) |
+| +0xc08 | u32 | **m_stationaryAnim** (table) | archive/src/game/game_05.cpp:808 | 5 (1/4) |
 | +0xc0c | f32 | **m_vLocation** (table) position x (+4 y, +8 z): equals the object's position (vt+0x54) (0.97) | dynamic: 4678/4713 samples; seen f32 -702.6181..3123.6057 | 2 (1/0) |
-| +0xc10 | f32 |  | src/game/game_06.cpp:2318; seen f32 -2587.9143..3047.0032 | 1 (1/0) |
-| +0xc14 | f32 |  | src/game/game_06.cpp:2319; seen f32 -235.7192..968.4371 | 1 (1/0) |
-| +0xc18 | f32 | **m_vLastLocation** (table) | src/game/game_06.cpp:2317; seen f32 -702.6181..3123.6025 | 1 (0/1) |
-| +0xc1c | f32 |  | src/game/game_06.cpp:2318; seen f32 -2587.9143..3047.0032 | 1 (0/1) |
-| +0xc20 | f32 |  | src/game/game_06.cpp:2319; seen f32 -235.723..968.5829 | 1 (0/1) |
+| +0xc10 | f32 |  | archive/src/game/game_06.cpp:2318; seen f32 -2587.9143..3047.0032 | 1 (1/0) |
+| +0xc14 | f32 |  | archive/src/game/game_06.cpp:2319; seen f32 -235.7192..968.4371 | 1 (1/0) |
+| +0xc18 | f32 | **m_vLastLocation** (table) | archive/src/game/game_06.cpp:2317; seen f32 -702.6181..3123.6025 | 1 (0/1) |
+| +0xc1c | f32 |  | archive/src/game/game_06.cpp:2318; seen f32 -2587.9143..3047.0032 | 1 (0/1) |
+| +0xc20 | f32 |  | archive/src/game/game_06.cpp:2319; seen f32 -235.723..968.5829 | 1 (0/1) |
 | +0xc24 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 20 (0/0) |
 | +0xc54 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 3 (0/0) |
 | +0xdec | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 4713 samples of 23 objects; values [1600546162] | 1 (0/0) |
 | +0xe5c | f32 | **m_idleVOTimer** (table) stopwatch / accumulator (seconds): grows by the frame time (0.95) | dynamic: 2667/2755 changes equal +dt; seen f32 0.0..5.8 | 11 (1/10) |
-| +0xe60 | ? |  | src/ai/ai_07.cpp:3944; values [-102693344, 0, 60, 434, 497, 196594] | 3 (0/0) |
+| +0xe60 | ? |  | archive/src/ai/ai_07.cpp:3944; values [-102693344, 0, 60, 434, 497, 196594] | 3 (0/0) |

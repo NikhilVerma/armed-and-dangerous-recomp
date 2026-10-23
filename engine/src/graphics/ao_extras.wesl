@@ -1,4 +1,4 @@
-// The old remaster's ambient occlusion apply (src/rhi/vulkan/vk_gtao.cpp GtaoApplyFragmentGlsl) on the SSAO term in
+// The old remaster's ambient occlusion apply (archive/src/rhi/vulkan/vk_gtao.cpp GtaoApplyFragmentGlsl) on the SSAO term in
 // the game material (graphics/ao_extras.rs; the term itself is XeGTAO's, with its power: graphics/xegtao.wesl):
 //   1. multi-bounce with the surface's albedo (Jimenez et al. 2016, eq. 10): bright surfaces lose less light
 //   2. strength, and only ao_snow of it on snow (the snow surfaces by name, ao_exempt, and snow-white albedo)

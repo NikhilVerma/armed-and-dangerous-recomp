@@ -1,4 +1,4 @@
-//! The companions' tower task (MolmerObject / Q111Object, src/ai/ai_08.cpp; docs/subsystems/companions.md 8): a
+//! The companions' tower task (MolmerObject / Q111Object, archive/src/ai/ai_08.cpp; docs/subsystems/companions.md 8): a
 //! companion set up with a trigger and a marker walks off on its own when the trigger comes, takes its place at the
 //! marker and blows the doors of the object named by its obj_tag. The shipped data uses it once: lev_4_m2's Jonesy
 //! (molmer 147: receive_trigger_activate 7001, tower_marker_tag 30, obj_tag -600) and "Get Jonesy (ALIVE) to the Glass

@@ -1,7 +1,7 @@
 //! The in-game HUD from the game's own UI data (tools/remaster_export_ui.py; docs/subsystems/hud.md): element
 //! positions in the original 640x480 layout (y up), their quad meshes and textures, the bitmap font. Drawn as a
 //! 2D overlay, scaled by screen height / 480 with left / right anchors pinned to the screen edges (the remaster's
-//! widescreen rule, hook/enhance/ui_aspect.cpp). Health meters empty by scrolling their texture (3.2), text has a
+//! widescreen rule, archive/hook/enhance/ui_aspect.cpp). Health meters empty by scrolling their texture (3.2), text has a
 //! 2 px black shadow, lines are 25 x scale px at 480.
 
 use crate::levelreset::LevelAppExt;
@@ -1639,8 +1639,8 @@ fn log_hud(
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The crosshair: Hud_UpdateCrosshair 0x00406f50 (src/ui/ui_01.cpp:312) picks what is under it, Hud_ProjectMarkers
-// 0x00406840 (src/renderer/render_r0.cpp:143) shows the current weapon's crosshair and plays its `<name>_in` /
+// The crosshair: Hud_UpdateCrosshair 0x00406f50 (archive/src/ui/ui_01.cpp:312) picks what is under it, Hud_ProjectMarkers
+// 0x00406840 (archive/src/renderer/render_r0.cpp:143) shows the current weapon's crosshair and plays its `<name>_in` /
 // `<name>_out` anim (0x00466650 / 0x004666a0) when the state changes. docs/subsystems/hud.md section 11.
 
 /// The HUD texts hidden while the game is paused (+0x474 0x20: the prompts, inited by 0x00465230 and the classes

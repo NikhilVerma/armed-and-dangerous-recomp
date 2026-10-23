@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "a house's debris (fx_explosion_village_house_2: fxo_debri_village_1 / _2, density x hull volume 2753 / 6333, gravity x2 / x1 of 64.35) flies, lands and rests on what is below it, its visible box on the ground (no piece resting in the air)"},
  {"wait": 0.5},
  {"loadout": {"health": 5000}},

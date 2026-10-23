@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 1.0},
  {"expect": {"campaign.levels_reached": 1, "campaign.movies_seen": 0, "campaign.tokens": 0}},
  {"pickup": "pickup_treasure1"}, {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},

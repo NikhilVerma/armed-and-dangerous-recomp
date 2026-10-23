@@ -1,5 +1,5 @@
-//! The save / load slot screens (feedback 26): the original's SaveGame and LoadGame screens (src/ui/ui_03.cpp,
-//! src/renderer/render_r6.cpp) over the six save slots of savegame.rs. gamemenu.rs spawns the pages and drives the
+//! The save / load slot screens (feedback 26): the original's SaveGame and LoadGame screens (archive/src/ui/ui_03.cpp,
+//! archive/src/renderer/render_r6.cpp) over the six save slots of savegame.rs. gamemenu.rs spawns the pages and drives the
 //! selection; this module is what a slot shows and how the selection moves, and the system that draws the slots.
 //!
 //! The original (page pui_savegame, docs/subsystems/menus.md):

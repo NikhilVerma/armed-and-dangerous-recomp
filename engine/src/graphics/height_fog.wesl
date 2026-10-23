@@ -1,4 +1,4 @@
-// The old remaster's modern fog ([render] fog_modern; src/rhi/vulkan/vk_fog.cpp ModernFogGlsl, the uniforms from
+// The old remaster's modern fog ([render] fog_modern; archive/src/rhi/vulkan/vk_fog.cpp ModernFogGlsl, the uniforms from
 // vk_device.cpp ModernFogUniforms): exponential height fog in place of the level's linear fog, on every surface the
 // level's fog reaches (graphics/height_fog.rs).
 //

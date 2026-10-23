@@ -6,8 +6,8 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 
 | Offset | Type | Name / meaning | Evidence | Uses (r/w) |
 | --- | --- | --- | --- | --- |
-| +0x18 | i32 |  | src/ui/ui_03.cpp:1063; values [0, 1] | 2 (0/2) |
-| +0x20 | u32 |  | src/input/input_01.cpp:190 | 2 (0/2) |
+| +0x18 | i32 |  | archive/src/ui/ui_03.cpp:1063; values [0, 1] | 2 (0/2) |
+| +0x20 | u32 |  | archive/src/input/input_01.cpp:190 | 2 (0/2) |
 | +0x28 | ptr | pointer (vcall) (0.7); constant per object while traced (set at load / creation) (0.4) | static: vcall x2; seen ptr | 5 (4/1) |
 | +0x2c | ptr | pointer (vcall) (0.7); constant per object while traced (set at load / creation) (0.4) | static: vcall x83; seen ptr | 106 (106/0) |
 | +0x30 | ptr | pointer (vcall, base) (0.7); constant per object while traced (set at load / creation) (0.4) | static: vcall x6, base x2; seen ptr | 17 (17/0) |
@@ -16,7 +16,7 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0x3c | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 1 (0/1) |
 | +0x40 | ptr | pointer (vcall) (0.7); constant per object while traced (set at load / creation) (0.4) | static: vcall x6; seen ptr | 10 (9/1) |
 | +0x44 | ptr | pointer (vcall) (0.7); constant per object while traced (set at load / creation) (0.4) | static: vcall x12; seen ptr | 15 (14/1) |
-| +0x48 | u32 |  | src/renderer/render_r4.cpp:1759 | 1 (0/1) |
+| +0x48 | u32 |  | archive/src/renderer/render_r4.cpp:1759 | 1 (0/1) |
 | +0x4c | i32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [640] | 3 (2/1) |
 | +0x50 | i32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [480] | 3 (2/1) |
 | +0x54 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [32] | 1 (0/1) |
@@ -25,16 +25,16 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0x64 | ptr | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [269684010, 492832730, 492898266, 492963802, 493029338, 493094874] | 1 (1/0) |
 | +0x6c | ptr | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [4194304] | 1 (1/0) |
 | +0x174 | u8 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 6 (2/1) |
-| +0x175 | u8 |  | src/game/game_09.cpp:1817 | 6 (5/1) |
-| +0x176 | u8 |  | src/renderer/render_r4.cpp:1112 | 3 (1/0) |
-| +0x177 | ? |  | src/save/save_01.cpp:206 | 2 (0/0) |
-| +0x1f8 | u32 |  | src/save/save_01.cpp:207 | 5 (3/1) |
-| +0x1fc | u32 |  | src/save/save_01.cpp:3694 | 3 (0/1) |
-| +0x200 | u32 |  | src/save/save_01.cpp:3696 | 5 (2/1) |
-| +0x20c | u32 |  | src/save/save_01.cpp:208 | 2 (0/1) |
-| +0x28c | ? |  | src/save/save_01.cpp:3695 | 2 (0/0) |
-| +0x30c | ? |  | src/save/save_01.cpp:3697 | 2 (0/0) |
-| +0x48c | u32 |  | src/game/game_02.cpp:443 | 7 (4/2) |
+| +0x175 | u8 |  | archive/src/game/game_09.cpp:1817 | 6 (5/1) |
+| +0x176 | u8 |  | archive/src/renderer/render_r4.cpp:1112 | 3 (1/0) |
+| +0x177 | ? |  | archive/src/save/save_01.cpp:206 | 2 (0/0) |
+| +0x1f8 | u32 |  | archive/src/save/save_01.cpp:207 | 5 (3/1) |
+| +0x1fc | u32 |  | archive/src/save/save_01.cpp:3694 | 3 (0/1) |
+| +0x200 | u32 |  | archive/src/save/save_01.cpp:3696 | 5 (2/1) |
+| +0x20c | u32 |  | archive/src/save/save_01.cpp:208 | 2 (0/1) |
+| +0x28c | ? |  | archive/src/save/save_01.cpp:3695 | 2 (0/0) |
+| +0x30c | ? |  | archive/src/save/save_01.cpp:3697 | 2 (0/0) |
+| +0x48c | u32 |  | archive/src/game/game_02.cpp:443 | 7 (4/2) |
 | +0x490 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.8..0.8 | 5 (3/0) |
 | +0x494 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.8..0.8 | 5 (3/0) |
 | +0x498 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.8..0.8 | 5 (3/0) |
@@ -47,18 +47,18 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0x4b4 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.5..1.5 | 5 (3/1) |
 | +0x4b8 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.5..0.5 | 4 (2/0) |
 | +0x4bc | u8 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 9 (7/1) |
-| +0x4bd | u8 |  | src/save/save_01.cpp:215 | 3 (1/1) |
-| +0x4be | u8 |  | src/save/save_01.cpp:216 | 3 (1/1) |
-| +0x4bf | u8 |  | src/save/save_01.cpp:217 | 3 (1/1) |
+| +0x4bd | u8 |  | archive/src/save/save_01.cpp:215 | 3 (1/1) |
+| +0x4be | u8 |  | archive/src/save/save_01.cpp:216 | 3 (1/1) |
+| +0x4bf | u8 |  | archive/src/save/save_01.cpp:217 | 3 (1/1) |
 | +0x4c0 | u8 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [257] | 3 (1/1) |
-| +0x4c1 | u8 |  | src/save/save_01.cpp:225 | 3 (1/1) |
-| +0x4c2 | u8 |  | src/game/game_09.cpp:2833 | 3 (1/0) |
+| +0x4c1 | u8 |  | archive/src/save/save_01.cpp:225 | 3 (1/1) |
+| +0x4c2 | u8 |  | archive/src/game/game_09.cpp:2833 | 3 (1/0) |
 | +0x4c3 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 3 (1/2) |
-| +0x4c4 | u8 |  | src/save/save_01.cpp:231 | 1 (0/1) |
+| +0x4c4 | u8 |  | archive/src/save/save_01.cpp:231 | 1 (0/1) |
 | +0x4c8 | u32 | flags bitfield (bits 0x100, 0x11, 0x200, 0x2000, 0x21, 0xffffdcff) (0.8) | static: masked / set / cleared with constants | 19 (16/3) |
-| +0x4cc | u32 |  | src/save/save_01.cpp:3521 | 4 (2/2) |
-| +0x4d0 | u16 |  | src/save/save_01.cpp:3522 | 6 (0/1) |
-| +0x510 | u16 |  | src/save/save_01.cpp:271 | 7 (0/1) |
+| +0x4cc | u32 |  | archive/src/save/save_01.cpp:3521 | 4 (2/2) |
+| +0x4d0 | u16 |  | archive/src/save/save_01.cpp:3522 | 6 (0/1) |
+| +0x510 | u16 |  | archive/src/save/save_01.cpp:271 | 7 (0/1) |
 | +0x550 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [1] | 8 (6/2) |
 | +0x554 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 3 (3/0) |
 | +0x558 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 1 (1/0) |
@@ -66,24 +66,24 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0x560 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 1 (1/0) |
 | +0x564 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 4 (4/0) |
 | +0x568 | u8 | flags bitfield (bits 0x10, 0x18, 0x20, 0xef, 0xfb) (0.8); constant per object while traced (set at load / creation) (0.4) | static: masked / set / cleared with constants; values [2] | 19 (11/8) |
-| +0x56c | u32 |  | src/save/save_01.cpp:2070 | 6 (1/5) |
+| +0x56c | u32 |  | archive/src/save/save_01.cpp:2070 | 6 (1/5) |
 | +0x570 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [5000] | 8 (7/1) |
 | +0x574 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 2 (1/1) |
 | +0x575 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 1 (0/1) |
 | +0x578 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 2 (1/1) |
 | +0x57c | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [5000] | 3 (3/0) |
-| +0x588 | ? |  | src/engine/engine_01.cpp:155 | 1 (0/0) |
-| +0x690 | ? |  | src/engine/engine_01.cpp:156 | 1 (0/0) |
+| +0x588 | ? |  | archive/src/engine/engine_01.cpp:155 | 1 (0/0) |
+| +0x690 | ? |  | archive/src/engine/engine_01.cpp:156 | 1 (0/0) |
 | +0x700 | u32 | frame counter: +1 per frame (0.95) | dynamic: 2332/2340 changes equal frames; seen int 2..1201 | 2 (0/2) |
-| +0x704 | u8 | **m_cameraMat** (table) | src/engine/engine_01.cpp:141; seen f32 -1.0..0.6561 | 3 (1/0) |
+| +0x704 | u8 | **m_cameraMat** (table) | archive/src/engine/engine_01.cpp:141; seen f32 -1.0..0.6561 | 3 (1/0) |
 | +0x748 | ptr | **the player (testoracle Player())** pointer to PlayerObject (0.85); constant per object while traced (set at load / creation) (0.4) | dynamic targets PlayerObject x8; seen ptr | 213 (211/2) |
 | +0x74c | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 3 (2/1) |
 | +0x74d | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 5 (1/4) |
-| +0x74e | u8 |  | src/game/game_01.cpp:213 | 1 (1/0) |
-| +0x7ce | u8 |  | src/game/game_01.cpp:214 | 1 (1/0) |
-| +0x84e | u16 |  | src/game/game_01.cpp:883 | 1 (1/0) |
-| +0xa58 | u32 |  | src/game/game_01.cpp:211; values [0, 4512496] | 4 (1/3) |
-| +0xa5c | u32 |  | src/game/game_01.cpp:212; values [0, 371873688, 413300208] | 4 (1/3) |
+| +0x74e | u8 |  | archive/src/game/game_01.cpp:213 | 1 (1/0) |
+| +0x7ce | u8 |  | archive/src/game/game_01.cpp:214 | 1 (1/0) |
+| +0x84e | u16 |  | archive/src/game/game_01.cpp:883 | 1 (1/0) |
+| +0xa58 | u32 |  | archive/src/game/game_01.cpp:211; values [0, 4512496] | 4 (1/3) |
+| +0xa5c | u32 |  | archive/src/game/game_01.cpp:212; values [0, 371873688, 413300208] | 4 (1/3) |
 | +0xa60 | ptr | pointer (base) (0.7); constant per object while traced (set at load / creation) (0.4) | static: base x8; seen ptr | 16 (14/2) |
 | +0xa64 | ptr | **level record (+0xc state)** pointer (base) (0.7); constant per object while traced (set at load / creation) (0.4) | static: base x4; seen ptr | 45 (42/3) |
 | +0xa68 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 100 (98/2) |
@@ -106,88 +106,88 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0xaac | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 5 (3/2) |
 | +0xab4 | ptr | pointer (base) (0.7); flags bitfield (bits 0xffffff00) (0.6) | static: base x2; seen ptr | 53 (50/3) |
 | +0xab8 | ptr | pointer (base) (0.7); constant per object while traced (set at load / creation) (0.4) | static: base x6; seen ptr | 11 (9/2) |
-| +0xabc | u32 |  | src/game/game_01.cpp:207 | 1 (0/1) |
+| +0xabc | u32 |  | archive/src/game/game_01.cpp:207 | 1 (0/1) |
 | +0xac0 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 41 (39/2) |
 | +0xac4 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 23 (22/1) |
 | +0xac8 | u32 | state / enum (compared with 0, 1, 3, 4) (0.55) | static: equality tests against several constants | 43 (36/6) |
 | +0xacc | u32 | pointer (vcall) (0.7) | static: vcall x4 | 20 (14/6) |
 | +0xad0 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 6 (4/2) |
-| +0xad4 | f32 |  | src/game/game_01.cpp:973 | 5 (2/3) |
-| +0xad8 | u32 |  | src/game/game_06.cpp:2249 | 1 (0/1) |
-| +0xadc | i32 |  | src/game/game_01.cpp:1837 | 5 (2/3) |
-| +0xae0 | f32 |  | src/ai/ai_01.cpp:534 | 8 (5/3) |
-| +0xae4 | u8 |  | src/game/game_06.cpp:2123 | 3 (3/0) |
+| +0xad4 | f32 |  | archive/src/game/game_01.cpp:973 | 5 (2/3) |
+| +0xad8 | u32 |  | archive/src/game/game_06.cpp:2249 | 1 (0/1) |
+| +0xadc | i32 |  | archive/src/game/game_01.cpp:1837 | 5 (2/3) |
+| +0xae0 | f32 |  | archive/src/ai/ai_01.cpp:534 | 8 (5/3) |
+| +0xae4 | u8 |  | archive/src/game/game_06.cpp:2123 | 3 (3/0) |
 | +0xae5 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 3 (1/2) |
 | +0xae6 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 4 (1/3) |
-| +0xae8 | u32 | **m_aiTargetTag** (table) | src/ai/ai_05.cpp:2064 | 2 (1/0) |
-| +0xaec | f32 | **m_baseDefendTimers** (table) property "army_ladder_delay_min" (float, default 1.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2031; seen f32 1.0..1.0 | 2 (1/0) |
-| +0xaf0 | f32 | property "army_ladder_delay_max" (float, default 20.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2032; seen f32 1.0..1.0 | 2 (1/0) |
+| +0xae8 | u32 | **m_aiTargetTag** (table) | archive/src/ai/ai_05.cpp:2064 | 2 (1/0) |
+| +0xaec | f32 | **m_baseDefendTimers** (table) property "army_ladder_delay_min" (float, default 1.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2031; seen f32 1.0..1.0 | 2 (1/0) |
+| +0xaf0 | f32 | property "army_ladder_delay_max" (float, default 20.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2032; seen f32 1.0..1.0 | 2 (1/0) |
 | +0xaf4 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 2 (1/1) |
 | +0xaf8 | f32 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses; **contradiction**: static float, dynamic values look like heap pointers | 2 (1/1) |
-| +0xafc | u32 | **m_teammateTimers** (table) | src/ai/ai_08.cpp:2546; seen int 910688256..1100996085 | 1 (0/1) |
-| +0xb0c | u32 |  | src/ai/ai_07.cpp:1613; seen int 910688256..1100996085 | 1 (0/1) |
-| +0xb1c | u32 | **m_aiTimers** (table) | src/game/game_02.cpp:1288; values [0, 1] | 3 (1/2) |
+| +0xafc | u32 | **m_teammateTimers** (table) | archive/src/ai/ai_08.cpp:2546; seen int 910688256..1100996085 | 1 (0/1) |
+| +0xb0c | u32 |  | archive/src/ai/ai_07.cpp:1613; seen int 910688256..1100996085 | 1 (0/1) |
+| +0xb1c | u32 | **m_aiTimers** (table) | archive/src/game/game_02.cpp:1288; values [0, 1] | 3 (1/2) |
 | +0xb20 | u32 | flags bitfield (0.5) | dynamic: 3/3 changes flip 1-2 bits; values [0, 1, 2] | 1 (0/1) |
-| +0xb24 | u32 |  | src/ai/ai_05.cpp:1679 | 1 (0/1) |
-| +0xb28 | f32 |  | src/ai/ai_05.cpp:1681 | 1 (0/1) |
-| +0xb2c | f32 |  | src/ai/ai_03.cpp:2552 | 2 (1/1) |
-| +0xb30 | f32 | property "guy_fawkes_duration" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2041; seen f32 10.0..10.0 | 2 (1/0) |
+| +0xb24 | u32 |  | archive/src/ai/ai_05.cpp:1679 | 1 (0/1) |
+| +0xb28 | f32 |  | archive/src/ai/ai_05.cpp:1681 | 1 (0/1) |
+| +0xb2c | f32 |  | archive/src/ai/ai_03.cpp:2552 | 2 (1/1) |
+| +0xb30 | f32 | property "guy_fawkes_duration" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2041; seen f32 10.0..10.0 | 2 (1/0) |
 | +0xb34 | f32 | pointer (heap) (0.6) | dynamic: 1.0 of non-zero values are heap addresses; **contradiction**: static float, dynamic values look like heap pointers | 3 (2/1) |
 | +0xb38 | f32 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses; **contradiction**: static float, dynamic values look like heap pointers | 2 (1/1) |
-| +0xb3c | f32 | property "alarm_min_delay" (float, default 1.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:1956; seen f32 1.0..2.0 | 3 (2/0) |
-| +0xb40 | f32 | property "alarm_max_delay" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:1957; seen f32 2.0..4.0 | 3 (2/0) |
+| +0xb3c | f32 | property "alarm_min_delay" (float, default 1.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:1956; seen f32 1.0..2.0 | 3 (2/0) |
+| +0xb40 | f32 | property "alarm_max_delay" (float, default 2.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:1957; seen f32 2.0..4.0 | 3 (2/0) |
 | +0xb44 | f32 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses; **contradiction**: static float, dynamic values look like heap pointers | 12 (6/6) |
-| +0xb48 | f32 | property "vo_delay_min" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2057; seen f32 30.0..30.0 | 8 (7/0) |
-| +0xb4c | f32 | property "vo_delay_max" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2058; seen f32 45.0..45.0 | 7 (6/0) |
+| +0xb48 | f32 | property "vo_delay_min" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2057; seen f32 30.0..30.0 | 8 (7/0) |
+| +0xb4c | f32 | property "vo_delay_max" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2058; seen f32 45.0..45.0 | 7 (6/0) |
 | +0xb50 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 33.7633..40.3976 | 13 (6/7) |
 | +0xb54 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 1 (0/1) |
-| +0xb58 | f32 | property "ambient_delay_min" (float, default 240.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2064; seen f32 240.0..240.0 | 1 (0/0) |
-| +0xb5c | f32 | property "ambient_delay_max" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2065; seen f32 300.0..300.0 | 1 (0/0) |
-| +0xb68 | f32 | property "death_delay_min" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2092; seen f32 30.0..30.0 | 1 (0/0) |
-| +0xb6c | f32 | property "death_delay_max" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2093; seen f32 45.0..45.0 | 1 (0/0) |
-| +0xb78 | f32 | property "bully_delay_min" (float, default 60.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2099; seen f32 60.0..60.0 | 1 (0/0) |
-| +0xb7c | f32 | property "bully_delay_max" (float, default 75.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2100; seen f32 75.0..75.0 | 1 (0/0) |
+| +0xb58 | f32 | property "ambient_delay_min" (float, default 240.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2064; seen f32 240.0..240.0 | 1 (0/0) |
+| +0xb5c | f32 | property "ambient_delay_max" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2065; seen f32 300.0..300.0 | 1 (0/0) |
+| +0xb68 | f32 | property "death_delay_min" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2092; seen f32 30.0..30.0 | 1 (0/0) |
+| +0xb6c | f32 | property "death_delay_max" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2093; seen f32 45.0..45.0 | 1 (0/0) |
+| +0xb78 | f32 | property "bully_delay_min" (float, default 60.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2099; seen f32 60.0..60.0 | 1 (0/0) |
+| +0xb7c | f32 | property "bully_delay_max" (float, default 75.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2100; seen f32 75.0..75.0 | 1 (0/0) |
 | +0xb80 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 63.5962..66.2096 | 1 (0/1) |
 | +0xb84 | f32 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses; **contradiction**: static float, dynamic values look like heap pointers | 2 (1/1) |
-| +0xb88 | f32 | property "taunt_delay_min" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2106; seen f32 300.0..300.0 | 2 (1/0) |
-| +0xb8c | f32 | property "taunt_delay_max" (float, default 360.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2107; seen f32 360.0..360.0 | 2 (1/0) |
+| +0xb88 | f32 | property "taunt_delay_min" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2106; seen f32 300.0..300.0 | 2 (1/0) |
+| +0xb8c | f32 | property "taunt_delay_max" (float, default 360.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2107; seen f32 360.0..360.0 | 2 (1/0) |
 | +0xb90 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 339.115..352.6208 | 2 (1/1) |
 | +0xb94 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 -297.6343..-265.7043 | 2 (1/1) |
-| +0xb98 | f32 | property "sniper_delay_min" (float, default 240.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2071; seen f32 240.0..240.0 | 2 (1/0) |
-| +0xb9c | f32 | property "sniper_delay_max" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2072; seen f32 300.0..300.0 | 3 (2/0) |
+| +0xb98 | f32 | property "sniper_delay_min" (float, default 240.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2071; seen f32 240.0..240.0 | 2 (1/0) |
+| +0xb9c | f32 | property "sniper_delay_max" (float, default 300.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2072; seen f32 300.0..300.0 | 3 (2/0) |
 | +0xba0 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 265.7043..297.6343 | 2 (1/1) |
 | +0xba4 | f32 | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses; **contradiction**: static float, dynamic values look like heap pointers | 2 (1/1) |
-| +0xba8 | f32 | property "peasant_delay_min" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2078; seen f32 10.0..10.0 | 1 (0/0) |
-| +0xbac | f32 | property "peasant_delay_max" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2079; seen f32 10.0..10.0 | 1 (0/0) |
+| +0xba8 | f32 | property "peasant_delay_min" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2078; seen f32 10.0..10.0 | 1 (0/0) |
+| +0xbac | f32 | property "peasant_delay_max" (float, default 10.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2079; seen f32 10.0..10.0 | 1 (0/0) |
 | +0xbb0 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 10.0..10.0 | 1 (0/1) |
-| +0xbb4 | f32 | property "group_kill_decay_rate" (float, default 0.5) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2085; seen f32 0.5..0.5 | 1 (0/0) |
-| +0xbb8 | f32 |  | src/ai/ai_04.cpp:594; seen int 0..1077831270 | 4 (1/3) |
-| +0xbbc | f32 | property "group_kill_needed" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2086; seen f32 3.0..3.0 | 1 (0/0) |
-| +0xbc0 | f32 | property "group_kill_delay_min" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2087; seen f32 30.0..30.0 | 1 (0/0) |
-| +0xbc4 | f32 | property "group_kill_delay_max" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at src/game/game_02.cpp:2088; seen f32 45.0..45.0 | 1 (0/0) |
-| +0xbcc | f32 |  | src/audio/audio_01.cpp:89 | 2 (1/1) |
-| +0xbd0 | f32 | property "base_x_min_1" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2033 | 2 (1/0) |
-| +0xbd4 | f32 | property "base_y_min_1" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2035 | 2 (1/0) |
-| +0xbd8 | f32 | property "base_x_max_1" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2034 | 2 (1/0) |
-| +0xbdc | f32 | property "base_y_max_1" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2036 | 2 (1/0) |
-| +0xbe0 | f32 | property "base_x_min_2" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2037 | 2 (1/0) |
-| +0xbe4 | f32 | property "base_y_min_2" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2039 | 2 (1/0) |
-| +0xbe8 | f32 | property "base_x_max_2" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2038 | 2 (1/0) |
-| +0xbec | f32 | property "base_y_max_2" (wrapper, default 0) (0.9) | reader at src/game/game_02.cpp:2040 | 2 (1/0) |
+| +0xbb4 | f32 | property "group_kill_decay_rate" (float, default 0.5) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2085; seen f32 0.5..0.5 | 1 (0/0) |
+| +0xbb8 | f32 |  | archive/src/ai/ai_04.cpp:594; seen int 0..1077831270 | 4 (1/3) |
+| +0xbbc | f32 | property "group_kill_needed" (float, default 3.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2086; seen f32 3.0..3.0 | 1 (0/0) |
+| +0xbc0 | f32 | property "group_kill_delay_min" (float, default 30.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2087; seen f32 30.0..30.0 | 1 (0/0) |
+| +0xbc4 | f32 | property "group_kill_delay_max" (float, default 45.0) (0.9); constant per object while traced (set at load / creation) (0.4) | reader at archive/src/game/game_02.cpp:2088; seen f32 45.0..45.0 | 1 (0/0) |
+| +0xbcc | f32 |  | archive/src/audio/audio_01.cpp:89 | 2 (1/1) |
+| +0xbd0 | f32 | property "base_x_min_1" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2033 | 2 (1/0) |
+| +0xbd4 | f32 | property "base_y_min_1" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2035 | 2 (1/0) |
+| +0xbd8 | f32 | property "base_x_max_1" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2034 | 2 (1/0) |
+| +0xbdc | f32 | property "base_y_max_1" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2036 | 2 (1/0) |
+| +0xbe0 | f32 | property "base_x_min_2" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2037 | 2 (1/0) |
+| +0xbe4 | f32 | property "base_y_min_2" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2039 | 2 (1/0) |
+| +0xbe8 | f32 | property "base_x_max_2" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2038 | 2 (1/0) |
+| +0xbec | f32 | property "base_y_max_2" (wrapper, default 0) (0.9) | reader at archive/src/game/game_02.cpp:2040 | 2 (1/0) |
 | +0xbf0 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [16] | 8 (3/4) |
 | +0xbf4 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [16] | 5 (4/1) |
 | +0xbf8 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [14] | 3 (1/2) |
-| +0xbfc | u32 |  | src/renderer/render_r6.cpp:1004 | 1 (0/1) |
-| +0xc0c | u32 |  | src/renderer/render_r6.cpp:1005 | 1 (0/1) |
-| +0xc1c | u32 |  | src/renderer/render_r6.cpp:1012 | 1 (0/1) |
-| +0xc2c | u32 |  | src/renderer/render_r6.cpp:1013 | 1 (0/1) |
-| +0xc3c | u32 |  | src/game/game_02.cpp:2026 | 2 (1/0) |
-| +0xc40 | u32 |  | src/game/game_02.cpp:2027 | 2 (1/0) |
-| +0xc44 | u32 |  | src/ai/ai_02.cpp:2561 | 2 (1/0) |
-| +0xc48 | u32 |  | src/ai/ai_02.cpp:2555 | 4 (1/3) |
+| +0xbfc | u32 |  | archive/src/renderer/render_r6.cpp:1004 | 1 (0/1) |
+| +0xc0c | u32 |  | archive/src/renderer/render_r6.cpp:1005 | 1 (0/1) |
+| +0xc1c | u32 |  | archive/src/renderer/render_r6.cpp:1012 | 1 (0/1) |
+| +0xc2c | u32 |  | archive/src/renderer/render_r6.cpp:1013 | 1 (0/1) |
+| +0xc3c | u32 |  | archive/src/game/game_02.cpp:2026 | 2 (1/0) |
+| +0xc40 | u32 |  | archive/src/game/game_02.cpp:2027 | 2 (1/0) |
+| +0xc44 | u32 |  | archive/src/ai/ai_02.cpp:2561 | 2 (1/0) |
+| +0xc48 | u32 |  | archive/src/ai/ai_02.cpp:2555 | 4 (1/3) |
 | +0xc4c | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [5] | 2 (1/0) |
-| +0xc50 | u32 |  | src/ai/ai_02.cpp:1217 | 6 (4/0) |
-| +0xc54 | u32 |  | src/ai/ai_02.cpp:2620 | 4 (2/0) |
+| +0xc50 | u32 |  | archive/src/ai/ai_02.cpp:1217 | 6 (4/0) |
+| +0xc54 | u32 |  | archive/src/ai/ai_02.cpp:2620 | 4 (2/0) |
 | +0xc58 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 6 (4/2) |
 | +0xc5c | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 4 (2/2) |
 | +0xc60 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 3 (2/1) |
@@ -198,7 +198,7 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0xc74 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.5..0.5 | 5 (4/1) |
 | +0xc78 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.25..0.25 | 3 (2/1) |
 | +0xc7c | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 5.0..5.0 | 4 (4/0) |
-| +0xc80 | f32 |  | src/ai/ai_01.cpp:528 | 9 (7/2) |
+| +0xc80 | f32 |  | archive/src/ai/ai_01.cpp:528 | 9 (7/2) |
 | +0xc84 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 200.0..200.0 | 1 (1/0) |
 | +0xc88 | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [1600546162] | 1 (0/0) |
 | +0xca8 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [50] | 1 (1/0) |
@@ -216,36 +216,36 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0xd20 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1.0..1.0 | 2 (2/0) |
 | +0xd24 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 30000.0..30000.0 | 1 (1/0) |
 | +0xd34 | u8 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [1952413798] | 3 (1/0) |
-| +0xd54 | u32 |  | src/ai/ai_09.cpp:537; seen int 0..1095936714 | 1 (0/1) |
-| +0xd58 | u32 |  | src/ai/ai_09.cpp:1507 | 3 (2/1) |
-| +0xd5c | u32 |  | src/ai/ai_09.cpp:1482 | 2 (1/1) |
+| +0xd54 | u32 |  | archive/src/ai/ai_09.cpp:537; seen int 0..1095936714 | 1 (0/1) |
+| +0xd58 | u32 |  | archive/src/ai/ai_09.cpp:1507 | 3 (2/1) |
+| +0xd5c | u32 |  | archive/src/ai/ai_09.cpp:1482 | 2 (1/1) |
 | +0xd60 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 500.0..1000.0 | 1 (1/0) |
 | +0xd64 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 1000.0..1000.0 | 2 (2/0) |
-| +0xd68 | f32 |  | src/game/game_06.cpp:1789 | 4 (2/2) |
+| +0xd68 | f32 |  | archive/src/game/game_06.cpp:1789 | 4 (2/2) |
 | +0xd6c | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [2] | 1 (1/0) |
 | +0xd70 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [4] | 1 (1/0) |
 | +0xd74 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 500000.0..500000.0 | 1 (1/0) |
-| +0xd78 | f32 |  | src/audio/audio_01.cpp:1783; values [0, 1093699746, 1100008674] | 6 (1/5) |
-| +0xd7c | f32 |  | src/audio/audio_01.cpp:1784 | 6 (1/5) |
+| +0xd78 | f32 |  | archive/src/audio/audio_01.cpp:1783; values [0, 1093699746, 1100008674] | 6 (1/5) |
+| +0xd7c | f32 |  | archive/src/audio/audio_01.cpp:1784 | 6 (1/5) |
 | +0xd80 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 100.0..100.0 | 2 (2/0) |
 | +0xd84 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 600.0..600.0 | 2 (2/0) |
 | +0xd88 | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 60.0..60.0 | 2 (2/0) |
 | +0xd8c | f32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 300.0..300.0 | 2 (2/0) |
 | +0xd90 | u8 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [256, 16777472, 16777473, 16843009] | 5 (3/1) |
-| +0xd91 | u8 |  | src/game/game_02.cpp:1997 | 1 (0/1) |
-| +0xd92 | u8 |  | src/game/game_02.cpp:1999 | 2 (1/0) |
-| +0xd93 | u8 |  | src/game/game_02.cpp:2000 | 2 (1/0) |
+| +0xd91 | u8 |  | archive/src/game/game_02.cpp:1997 | 1 (0/1) |
+| +0xd92 | u8 |  | archive/src/game/game_02.cpp:1999 | 2 (1/0) |
+| +0xd93 | u8 |  | archive/src/game/game_02.cpp:2000 | 2 (1/0) |
 | +0xd94 | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [256, 257, 65537] | 1 (0/0) |
-| +0xd95 | ? |  | src/game/game_02.cpp:2002 | 1 (0/0) |
-| +0xd96 | ? |  | src/game/game_02.cpp:2005 | 1 (0/0) |
-| +0xd97 | ? |  | src/game/game_02.cpp:2003 | 1 (0/0) |
-| +0xd98 | ? |  | src/game/game_02.cpp:2004 | 1 (0/0) |
-| +0xdaf | u8 |  | src/game/game_02.cpp:2007 | 2 (1/0) |
-| +0xdb0 | ? |  | src/game/game_02.cpp:2008 | 1 (0/0) |
-| +0xdb1 | ? |  | src/game/game_02.cpp:2009 | 1 (0/0) |
-| +0xdb2 | ? |  | src/game/game_02.cpp:2012 | 1 (0/0) |
-| +0xdb3 | ? |  | src/game/game_02.cpp:2010 | 1 (0/0) |
-| +0xdb4 | ? |  | src/game/game_02.cpp:2011 | 1 (0/0) |
+| +0xd95 | ? |  | archive/src/game/game_02.cpp:2002 | 1 (0/0) |
+| +0xd96 | ? |  | archive/src/game/game_02.cpp:2005 | 1 (0/0) |
+| +0xd97 | ? |  | archive/src/game/game_02.cpp:2003 | 1 (0/0) |
+| +0xd98 | ? |  | archive/src/game/game_02.cpp:2004 | 1 (0/0) |
+| +0xdaf | u8 |  | archive/src/game/game_02.cpp:2007 | 2 (1/0) |
+| +0xdb0 | ? |  | archive/src/game/game_02.cpp:2008 | 1 (0/0) |
+| +0xdb1 | ? |  | archive/src/game/game_02.cpp:2009 | 1 (0/0) |
+| +0xdb2 | ? |  | archive/src/game/game_02.cpp:2012 | 1 (0/0) |
+| +0xdb3 | ? |  | archive/src/game/game_02.cpp:2010 | 1 (0/0) |
+| +0xdb4 | ? |  | archive/src/game/game_02.cpp:2011 | 1 (0/0) |
 | +0xdcb | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 5 (4/1) |
 | +0xdcc | u8 | **alarm forced** bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 3 (1/2) |
 | +0xdcd | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 5 (3/2) |
@@ -255,15 +255,15 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0xdd1 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 3 (1/2) |
 | +0xdd2 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 7 (4/3) |
 | +0xdd3 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 8 (4/4) |
-| +0xdd4 | u32 |  | src/game/game_01.cpp:814 | 3 (2/1) |
-| +0xdd8 | u16 |  | src/game/game_01.cpp:817 | 2 (1/0) |
-| +0x15d8 | f32 |  | src/game/game_01.cpp:813 | 6 (3/3) |
+| +0xdd4 | u32 |  | archive/src/game/game_01.cpp:814 | 3 (2/1) |
+| +0xdd8 | u16 |  | archive/src/game/game_01.cpp:817 | 2 (1/0) |
+| +0x15d8 | f32 |  | archive/src/game/game_01.cpp:813 | 6 (3/3) |
 | +0x15dc | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored; values [0, 1, 65537] | 4 (2/2) |
-| +0x15de | u8 |  | src/game/game_01.cpp:827 | 5 (3/2) |
-| +0x15e0 | u16 |  | src/game/game_01.cpp:824; values [0, 6357075, 6619218, 6815828, 7602259] | 1 (1/0) |
-| +0x1de0 | u32 |  | src/engine/engine_01.cpp:247; values [0, 46229072, 46360144, 46491216, 47081040, 48391760] | 5 (2/3) |
+| +0x15de | u8 |  | archive/src/game/game_01.cpp:827 | 5 (3/2) |
+| +0x15e0 | u16 |  | archive/src/game/game_01.cpp:824; values [0, 6357075, 6619218, 6815828, 7602259] | 1 (1/0) |
+| +0x1de0 | u32 |  | archive/src/engine/engine_01.cpp:247; values [0, 46229072, 46360144, 46491216, 47081040, 48391760] | 5 (2/3) |
 | +0x1de4 | u16 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [6357075, 6619218, 6815828, 7602259] | 2 (1/1) |
-| +0x25e4 | u32 |  | src/game/game_02.cpp:2640 | 2 (0/2) |
+| +0x25e4 | u32 |  | archive/src/game/game_02.cpp:2640 | 2 (0/2) |
 | +0x25e8 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [-2] | 2 (1/0) |
 | +0x25ec | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [-2] | 1 (0/0) |
 | +0x25f0 | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [-2] | 1 (0/0) |
@@ -275,44 +275,44 @@ Size 0x4c40; base -; vtables -. Fields below: offsets the recovered C++ uses on 
 | +0x2608 | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [-1] | 1 (0/0) |
 | +0x260c | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [-1] | 1 (0/0) |
 | +0x2610 | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [5] | 1 (0/0) |
-| +0x2654 | u32 |  | src/ui/ui_01.cpp:2072 | 1 (1/0) |
+| +0x2654 | u32 |  | archive/src/ui/ui_01.cpp:2072 | 1 (1/0) |
 | +0x2658 | u32 | **compass objective tag** constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 50, 9876, 9999] | 4 (2/1) |
 | +0x265c | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 0.954 of non-zero values are heap addresses | 2 (2/0) |
 | +0x2660 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [363743986, 363744224, 363810592, 363874248, 363874820, 363945950] | 2 (2/0) |
 | +0x2664 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 1 (1/0) |
 | +0x267c | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 1 (1/0) |
 | +0x2680 | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 2 (2/0) |
-| +0x2684 | u32 | **pause count** | src/audio/audio_01.cpp:170; values [0, 1] | 28 (26/2) |
+| +0x2684 | u32 | **pause count** | archive/src/audio/audio_01.cpp:170; values [0, 1] | 28 (26/2) |
 | +0x2688 | f32 | **game clock at the pause** constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [910688256, 1084192657] | 2 (1/1) |
 | +0x268c | ptr | pointer (heap) (0.6); constant per object while traced (set at load / creation) (0.4) | dynamic: 1.0 of non-zero values are heap addresses | 1 (0/0) |
-| +0x26cc | u32 |  | src/game/game_02.cpp:1952 | 10 (9/0) |
+| +0x26cc | u32 |  | archive/src/game/game_02.cpp:1952 | 10 (9/0) |
 | +0x26d0 | u32 | flags bitfield (0.5) | dynamic: 33/33 changes flip 1-2 bits; values [0, 1, 4, 8, 9] | 7 (2/5) |
 | +0x26d4 | ? | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [10, 15, 20, 150] | 1 (0/0) |
 | +0x26d8 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 802, 1400, 2001] | 2 (1/0) |
 | +0x26dc | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 1401, 2011] | 2 (1/0) |
 | +0x26e0 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 1] | 2 (1/0) |
-| +0x26e4 | u32 | **peasant casualties** | src/game/game_01.cpp:1314 | 3 (1/2) |
-| +0x26e8 | u32 | **peasants saved** | src/game/game_01.cpp:1360; values [0, 1] | 4 (2/2) |
+| +0x26e4 | u32 | **peasant casualties** | archive/src/game/game_01.cpp:1314 | 3 (1/2) |
+| +0x26e8 | u32 | **peasants saved** | archive/src/game/game_01.cpp:1360; values [0, 1] | 4 (2/2) |
 | +0x26ec | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 3, 10] | 6 (5/0) |
 | +0x26f0 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 13, 7000] | 2 (1/0) |
-| +0x26f4 | u32 | **peasants carried** | src/game/game_01.cpp:1260; values [0, 1] | 10 (6/4) |
+| +0x26f4 | u32 | **peasants carried** | archive/src/game/game_01.cpp:1260; values [0, 1] | 10 (6/4) |
 | +0x26f8 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [0, 4000, 4001, 7001] | 3 (1/1) |
-| +0x26fc | u32 |  | src/game/game_02.cpp:1991 | 3 (2/0) |
+| +0x26fc | u32 |  | archive/src/game/game_02.cpp:1991 | 3 (2/0) |
 | +0x2704 | u32 | flags bitfield (bits 0xff) (0.6); constant per object while traced (set at load / creation) (0.4) | static: masked / set / cleared with constants; values [-1945763320, -1727263729, -1307833330, 1275068940, 1275076415, 2131494412] | 4 (4/0) |
-| +0x2705 | u8 |  | src/renderer/render_r1.cpp:211 | 1 (1/0) |
-| +0x2706 | u8 |  | src/renderer/render_r1.cpp:206 | 1 (1/0) |
-| +0x2707 | u8 |  | src/renderer/render_r1.cpp:204 | 2 (2/0) |
+| +0x2705 | u8 |  | archive/src/renderer/render_r1.cpp:211 | 1 (1/0) |
+| +0x2706 | u8 |  | archive/src/renderer/render_r1.cpp:206 | 1 (1/0) |
+| +0x2707 | u8 |  | archive/src/renderer/render_r1.cpp:204 | 2 (2/0) |
 | +0x2708 | u32 | constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; values [1, 2, 3, 4, 5] | 2 (1/0) |
 | +0x270c | i32 | **twiglets killed** flags bitfield (0.5) | dynamic: 3/3 changes flip 1-2 bits; values [0, 1, 2, 4] | 5 (2/3) |
-| +0x2710 | i32 | **twiglets made** | src/ai/ai_01.cpp:282; seen int 25..90 | 16 (1/15) |
-| +0x2714 | i32 |  | src/game/game_06.cpp:1579 | 2 (1/1) |
-| +0x2718 | u32 |  | src/game/game_05.cpp:1592; values [0, 1, 2, 3, 4, 5] | 13 (3/10) |
-| +0x271c | i32 |  | src/game/game_06.cpp:1564; values [0, 1, 2, 3, 4, 5] | 2 (1/1) |
+| +0x2710 | i32 | **twiglets made** | archive/src/ai/ai_01.cpp:282; seen int 25..90 | 16 (1/15) |
+| +0x2714 | i32 |  | archive/src/game/game_06.cpp:1579 | 2 (1/1) |
+| +0x2718 | u32 |  | archive/src/game/game_05.cpp:1592; values [0, 1, 2, 3, 4, 5] | 13 (3/10) |
+| +0x271c | i32 |  | archive/src/game/game_06.cpp:1564; values [0, 1, 2, 3, 4, 5] | 2 (1/1) |
 | +0x2720 | u8 | bool (stores 0 / 1) (0.7) | static: only 0 / 1 stored | 2 (0/2) |
-| +0x2724 | f32 |  | src/ai/ai_01.cpp:1920; values [0, 1120403456, 1128792064, 1137180672] | 14 (8/6) |
-| +0x2728 | f32 |  | src/ai/ai_01.cpp:1922; values [-1027080192, 0] | 14 (8/6) |
-| +0x272c | f32 |  | src/game/game_01.cpp:1362; values [0, 1140457472] | 6 (4/2) |
-| +0x2730 | f32 |  | src/ui/ui_03.cpp:2519 | 6 (4/2) |
+| +0x2724 | f32 |  | archive/src/ai/ai_01.cpp:1920; values [0, 1120403456, 1128792064, 1137180672] | 14 (8/6) |
+| +0x2728 | f32 |  | archive/src/ai/ai_01.cpp:1922; values [-1027080192, 0] | 14 (8/6) |
+| +0x272c | f32 |  | archive/src/game/game_01.cpp:1362; values [0, 1140457472] | 6 (4/2) |
+| +0x2730 | f32 |  | archive/src/ui/ui_03.cpp:2519 | 6 (4/2) |
 | +0x2734 | f32 | **m_autoAimFactor** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.04..0.04 | 1 (1/0) |
 | +0x273c | f32 | **m_autoAimMultiFactor** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.3..0.3 | 1 (1/0) |
 | +0x2744 | f32 | **m_autoAimBaseFactor** (table) constant per object while traced (set at load / creation) (0.4) | dynamic: unchanged over 2508 samples of 8 objects; seen f32 0.065..0.065 | 1 (1/0) |

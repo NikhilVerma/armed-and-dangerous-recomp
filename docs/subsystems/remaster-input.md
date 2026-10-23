@@ -62,7 +62,7 @@ DualSense.
 
 ## The original's input semantics (subsystem port, 2026-10-14)
 
-Ported from src/input/input_01.cpp and the readers in game_06.cpp / game_01.cpp; `python tools/port_queue.py input`
+Ported from archive/src/input/input_01.cpp and the readers in game_06.cpp / game_01.cpp; `python tools/port_queue.py input`
 is empty, docs/port/input.csv lists what the remaster replaces.
 
 | Original | Remaster |

@@ -1,4 +1,4 @@
-//! Where the 640 x 480 UI layout lands in the window (old remaster hook/enhance/ui_aspect.cpp; docs/subsystems/ui.md,
+//! Where the 640 x 480 UI layout lands in the window (old remaster archive/hook/enhance/ui_aspect.cpp; docs/subsystems/ui.md,
 //! hud.md). The original draws every UI object in a normalised screen space (0x004f01c0: x 0..1 across the viewport),
 //! so on a wide screen the whole 4:3 layout is stretched, and sizes its glyphs in screen pixels (g_pixelSizeScale),
 //! so text shrinks as the resolution grows.

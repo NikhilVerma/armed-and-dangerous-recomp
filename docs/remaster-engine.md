@@ -70,7 +70,7 @@ field family, earliest first, each with where to look (the remaster's file, the 
 .venv/Scripts/python.exe tools/oracle_suite.py --exe target-NAME            # every "suite" scenario, one line each
 ```
 
-- **Off-screen original** (`[test] offscreen=1`, hook/src/testoffscreen.cpp; tools/compare.py writes it for every
+- **Off-screen original** (`[test] offscreen=1`, archive/hook/src/testoffscreen.cpp; tools/compare.py writes it for every
   harness run, so shot.py, coverage.py, coverage_level.py and the rest never show a window): the game's window is
   created at (-20000, -20000) as a tool window (no taskbar button, no Alt+Tab), never activated; the game's own
   SetWindowPos calls (Renderer_ResizeWindow 0x005080d0 passes SWP_NOSENDCHANGING with insert-after HWND_TOP; 0x00508210
@@ -94,7 +94,7 @@ field family, earliest first, each with where to look (the remaster's file, the 
   (checked: sticky, 211 lines). The remaster's streams are its own (fx::FxStats seeded 0x5eed per level, fxvm CrtRand,
   level.rs CrtRand(0)); reruns agree except a sound's start frame by one or two. Same-seed parity with the original is
   not possible, so roll-dependent outcomes (AI choices, spread, sound variants) get tolerances, not bit equality.
-- **One trace schema** (`and-trace.jsonl` / `<script>.trace.jsonl`; hook/src/testoracle.cpp documents it): every
+- **One trace schema** (`and-trace.jsonl` / `<script>.trace.jsonl`; archive/hook/src/testoracle.cpp documents it): every
   `trace_every` frames from `trace_from` (default -play_delay: the briefing on; every frame before frame 0): game
   time, paused, Roman (position, heading, health, weapon, clip, ammo, stickies; the remaster adds look_yaw), the
   companions, each grunt (instance id +0x396 / InstanceId, position, health, state +0x460 mapped to ai.rs Mind,
@@ -297,7 +297,7 @@ original shows the ruined arch, while the synced run matches): its view-matrix c
 synced walk until it is fixed.
 
 1. Capture the original at chosen frames with its camera (the hook DLL writes `and-frame-N.camera.json` next to every
-   dumped frame; build it first with `pwsh tools/build.ps1`):
+   dumped frame; build it first with `pwsh archive/tools/build.ps1`):
 
 ```bash
 .venv/Scripts/python.exe tools/shot.py --scenario level --frames 520,540,560 --keys "500:MOUSE1,510:17*300" --frames-total 570 --name walkA
@@ -590,7 +590,7 @@ from last save load the newest save; every load restarts the level in the runnin
 (levelreset.rs, 2026-10-15; before, a fresh process with `--load FILE`). A level restart enters AppState::Loading
 until the rebuilt level's frames are quick again, then play / the title (feedback 28: play right after the rebuild
 took its seconds as one time step). Playtests: `clear_saves`, `note` + {"as": note} expects, until "loaded",
-"real_time" scripts; state "saves", "frame_ms", "main_ms", "dt_max_ms", "entities". The original (src/save/save_01.cpp) serialises the whole
+"real_time" scripts; state "saves", "frame_ms", "main_ms", "dt_max_ms", "entities". The original (archive/src/save/save_01.cpp) serialises the whole
 object graph (save manager 0x0048b620, class descriptor passes 0x0048bc80 / 0x0048bda0 / 0x0048c0f0, Havok body
 states) after a 0x124-byte header with the level, the difficulty and a thumbnail, into one of six slots; the
 remaster saves the state a player sees instead (docs/port/save.csv: replaced / not needed, one row each):
@@ -615,7 +615,7 @@ trip, partial files, draw distance 0x0040f8c0), weapontable.rs (Weapon_BuildTabl
 
 ## Game object remainder (2026-10-15)
 
-The Game object's own functions (src/game/game_01.cpp, start_level.cpp) are replaced by the App: construction and
+The Game object's own functions (archive/src/game/game_01.cpp, start_level.cpp) are replaced by the App: construction and
 teardown are main.rs and the process, the frame update is the Update schedule with physics in FixedUpdate, the level
 requests (Restart, Return to title, Load) restart the level in-process (levelreset.rs: the level's entities
 despawned, its resources re-initialised, its spawners run again). Ported as data: the weapon table (weapontable.rs: 28 slots of names, the slot numbers the
@@ -1135,8 +1135,8 @@ build their JSON every frame in normal play too, because `PlayState` always exis
 
 Module `engine/src/graphics/geometry/` (GeometryPlugin; `GeometrySettings`, flattened into GraphicsSettings so
 options.json names each setting directly; `material_values` feeds `GameMaterialParams::geometry`). Sources: the old
-D3D9 hook's registrations (hook/enhance/render.cpp, shadows.cpp: RemasterRegister's original / remaster defaults) and
-its Vulkan renderer (src/rhi/vulkan). The Graphics page has a "Detail and Shadows" row opening a page of its own
+D3D9 hook's registrations (archive/hook/enhance/render.cpp, shadows.cpp: RemasterRegister's original / remaster defaults) and
+its Vulkan renderer (archive/src/rhi/vulkan). The Graphics page has a "Detail and Shadows" row opening a page of its own
 (Page::GfxDetail: three checkboxes, five steppers `Opt::Number(key)` whose ranges are geometry::STEPPERS, the old
 sliders' ranges), edited on the Graphics page's copy (Apply / Cancel there).
 
@@ -1193,7 +1193,7 @@ all on 86.5 / 76.6 fps, the four rendering settings off 94.1 / 76.7: within this
 
 ## Atmosphere, AO, motion blur and output pass, ported from the old remaster (2026-10-19, agent-port-atmos)
 
-The old remaster's (hook/enhance + src/rhi/vulkan) fog, AO, motion blur and present-pass options, ported as close to
+The old remaster's (archive/hook/enhance + archive/src/rhi/vulkan) fog, AO, motion blur and present-pass options, ported as close to
 its shaders and defaults as Bevy allows. Each is a module in engine/src/graphics/ with a typed settings struct
 flattened into `GraphicsSettings` under the old and.ini name (options.json `graphics`, `--graphics key=value`),
 Remaster = the old remaster's defaults, Original = off (pixel-identical to before: 0.00 mae). Graphics page:
@@ -1203,7 +1203,7 @@ number turns on to the Remaster value).
 | Setting (old [render] key) | Original | Remaster | Module, where it came from |
 |---|---|---|---|
 | fog_modern, fog_density, fog_height, fog_sun | off, 1, 0.002, 0.6 | on, 1, 0.002, 0.6 | height_fog.rs/.wesl (vk_fog.cpp ModernFogGlsl, vk_device.cpp ModernFogUniforms): exponential height fog per pixel in the game material in place of the level's linear fog, its colour and range; half the light through half way through the range level with the camera; reference height = the camera's on the level's first frame (`GameLights::fog_reference`); Henyey-Greenstein glow towards the sun, clamped at 1 (no bloom) |
-| ao_radius (existing), ao_power, ao_falloff, ao_thickness | AO off | 24, 3, 0.5, 3 | ao_extras.rs + xegtao.wesl: XeGTAO's main pass (third_party/XeGTAO, the old remaster's AO) in place of Bevy's VBAO estimator, inside Bevy's SSAO pass (same shader asset: Bevy's depth prefilter and denoiser stay); constants substituted at runtime; thin-occluder compensation 0.7 and the thickness limit as the old |
+| ao_radius (existing), ao_power, ao_falloff, ao_thickness | AO off | 24, 3, 0.5, 3 | ao_extras.rs + xegtao.wesl: XeGTAO's main pass (archive/third_party/XeGTAO, the old remaster's AO) in place of Bevy's VBAO estimator, inside Bevy's SSAO pass (same shader asset: Bevy's depth prefilter and denoiser stay); constants substituted at runtime; thin-occluder compensation 0.7 and the thickness limit as the old |
 | ao_contact, ao_snow (+ multi-bounce) | 0, 0.25 | 0.6, 0.25 | ao_extras.wesl (vk_gtao.cpp GtaoApplyFragmentGlsl): albedo multi-bounce, snow keeps ao_snow of the occlusion (`ao_exempt` names and snow-white albedo; was 0), contact AO darkens the sunlit colour under feet |
 | shutter_speed | 0 | 120 | motion_blur.rs + motion_blur_*.wesl (vk_motionblur.cpp): per-object blur, exposure (1/N s)/frame time capped at 4, camera motion subtracted from Bevy's motion vectors, the shorter of world / screen motion (tracked characters stay sharp), 48 px tiles, McGuire reconstruction; after TAA, before bloom; needs the motion-vector prepass and no MSAA |
 | tonemap_aces, dither | off, off | off, on | present.rs/.wesl (vk_present.cpp): last post pass (Bevy FullscreenMaterial): Narkowicz ACES on the game's (gamma) values, triangular +-1/255 noise in the sRGB encoding; either puts the 3D view in an HDR target |
@@ -1299,7 +1299,7 @@ its root track) and loops the bomb anim; the mission's countdown then blows the 
 waiting for a trigger start where placed, their send_trigger_on_death, hit reactions only in modes 1 / 3, stig / forge
 damage multipliers (player.rs `DamageKind`). Tests: playtests tower_l4m2 / tower_l4m2_fail (regress); oracle
 lev_4_m2_tower PASS (NAV1 and T1 known, below; suite), which needs a hook with [test] play_triggers
-(hook/src/testoracle.cpp, 2026-10-16); to try a hook change without replacing the shared build: `pwsh tools/build.ps1
+(archive/hook/src/testoracle.cpp, 2026-10-16); to try a hook change without replacing the shared build: `pwsh archive/tools/build.ps1
 -BuildDir build/hook-NAME` and `AND_HOOK_BUILD=build/hook-NAME` (tools/instances.py).
 
 | Id | Remaster difference | Evidence (work/oracle-tower/lev_4_m2_tower) |
@@ -1369,7 +1369,7 @@ Debt / tuning items (guesses labelled in the code):
 
 ## Display, view and UI settings (2026-10-19, agent-port-display)
 
-The old remaster's [camera] / [display] / [ui] options (hook/enhance/camera.cpp, display.cpp, ui_aspect.cpp) ported to
+The old remaster's [camera] / [display] / [ui] options (archive/hook/enhance/camera.cpp, display.cpp, ui_aspect.cpp) ported to
 engine/src/display/, one plugin per mechanism. Each is a field of `DisplaySettings`, flattened into
 `GraphicsSettings` (one key each in options.json `graphics`, `--graphics key=value`, the presets); the Original preset
 has the original game's behaviour, the Remaster preset the old remaster's defaults. The Display page (Options ->
@@ -1467,7 +1467,7 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
   use `try_attribute_option`.
 - **Windows**: the running exe is locked, so build after a run ends; heredocs with quotes break in Git Bash: write
   edit scripts to the scratchpad with the Write tool and run them with python.
-- **Hook DLL** (`pwsh tools/build.ps1`): include `game/game_object.h` for `g_game`.
+- **Hook DLL** (`pwsh archive/tools/build.ps1`): include `game/game_object.h` for `g_game`.
 - **Data, not invention**: every value comes from a property set, the UI / text banks or the recovered code, with
   the address in a comment. When the exe never reads a data key (grunt-ai.md lists them), the engine must not either.
 - The original's 3D view: letterbox at y 11.25 %, height 77.5 % (0x005bcf24 / 0x005bcf28), aspect of that strip,

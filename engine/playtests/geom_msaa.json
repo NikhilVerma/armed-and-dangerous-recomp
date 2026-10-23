@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 4.0},
  {"expect": {"geometry.alpha_to_coverage": [1, 100000], "geometry.mip_bias": null, "geometry.tessellated": [1, 100000]}},
  {"shot": "view"},

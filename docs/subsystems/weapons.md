@@ -1,7 +1,7 @@
 # Weapons: Roman's roster (engine/src/weapons, 2026-10-17)
 
 The player's guns and specials beyond the rifle / machine gun / sticky bomb / Topsy Turvy of the first port
-(player.md 10), built as a framework the earlier weapons now sit in. Sources: src/game/game_09.cpp (the weapon state
+(player.md 10), built as a framework the earlier weapons now sit in. Sources: archive/src/game/game_09.cpp (the weapon state
 +0xc24 and the PlayerWeapon classes), game_06.cpp / game_07.cpp (the projectile classes), ui_01.cpp (the HUD's target
 passes), ai_03.cpp / ai_04.cpp / ai_06.cpp (the AI's answers), missing_01.cpp (the pub screen).
 

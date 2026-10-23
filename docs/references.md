@@ -27,4 +27,4 @@ Copied code: none yet.
 
 | Code | Licence | Used for |
 | --- | --- | --- |
-| Afterlight / SSLD GTAO (the human's project, D:\devbox\code\afterlight-gtao, export/SSLD_GTAO.fxh + .fx), © 2026 Nikhil Verma | MIT (includes Intel's XeGTAO MIT notice) | src/rhi/vulkan/shaders/afterlight.hlsl and the composite in vk_gtao.cpp ([render] afterlight) |
+| Afterlight / SSLD GTAO (the human's project, D:\devbox\code\afterlight-gtao, export/SSLD_GTAO.fxh + .fx), © 2026 Nikhil Verma | MIT (includes Intel's XeGTAO MIT notice) | archive/src/rhi/vulkan/shaders/afterlight.hlsl and the composite in vk_gtao.cpp ([render] afterlight) |

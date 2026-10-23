@@ -1,5 +1,5 @@
 //! `--camera <and-frame-N.camera.json>`: renders from a camera the original game used (dumped by the hook's test
-//! harness, hook/src/testshot.cpp TestDumpCamera), for side-by-side comparisons with the original's captures
+//! harness, archive/hook/src/testshot.cpp TestDumpCamera), for side-by-side comparisons with the original's captures
 //! (tools/render_compare.py). The dump holds Game+0x704, the view matrix Camera_SetupProjection 0x0040f6e0 hands to
 //! SetView: rows 0..2 are the camera's right, up and back axes in game space (the camera looks down -z), column 3
 //! the translation (-R * position); and the vertical FOV (camera +0xf4). The original projects with the letterboxed

@@ -1,4 +1,4 @@
-//! The frame rate limit (old remaster hook/enhance/display.cpp `fps_limit`, applied in `DisplayBeforePresent`): each
+//! The frame rate limit (old remaster archive/hook/enhance/display.cpp `fps_limit`, applied in `DisplayBeforePresent`): each
 //! frame waits until 1 / limit seconds have passed since the last one, sleeping 1 ms at a time while more than 2 ms
 //! remain, then spinning (the old code's QueryPerformanceCounter loop with Sleep(1)). It also keeps the original's
 //! frame-rate bugs away (docs/original-bugs.md: the lev_1_m1 opening stalls above about 85 fps); the engine's own

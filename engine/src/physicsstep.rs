@@ -1,5 +1,5 @@
 //! How the physics world steps and how its bodies are drawn between steps: the old remaster's `[limits]`
-//! physics options (hook/enhance/limits.cpp `LimitsInit`, `DrawMatrix`; src/physics/physics_01.cpp
+//! physics options (archive/hook/enhance/limits.cpp `LimitsInit`, `DrawMatrix`; archive/src/physics/physics_01.cpp
 //! `PhysicsManager_Step`), as typed settings ([`PhysicsStepSettings`], part of the graphics presets).
 //!
 //! - **Stepping** (`physics_fixed_step`). The original splits a frame into 1 + 20 dt substeps (at most 5) of at most

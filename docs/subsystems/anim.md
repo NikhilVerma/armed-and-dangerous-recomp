@@ -1,6 +1,6 @@
 # Animation (playback, blending, notes, the player's anim table)
 
-The original's animation layer is src/anim/anim_01.cpp (slots, blending, notes, the player's helpers, the leg IK) and
+The original's animation layer is archive/src/anim/anim_01.cpp (slots, blending, notes, the player's helpers, the leg IK) and
 anim_02.cpp (ANM loading, key tracks, samplers, pose evaluation). The remaster's is engine/src/skin.rs (the player for
 any skinned character) and engine/src/charanim.rs (which anim each character plays: the per-character state choices
 belong to the player and AI code and only call into it). `python tools/port_queue.py anim` lists what is left;

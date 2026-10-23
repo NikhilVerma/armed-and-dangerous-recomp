@@ -1,6 +1,6 @@
 //! The Display page's steppers over the options (gamemenu.rs draws the page; its checkboxes toggle the boolean
 //! settings by name, graphics::menu::toggle). The ranges and steps are the old remaster's registered sliders
-//! (hook/enhance/settings.h `RemasterSetting` min / max / step); changes are written to the options' `graphics`
+//! (archive/hook/enhance/settings.h `RemasterSetting` min / max / step); changes are written to the options' `graphics`
 //! changes and apply at once, as the old Remaster page's callbacks did.
 
 use super::FullscreenMode;

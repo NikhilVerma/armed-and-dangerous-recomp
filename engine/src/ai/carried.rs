@@ -1,5 +1,5 @@
 //! The companions knocked out of their update: stunned or carried (MolmerObject_Slot47 0x00485910 modes 5 and 10;
-//! the damage message's flags 0x20 and 0x800 in GenericAIObject_Slot52 0x00430340; src/ai/ai_04.cpp, ai_06.cpp,
+//! the damage message's flags 0x20 and 0x800 in GenericAIObject_Slot52 0x00430340; archive/src/ai/ai_04.cpp, ai_06.cpp,
 //! ai_08.cpp).
 //!
 //! - **Stun** (record flag 0x20: the Topsy Turvy bomb's area damage, 0x004a1aa0 -> AreaDamage_Apply 0x0047f020 with

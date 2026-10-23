@@ -1,11 +1,11 @@
 # Peasants
 
 The little villagers Roman rescues: he walks up to one, ties him on a rope behind him (at most three at a time) and
-banks them on a door mat; the mission counts the saved and the lost. Recovered code: src/game/game_01.cpp:1153-1385
-(PeasantObject's load, remove, collision, contact, damage and kill slots, the bank helpers), src/physics/physics_01.cpp:
-560-765 (the update 0x00405d10: tie and rope), src/audio/audio_01.cpp:76-120 / 1430-1494 (pick-up and drop-off lines),
-src/game/game_02.cpp:2187-2348 (MissionObject_OnTrigger: the bank), src/ai/ai_04.cpp:1425-1450 (the squad goliath's
-cage), src/ui/ui_02.cpp:556-645 (the HUD counters). Remaster: engine/src/peasant.rs (PeasantPlugin), with small hooks
+banks them on a door mat; the mission counts the saved and the lost. Recovered code: archive/src/game/game_01.cpp:1153-1385
+(PeasantObject's load, remove, collision, contact, damage and kill slots, the bank helpers), archive/src/physics/physics_01.cpp:
+560-765 (the update 0x00405d10: tie and rope), archive/src/audio/audio_01.cpp:76-120 / 1430-1494 (pick-up and drop-off lines),
+archive/src/game/game_02.cpp:2187-2348 (MissionObject_OnTrigger: the bank), archive/src/ai/ai_04.cpp:1425-1450 (the squad goliath's
+cage), archive/src/ui/ui_02.cpp:556-645 (the HUD counters). Remaster: engine/src/peasant.rs (PeasantPlugin), with small hooks
 in mission.rs, level.rs, goliath.rs, ai/bully.rs, ragdoll.rs, hud.rs, oracle.rs.
 
 ## 1. Where they are
@@ -139,7 +139,7 @@ detached; flag 0x10 makes him dynamic (Object_Detach 0x00453b20 -> 0x004577b0(0)
 
 ## 10. Oracle
 
-Hook (hook/src/testoracle.cpp): "peasants" (World+0xef8: id, position, captured, link, rope, count, attached, and a
+Hook (archive/hook/src/testoracle.cpp): "peasants" (World+0xef8: id, position, captured, link, rope, count, attached, and a
 tied one's pelvis "center": his object position stays where he was tied) and "peasant_count" (carried, saved,
 casualties). The remaster writes the same (oracle.rs, peasant.rs `trace_list`); a banked or lost peasant is not a
 "deaths" event (the hook's deaths are DefaultGameObject / FxExplosion deaths). tools/oracle_diff.py families:

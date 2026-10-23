@@ -1,7 +1,7 @@
 # Front end, pause menu and options
 
 Status: 2026-10-04, static reconnaissance only (no runs). Every function named here is S0. Sources: Ghidra exports
-in `work/decomp/`, `tools/recover.py --asm`, raw image reads (`tools/reginputs.py` IMG), `work/options/*.opt`,
+in `work/decomp/`, `archive/tools/recover.py --asm`, raw image reads (`archive/tools/reginputs.py` IMG), `work/options/*.opt`,
 and dumps of `lev_1_m1_big12_ui.big` / `lev_1_m1_big01_text.big` made with `tools/formats/bigtool.py`.
 Text marked **guess** is not proven.
 
@@ -216,7 +216,7 @@ stepper taking left / right itself. Disabled rows are skipped (`RowGate`, 2026-1
   MenuCancel, keys 0x1b / 0x1c; re-armed on a page change: 0x00491110). The mouse selects the row under it when it moves (with the move
   sound) and a click activates it; a row's hit box is its text bounds plus 32 units in x and 4 in y (UiText_SetBounds
   0x004655b0), joined with a stepper's gauge and value or a checkbox's box; of several, the nearest row (the
-  hook/enhance rule); a stepper's box ends 32 past its value text (Stepper_Layout 0x0046d050). A press on a stepper's
+  archive/hook/enhance rule); a stepper's box ends 32 past its value text (Stepper_Layout 0x0046d050). A press on a stepper's
   track (x 80..272, y -6..6) sets its value and, held, drags it (Stepper_HandleInput 0x0046d290). Sounds: ui_move,
   one of ui_select_1..3 at random for a chosen row (0x00491850), ui_cancel for Back / Cancel / No / Resume
   (code 5) and the Back input, ui_select when a game starts (0x00491830: a difficulty, a replay level). Pad:

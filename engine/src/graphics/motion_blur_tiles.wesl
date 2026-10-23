@@ -1,5 +1,5 @@
 // Per-object motion blur, the compute passes (graphics/motion_blur.rs), ported from the old remaster's
-// src/rhi/vulkan/vk_motionblur.cpp (kVelocity, kTileMax, kNeighbourMax; McGuire et al. 2012, "A Reconstruction Filter
+// archive/src/rhi/vulkan/vk_motionblur.cpp (kVelocity, kTileMax, kNeighbourMax; McGuire et al. 2012, "A Reconstruction Filter
 // for Plausible Motion Blur"). One layout for the three: each reads `src` (or the prepass) and writes `dst`.
 import and_remaster::graphics::motion_blur_shared::{MotionBlurParams, TILE};
 

@@ -1,6 +1,6 @@
 """`land` payload (magic 0xFADEBACC): the level's landscape (docs/formats/big-land.md).
 
-Loader: 0x00448470 Landscape_Load (src/loader/auto_00410ec0.cpp).
+Loader: 0x00448470 Landscape_Load (archive/src/loader/auto_00410ec0.cpp).
 
   u32 skin_size                       offset of the grid header inside the data below (= the skin's byte size)
   data:

@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "fx_explosion_powder_keg's fxo_powderkeg: impulse (0, 0, 200000) on its 472 game mass (p_fx bounding sphere r 4.8), straight up at ~424 units/s, every keg of a chain"},
  {"wait": 0.5},
  {"loadout": {"health": 5000}},

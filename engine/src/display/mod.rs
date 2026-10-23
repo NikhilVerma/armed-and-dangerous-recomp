@@ -1,4 +1,4 @@
-//! Display, camera-view and UI-layout settings ported from the old remaster (the D3D9 hook's `hook/enhance/camera.cpp`,
+//! Display, camera-view and UI-layout settings ported from the old remaster (the D3D9 hook's `archive/hook/enhance/camera.cpp`,
 //! `display.cpp` and `ui_aspect.cpp`, and.ini sections [camera], [display] and [ui]). Each setting is a field of
 //! [`DisplaySettings`], flattened into the presentation settings (graphics/mod.rs `GraphicsSettings`), so the two
 //! presets, the options file's `graphics` changes, `--graphics key=value` and the menus treat them like every other
@@ -84,7 +84,7 @@ pub struct DisplaySettings {
     /// an application that does not declare itself DPI aware (the original)
     pub dpi_aware: bool,
     /// offer every resolution the monitor has from 640 wide; off, the original's list: 640..1600 wide in 16:9, 4:3
-    /// or 5:4 (src/renderer/display_modes.cpp)
+    /// or 5:4 (archive/src/renderer/display_modes.cpp)
     pub all_modes: bool,
     /// the brightness option as the original's gamma ramp (out = in^(1 / brightness), Renderer_SetGamma 0x005091c0),
     /// applied to the picture so it works in a window; off, the engine's exposure step (1.5 = unchanged)

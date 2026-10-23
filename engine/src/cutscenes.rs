@@ -2,7 +2,7 @@
 //!
 //! - **Boot.** The first front-end load pushes "PlayMovie" with the intro list `LucasAnim,pm_logo,pre_1_1_opening`
 //!   (0x005bc108) under the main menu, unless the startup options turn it off (Game_StartLevel 0x00403690,
-//!   src/game/start_level.cpp:120; `g_startupOptions.playIntroMovies`). The remaster plays it before the title menu
+//!   archive/src/game/start_level.cpp:120; `g_startupOptions.playIntroMovies`). The remaster plays it before the title menu
 //!   once per session (a level restart, levelreset.rs, keeps the boot flag), as the original's shell flag 2 keeps it
 //!   to the first load. The story opening, pre_1_1_opening, is the last of the list.
 //! - **Level start.** Once the mission timer passes, the mission's `start_movie` is pushed as "PlayMovie", except on

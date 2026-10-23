@@ -3,7 +3,7 @@
 Status 2026-10-06: static only (no runs, no builds). Purpose: everything a per-step "mirror every Havok rigid body into
 Jolt" pass has to read. Havok code stays fenced (docs/subsystems/physics.md section 1); this file describes only data
 layouts, established from the constructors / accessors in `orig/pc/GameData/game.unpacked.exe` (base 0x400000,
-capstone) and from the recovered glue in `src/physics/physics_01..04.cpp`. Every row gives an address as evidence.
+capstone) and from the recovered glue in `archive/src/physics/physics_01..04.cpp`. Every row gives an address as evidence.
 **guess** = inferred from data flow, not proven. Names are suggested (no symbols in the binary).
 
 Conventions used throughout (all evidence-backed):

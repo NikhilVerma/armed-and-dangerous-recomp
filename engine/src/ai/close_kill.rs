@@ -1,5 +1,5 @@
 //! The companions' close kill: Q or Jonesy grabs the grunt he fights and kills him with his hands, a pair of IC anims
-//! (src/ai/ai_02.cpp 0x00427e80, ai_04.cpp GruntObject_Slot66 0x00434ea0 / BowGruntObject_Slot66 0x004346a0, ai_06.cpp
+//! (archive/src/ai/ai_02.cpp 0x00427e80, ai_04.cpp GruntObject_Slot66 0x00434ea0 / BowGruntObject_Slot66 0x004346a0, ai_06.cpp
 //! states 0xc..0xf, ai_03.cpp 0x0042c670; reached in the original on lev_1_m3: Q's vt+0x138 and the grunt's Slot66 ran).
 //!
 //! - **The try** (0x00427e80, from the engage 0x00427910, a burst's or the clip's end of the fire cycle 0x00428980,

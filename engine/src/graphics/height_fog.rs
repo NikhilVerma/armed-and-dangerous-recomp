@@ -1,5 +1,5 @@
 //! Height fog: the old remaster's modern fog ([render] fog_modern / fog_density / fog_height / fog_sun, registered
-//! in hook/enhance/shadows.cpp; the maths in src/rhi/vulkan/vk_fog.cpp `ModernFogGlsl` and vk_device.cpp
+//! in archive/hook/enhance/shadows.cpp; the maths in archive/src/rhi/vulkan/vk_fog.cpp `ModernFogGlsl` and vk_device.cpp
 //! `ModernFogUniforms`). Exponential height fog per pixel in place of the level's linear fog, on every surface the
 //! level's fog reaches (the game material; the sky stays unfogged as in the original), with the level's own fog
 //! colour and range: level with the camera, half the light gets through half way through the fog range. Valleys get

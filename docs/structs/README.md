@@ -19,7 +19,7 @@ subclasses' own records are listed with `--all`.
 
 ```
 python tools/struct_atlas.py classes      # class model: descriptors, vtables, factory names (work/struct_atlas_classes.json)
-python tools/struct_atlas.py static       # parse src/**/*.cpp (work/struct_atlas_static.json), ~15 s
+python tools/struct_atlas.py static       # parse archive/src/**/*.cpp (work/struct_atlas_static.json), ~15 s
 ORACLE_OUT=work/oracle-structatlas AND_HOOK_BUILD=build/hook-structatlas \
   python tools/struct_atlas.py run walk courtyard ...   # the original off-screen with struct snapshots (needs the hook build)
 ORACLE_OUT=work/oracle-structatlas python tools/struct_atlas.py infer   # -> work/struct_atlas.json, coverage, precision
@@ -33,7 +33,7 @@ python tools/struct_atlas.py docs         # these files + symbols/types/data_mem
   gives the hierarchy). Vtables without a descriptor (slot 1 ReturnZero: the UI objects, ...) are named from the
   factory tables (game_04.cpp kCreateCases + game_03.cpp kBehaviours) as `obj:<behaviour name>`, base Object (assumed).
 - **Static accesses**: every `Field<T>(base, 0xOFF)`, file-local accessor (`D(base + 0xOFF)`, `Fl(...)`, `By(...)`, ...;
-  detected from each file's helper definitions) and raw cast in src/. The class is the one of the base expression:
+  detected from each file's helper definitions) and raw cast in archive/src/. The class is the one of the base expression:
   the method's `this` (the function sits in that class's vtable: the lowest common ancestor of every vtable holding
   it; `this` is the parameter the ABI wrapper passes ecx in), a parameter typed by the function's comment (`ecx = AI
   object`, `stack: player, ...`), by the tracker name's class prefix, or by its callers (an argument that is a typed
@@ -45,11 +45,11 @@ python tools/struct_atlas.py docs         # these files + symbols/types/data_mem
   float, 0x004534f0 bool, the template getters) with a `base + 0xOFF` destination and a string constant; parameter
   tables `{'F', 0xOFF, name, default}`; a bool read into a local that then sets a bit (`flag`); weaker: a statement
   that names one string and writes one field (`statement`: often a sound / fx resource name, not a property).
-- **Dynamic**: the hook's `[test] struct_snap` (hook/src/teststructsnap.cpp) writes, every N play frames of an oracle
+- **Dynamic**: the hook's `[test] struct_snap` (archive/hook/src/teststructsnap.cpp) writes, every N play frames of an oracle
   scenario, the raw bytes of up to K live objects per vtable (World +0xe70 plus the player), each object's position
   from vt+0x54, the frame time, and every few snapshots the first dword of what each pointer-like dword points at.
 - **Known names** used for checks: symbols/types/data_members.csv (the game's member tables), the fields the oracle
-  trace reads (hook/src/testoracle.cpp), and `+0x...` mentions in docs/subsystems (shown, not trusted).
+  trace reads (archive/hook/src/testoracle.cpp), and `+0x...` mentions in docs/subsystems (shown, not trusted).
 
 ## Meaning labels (each with its evidence and a confidence 0..1)
 

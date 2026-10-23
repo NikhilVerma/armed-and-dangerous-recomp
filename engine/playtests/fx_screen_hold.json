@@ -1,5 +1,5 @@
 {
- "load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json",
+ "load": "states/after_pub.json",
  "steps": [
   {"wait": 1.0},
   {"fx": {"name": "fx_explosion_black_hole", "clear": true}},

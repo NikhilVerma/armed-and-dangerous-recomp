@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 0.5},
  {"expect": {"mission_obj.volumes.194.on_enter": 808, "mission_obj.volumes.271.on_enter": 713, "mission_obj.volumes.269.on_enter": 0, "mission_obj.volumes.194.enabled": true}},
  {"warp": [16, 384, 9, 0]},

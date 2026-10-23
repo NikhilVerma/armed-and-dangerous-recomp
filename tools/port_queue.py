@@ -79,7 +79,7 @@ def load():
     cited = set(cited_lines())
     # recovered source file per address (HOOK(0x..., "name") lines)
     where = {}
-    for f in glob.glob(os.path.join(ROOT, 'src', '**', '*.cpp'), recursive=True):
+    for f in glob.glob(os.path.join(ROOT, 'archive', 'src', '**', '*.cpp'), recursive=True):
         for m in re.finditer(r'HOOK\(0x([0-9a-fA-F]{8})', open(f, encoding='utf-8', errors='replace').read()):
             where[int(m.group(1), 16)] = os.path.relpath(f, ROOT).replace('\\', '/')
     rows = list(csv.DictReader(open(os.path.join(ROOT, 'symbols', 'functions.csv'), encoding='utf-8')))

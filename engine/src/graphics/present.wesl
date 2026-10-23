@@ -1,4 +1,4 @@
-// The old remaster's present pass (src/rhi/vulkan/vk_present.cpp kFragment), last in the 3D camera's post-processing
+// The old remaster's present pass (archive/src/rhi/vulkan/vk_present.cpp kFragment), last in the 3D camera's post-processing
 // (graphics/present.rs): the filmic ACES curve ([render] tonemap_aces) and triangular dither noise of +-1 step of
 // the 8-bit output ([render] dither), so the smooth gradients of sky, fog and snow shading do not band.
 //

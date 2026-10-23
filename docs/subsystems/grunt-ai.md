@@ -16,7 +16,7 @@ Kind::weapon, 0x004a0ef0), settled since the table below was written.
 | grunt | p_grunt | 9 | **guess** grunt_bow (arrow speed 25*3 = 75, damage 10) | p_grunt has no max_health (code default) |
 | captain | p_captain | 0 placed; 2 spawned by generator 215 | captain_mg (bullet 300*3, damage 30), captain_grenade | |
 
-Projectile speed x3: Projectile_Load 0x0047e0c0 (src/game/game_06.cpp:959).
+Projectile speed x3: Projectile_Load 0x0047e0c0 (archive/src/game/game_06.cpp:959).
 
 Modes used (instance overrides, big10_inst): attention_guard (most), ready_guard (196, 208), ready_window (211-214,
 obj_tag 60-63 + generic_txt window bone), trigger_marker (34 -> marker tag 10 "hide", trigger 808; 67 -> marker 14
@@ -25,7 +25,7 @@ instance 33 (tag 4) and marker 151 alarm_tag 4; generators 152 (5 regulars) and 
 marker tags 12-14 (markers 36, 205 "trigger_charge", 151 "ready_roaming"). Mission: alarm_generator_max_troops 10,
 alarm delay 2-4 s, alarm_ai_max_distance 1000.
 
-## 2. Set-up: Ai_InitGeneric 0x004247f0 (src/ai/ai_01.cpp:2289-2590)
+## 2. Set-up: Ai_InitGeneric 0x004247f0 (archive/src/ai/ai_01.cpp:2289-2590)
 
 - Health +0x458 = max_health * Game+0x558 for bad guys (vt+0xe8: easy 0.5, normal 1, hard / very hard 2), * Game+0x554
   for the player's side (vt+0xe4: easy 2, normal 1, hard 1, very hard 0.5) (ai_01.cpp:2329-2340, table 0x00589188;
@@ -57,7 +57,7 @@ alarm delay 2-4 s, alarm_ai_max_distance 1000.
 "attention" vs "ready": the third argument of 0x0042d0f0 (**guess**: attention = idle/relaxed stance with scan
 animations, ready = weapon raised).
 
-## 3. Target acquisition: AI_FindTarget 0x00426920 (src/ai/ai_02.cpp:585-810)
+## 3. Target acquisition: AI_FindTarget 0x00426920 (archive/src/ai/ai_02.cpp:585-810)
 
 Runs only when timer +0x490 <= 0; re-armed with 0.75..1.25 s (or 2..4 s when 0x0044e600 holds).
 
@@ -87,10 +87,10 @@ marker's; the head's leg takes the last marker's), else patrol_speed (+0x954) wi
 
 Set target 0x0042cc70 (vt+0x23c): with a group id (+0x574 != 0) every other AI in World+0xe7c whose vt+0x10c holds
 gets 0x0042c700: same group, alive, not flag +0x488 bit 14, its timer +0x578 expired -> after a random 0.25..1.0 s it
-takes the same target (+0x57c). (src/ai/ai_03.cpp:1355-1590.) Guarding AI (+0x484 bit 25) whose target goes beyond
+takes the same target (+0x57c). (archive/src/ai/ai_03.cpp:1355-1590.) Guarding AI (+0x484 bit 25) whose target goes beyond
 range +0x5d8 sets both ranges to 99999 (0x0042c790).
 
-## 5. Combat decision: 0x00427910 / 0x00427c80 (src/ai/ai_02.cpp:1150-1280)
+## 5. Combat decision: 0x00427910 / 0x00427c80 (archive/src/ai/ai_02.cpp:1150-1280)
 
 With a target: squared 2D distance vs engagement range +0x5d8.
 - Out of range: state 0xa2 (anim 0x66) / state 0x79 / vt+0x18c(0) and 0x0042b8e0 (**guess**: move closer).
@@ -100,7 +100,7 @@ With a target: squared 2D distance vs engagement range +0x5d8.
   (per-shot code not traced). Aim error: fire_inaccuracy_height / angle with accuracy ranges fire_accuracy_min/max
   (formula not traced).
 
-## 6. Per-frame state machine GenericAI_Update 0x0043ee90 (src/ai/ai_06.cpp)
+## 6. Per-frame state machine GenericAI_Update 0x0043ee90 (archive/src/ai/ai_06.cpp)
 
 State +0x460; dispatch at 0x0043f4ee with jump tables 0x004460c0 / 0x00446248 / 0x00446290 / 0x0044631c. States seen
 in the switch (ai_06.cpp:437-535): 0x1, 0x2, 0xa-0x14, 0x1e-0x21, 0x28, 0x29, 0x32-0x34, 0x3c-0x3e, 0x50, 0x5a,
@@ -109,7 +109,7 @@ in the switch (ai_06.cpp:437-535): 0x1, 0x2, 0xa-0x14, 0x1e-0x21, 0x28, 0x29, 0x
 fire, 0x10 = close attack, 0x79/0xa2 = approach (**guess**), 0x3e = forced pursuit at range 5000 (ai_03.cpp:1635).
 Every state ends at 0x004460a2. **The per-state actions and exits are not yet recovered for the port.**
 
-## 7. Voice lines (src/audio/audio_01.cpp:655-1060)
+## 7. Voice lines (archive/src/audio/audio_01.cpp:655-1060)
 
 Sets: gr1500xx (first), GR2/gr2 (+0x488 bit 29), GR3 (+0x484 bit 21). Index = ((rand*range)>>15)/100.
 general_scream (0x004383a0), topsy_scream (0x004385c0), sticky_scream (0x00438810, shared delay Game+0xb64),
@@ -272,7 +272,7 @@ with the original by capture in this round (see 14).
 
 **Classes.** BowGruntObject_Slot6 0x004347b0 runs 9 times per level load in the coverage runs: the 9 `grunt` instances
 are archers (`Kind::Bow`), `grunt_regular` GruntObject, `captain` CaptainObject (alarm generator 215 only). Their
-vtables (diffed with tools/vtable.py) differ in: the anim table vt+0x1a4 (0x0043bd70 / 0x0043abc0 / 0x0043b610, ported
+vtables (diffed with archive/tools/vtable.py) differ in: the anim table vt+0x1a4 (0x0043bd70 / 0x0043abc0 / 0x0043b610, ported
 whole as ai.rs `anim_name`: e.g. the archers' grunt_bow_idle_* stand set, grunt_bow_fire_*, grunt_bow_reload_* 1.3 s,
 bow_die_1..3; the captain's captain_idle_*, captain_fire_* 0.633 s looped by +0x484 0x1000), the weapon (0x004a0ef0
 index 0xe bow at ref_lhand, 0xf rifle, 0x10 captain_mg at ref_rhand: level.rs now hands the captain his gun), and yes /

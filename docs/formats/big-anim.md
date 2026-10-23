@@ -4,7 +4,7 @@ Status: 2026-10-03; key blocks, node evaluation and the remaster export added 20
 `common.py` (docs/formats/big-common.md).
 Roundtrip: `.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip "orig/pc/GameData/**/*_anim.big"` ->
 25 ok. Files are `<level>_big03_anim.big`, magic `0x00C0FFEE`. The loader is **0x0045b430
-ObjectSystem_LoadAnims** (`src/loader/auto_00410ec0.cpp`). There are 13878 animations over the 25 files
+ObjectSystem_LoadAnims** (`archive/src/loader/auto_00410ec0.cpp`). There are 13878 animations over the 25 files
 (601 in lev_1_m1).
 
 ## 1. Payload layout
@@ -55,7 +55,7 @@ heap blocks, heap header, relocation and dictionaries. Differences measured over
 The node dictionary maps node (bone) names to node records. Skins bind to these names
 (SkinBinding_Create 0x004ed290: skin bone id -> name -> `skeleton+4` dictionary lookup).
 
-### 3.2 Node record. Walk: fn_004ef270 (src/loader/auto_004ef270.cpp); evaluation: fn_004ebf90 (src/anim/anim_02.cpp)
+### 3.2 Node record. Walk: fn_004ef270 (archive/src/loader/auto_004ef270.cpp); evaluation: fn_004ebf90 (archive/src/anim/anim_02.cpp)
 
 A node record is also the runtime "bone": fn_004ebf90 samples its tracks into the transform at +0x1c in place.
 
@@ -112,13 +112,13 @@ Sizes are the second dword of each 0x005cabe0 entry and match the 0x004eeda0 swa
 +0x24): item = `{i32 tick, u32 ?, u32 n, n x {u32, ptr, ptr text}}`; the text is e.g. `FX_Material
 FX_fs_grunt_run` (footstep effects).
 
-**Packed quaternion, Quat_Unpack32 0x004f1920** (src/engine/missing_01.cpp, smallest three): bits 0-1 = index i of
+**Packed quaternion, Quat_Unpack32 0x004f1920** (archive/src/engine/missing_01.cpp, smallest three): bits 0-1 = index i of
 the largest component, set to -1.0 when bit 2 is set, else +1.0; the other three components, in index order (table
 0x0057e7f8 = {1,2,3}, {0,2,3}, {0,1,3}, {0,1,2}), get the signed fields bits 3-12 * (1/511), bits 13-22 * (1/511)
 and bits 23-31 * (1/255) (constants 0x005bcd78, 0x005bcc18); then Quat_Normalize 0x004f12e0. Components are (x, y,
 z, w).
 
-**Key search, AnimTrack_FindKeys 0x004eb780** (src/anim/anim_02.cpp): unless header flags bit 1 or a zero key range,
+**Key search, AnimTrack_FindKeys 0x004eb780** (archive/src/anim/anim_02.cpp): unless header flags bit 1 or a zero key range,
 a time before the first key is wrapped by the pre mode and after the last key by the post mode (2 and 3 loop, 4
 ping-pong, anything else no wrap). A binary search finds key A <= t < key B and the fraction s = (t - tA) / (tB -
 tA). At or after the last key: A = last, B = key 0, s = 0 (the last value). Before the first key: A = last, B =
@@ -126,7 +126,7 @@ key 0, s = 1 (the first value). The record holds s at +0x1c and 1 - s at +0x20.
 
 **Interpolation** (s = the fraction, r = 1 - s):
 - Linear (3, 6): `A r + B s`.
-- Bezier (2, 5), CurveEval_Bezier 0x004eb930 (src/engine/missing_01.cpp): with dt = tB - tA (plus the root's end -
+- Bezier (2, 5), CurveEval_Bezier 0x004eb930 (archive/src/engine/missing_01.cpp): with dt = tB - tA (plus the root's end -
   start when negative, i.e. across the loop) and h = dt / 3 (0x005bcc60 = 1/3):
   `P0 r^3 + 3 s r^2 (P0 + h T0) + 3 s^2 r (P1 + h T1) + P1 s^3`, P0 = A's value, T0 = A's out-tangent, P1 = B's
   value, T1 = B's in-tangent (tangents per tick). Step keys: when `A.flags & 0x1c00 == 0x800` or `B.flags & 0x380 ==
@@ -177,8 +177,8 @@ Rebuild reads `name` and `file` only. The name must equal the chunk's own name. 
 
 ## 7. Pose evaluation (how a node becomes a matrix)
 
-Evidence: src/anim/anim_02.cpp (fn_004ebf90, fn_004ec2f0, fn_004ec410, fn_004ed5d0), src/engine/engine_01.cpp
-(Quat_ToMatrix 0x004e3260, Transform_ToMatrix 0x004e3370, Matrix_Multiply 0x004e2910), src/engine/engine_02.cpp
+Evidence: archive/src/anim/anim_02.cpp (fn_004ebf90, fn_004ec2f0, fn_004ec410, fn_004ed5d0), archive/src/engine/engine_01.cpp
+(Quat_ToMatrix 0x004e3260, Transform_ToMatrix 0x004e3370, Matrix_Multiply 0x004e2910), archive/src/engine/engine_02.cpp
 (Quat_Mul 0x004f1710, Quat_FromAxisAngle 0x004f13d0, 0x004e7830 cross product).
 
 - **Matrices** are 4x4 floats, row-major in memory, for **column vectors**: p' = M p, translation in elements 3, 7

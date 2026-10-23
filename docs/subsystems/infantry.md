@@ -1,7 +1,7 @@
 # Infantry of the later levels (lev_2 .. lev_5, bonus)
 
 The grunt-class AI beyond lev_1_m1 (docs/subsystems/grunt-ai.md covers GruntObject, BowGruntObject, CaptainObject and
-the state machine they share). Static reading of the recovered code (src/ai, src/anim, src/game); **none of these paths
+the state machine they share). Static reading of the recovered code (archive/src/ai, archive/src/anim, archive/src/game); **none of these paths
 ran in the recorded coverage runs**, so every rate and range below comes from the code and the property sets, not
 from a capture. Guesses are marked **guess**. Engine port: engine/src/ai.rs and its submodules (ai/*.rs).
 

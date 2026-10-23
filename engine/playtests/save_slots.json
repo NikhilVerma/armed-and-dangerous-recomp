@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"clear_saves": true}, {"wait": 1.0},
  {"expect": {"saves.slots": ["empty", "empty", "empty", "empty", "empty", "empty"], "saves.newest": null}},
 

@@ -1,6 +1,6 @@
 //! The fixed-size pools the original sized for a 2003 machine, as typed settings ([`PoolSettings`], part of the
 //! graphics presets) applied by [`PoolsPlugin`]: the old remaster's `[limits] particle_pool_scale` / `path_nodes`
-//! and `[persistence] decal_pool_choice` (hook/enhance/limits.cpp `LimitsInit`, hook/enhance/persistence.cpp
+//! and `[persistence] decal_pool_choice` (archive/hook/enhance/limits.cpp `LimitsInit`, archive/hook/enhance/persistence.cpp
 //! `PersistenceInit`).
 //!
 //! - `decal_pool`: decals at once (Decals_Spawn 0x004165c0 / Decal_Recycle 0x00417110 recycle the oldest past 160:

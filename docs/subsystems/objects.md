@@ -1,7 +1,7 @@
 # Object model (the Object base class, default objects, the factory, triggers)
 
-Recovered code: `src/game/game_03.cpp` (Object base class vtable 0x005b0b20, DefaultGameObject 0x005a2bf0 /
-0x005ab650, RocketTowerBuilding 0x005a87c0, ObjectSystem 0x005a826c) and `src/game/game_04.cpp` (the factory
+Recovered code: `archive/src/game/game_03.cpp` (Object base class vtable 0x005b0b20, DefaultGameObject 0x005a2bf0 /
+0x005ab650, RocketTowerBuilding 0x005a87c0, ObjectSystem 0x005a826c) and `archive/src/game/game_04.cpp` (the factory
 ObjectSystem_CreateObject, constructors, Object_SendTrigger, class descriptors, pub / pickup virtuals). Related:
 damage.md (filters per class, what stops a bullet), mission.md (the lev_1_m1 classes and the trigger graph),
 fx-vm.md (death fx, area damage). Remaster: `engine/src/level.rs` (spawn, husks, triggers, lists) and

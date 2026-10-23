@@ -5,7 +5,7 @@
 Reads, from orig/pc/GameData/game.unpacked.exe:
 - the mode table 0x005cb650 (0x28-byte entries, index mode * 7 + state; type +0 0 = "link to state +4 of this mode";
   +4 name prefix, +8 slot flags (1 loop, 0x40 backwards), +0xc rate block, +0x10 kind), chosen and started by
-  0x00475ff0 (src/game/game_05.cpp);
+  0x00475ff0 (archive/src/game/game_05.cpp);
 - the cross-fade times 0x005cb3a8 (13 x 13 floats, [previous kind][kind] in seconds, AnimSlot_Set's weight);
 - which rate block each locomotion entry points at (the blocks are filled at load by PlayerObject_Load 0x00473da0 from
   p_trotter's anim_run_* / anim_walk_* / anim_side_* keys: those values are in player.json `movement.

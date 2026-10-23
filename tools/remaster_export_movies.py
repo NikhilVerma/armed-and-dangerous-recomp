@@ -6,7 +6,7 @@ without shipping ffmpeg or a DivX / MPEG-4 decoder.
   python tools/remaster_export_movies.py --check            -> re-reads each exported movie and prints its numbers
 
 Input: orig/pc/GameData/movies/*.pcv (AVI: MPEG-4 Part 2 video 'DXGM' 512x308 at 30 fps, PCM s16le audio; the
-original plays them through DivxMediaLib.dll, src/movie/movie_01.cpp) and the UI bank's subtitle tables
+original plays them through DivxMediaLib.dll, archive/src/movie/movie_01.cpp) and the UI bank's subtitle tables
 (work/remaster/<level>/ui/layout.json `subtitles` + `captions`, made by tools/remaster_export_ui.py: the bank is
 identical in every level). Needs ffmpeg (winget Gyan.FFmpeg); --ffmpeg overrides the path.
 

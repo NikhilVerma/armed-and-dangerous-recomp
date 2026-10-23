@@ -70,7 +70,7 @@ CLASSES = {
     "fx_explosion": ("FxExplosion (explosive pipe / keg)", 90, "vtable 0x005a4300; die slot 0x0041c570 sends "
                                                                "send_trigger_on_death +0x488"),
     "envmapmarker": ("EnvMapMarker", 92, "behaviour name 'EnvMapMarker'; hash case-insensitivity not checked"),
-    # later levels' mission logic (ids from the 0x0045df60 table: src/game/game_03.cpp kBehaviours)
+    # later levels' mission logic (ids from the 0x0045df60 table: archive/src/game/game_03.cpp kBehaviours)
     "counter": ("CounterObject", 132, "vtable 0x005a4b00; Counter_Init 0x00415770"),
     "timer": ("TimerObject", 133, "vtable 0x005a7d58; TimerObject_ReadProps 0x00496160"),
     "army_timer": ("ArmyTimerObject", 134, "vtable 0x005a2800 (derived from TimerObject: same properties)"),

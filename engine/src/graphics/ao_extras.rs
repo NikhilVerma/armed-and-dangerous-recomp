@@ -1,6 +1,6 @@
 //! Ambient occlusion as the old remaster had it: XeGTAO with its settings, then the old apply pass's shaping
-//! ([render] ao_power, ao_falloff, ao_contact, ao_snow, registered in hook/enhance/shadows.cpp; ao_thickness from
-//! and.ini; the passes in src/rhi/vulkan/vk_gtao.cpp `GtaoHlsl` / `GtaoApplyFragmentGlsl`, the settings in
+//! ([render] ao_power, ao_falloff, ao_contact, ao_snow, registered in archive/hook/enhance/shadows.cpp; ao_thickness from
+//! and.ini; the passes in archive/src/rhi/vulkan/vk_gtao.cpp `GtaoHlsl` / `GtaoApplyFragmentGlsl`, the settings in
 //! vk_device.cpp `Ambient`). On top of the existing switches (`ambient_occlusion`, `ao_quality`, `ao_radius`,
 //! `ao_strength`, `ao_exempt`, graphics/mod.rs).
 //!

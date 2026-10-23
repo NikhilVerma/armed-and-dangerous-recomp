@@ -532,7 +532,7 @@ fn main() {
         // game time advances one fixed step per frame (real and virtual): a slow frame (a screenshot, loading) no
         // longer jumps every timer at once, and runs compare frame for frame with the original's captures (fight2E:
         // grunts fired in lockstep after each screenshot's stall). The step is the original harness's virtual clock
-        // (tools/compare.py clock_step_ms 16.6667 -> hook/src/testclock.cpp: 166667 ticks of 100 ns), not exactly
+        // (tools/compare.py clock_step_ms 16.6667 -> archive/hook/src/testclock.cpp: 166667 ticks of 100 ns), not exactly
         // 1/60 s: a one-second countdown then runs out on the 60th frame as in the original, where f32 steps of 1/60
         // take 61 (lev_4_m2's invisible barracks released one troop a frame later every second). A "real_time"
         // script keeps the wall clock, as the player's game does

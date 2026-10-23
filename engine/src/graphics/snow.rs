@@ -1,5 +1,5 @@
 //! GPU snowfall: the Remaster's snow, simulated and drawn on the GPU (snow.wesl). A port of the old remaster's Vulkan
-//! snow (hook/enhance/weather.cpp, src/rhi/vulkan/vk_snow.cpp, docs/subsystems/weather.md) to Bevy.
+//! snow (archive/hook/enhance/weather.cpp, archive/src/rhi/vulkan/vk_snow.cpp, docs/subsystems/weather.md) to Bevy.
 //!
 //! The original has no weather system: a level's `camera_fx` script attaches textured cylinders around the camera
 //! (`fxo_snow`, `fxo_snow_2`, lev_1_m1's fx_camera_l1_m1) whose UV scrolling reads as falling snow. With the setting
@@ -79,7 +79,7 @@ impl Default for SnowSettings {
 /// (the old remaster's slider), 0 shown as Off.
 pub const STEPPERS: [(&str, f32, f32, usize); 1] = [("snow_amount", 0.0, 3_000_000.0, 31)];
 
-/// The snowfall's look and motion (the old remaster's defaults: src/rhi/rhi.h snow hints, vk_device.cpp Snow()).
+/// The snowfall's look and motion (the old remaster's defaults: archive/src/rhi/rhi.h snow hints, vk_device.cpp Snow()).
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub struct SnowTuning {

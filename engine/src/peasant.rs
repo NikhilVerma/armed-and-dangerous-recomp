@@ -1,5 +1,5 @@
-//! Peasants (PeasantObject, vtable 0x005a8550; src/game/game_01.cpp:1153-1385, src/physics/physics_01.cpp:560-765,
-//! the voice lines src/audio/audio_01.cpp:76-120 / 1430-1494, the mission's part src/game/game_02.cpp:2187-2348;
+//! Peasants (PeasantObject, vtable 0x005a8550; archive/src/game/game_01.cpp:1153-1385, archive/src/physics/physics_01.cpp:560-765,
+//! the voice lines archive/src/audio/audio_01.cpp:76-120 / 1430-1494, the mission's part archive/src/game/game_02.cpp:2187-2348;
 //! docs/subsystems/peasants.md): the little villagers Roman rescues. He picks one up by walking up to him, drags him
 //! along on a rope behind him (at most three at a time), and banks them on a door mat; the mission counts the saved
 //! and the lost.

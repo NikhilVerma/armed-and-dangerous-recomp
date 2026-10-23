@@ -1,7 +1,7 @@
 """Batch Qwen remaster of game textures (docs/retexture.md "Batch"). Steps, each resumable:
 
   prepare N      the N smallest not-yet-prepared textures from work/retex/inventory.json: upright source PNG
-                 (src/<name>.png), a preview for describing (preview/<name>.png, enlarged to about 512 px, alpha on
+                 (archive/src/<name>.png), a preview for describing (preview/<name>.png, enlarged to about 512 px, alpha on
                  grey), and plan.json entries (target size: 4x when both sides stay <= 2048, else 2x; at least 256 per
                  side, Qwen's custom minimum; whether the original wraps seamlessly)
   run            every planned texture with a description (desc/<name>.json) and no result yet: Qwen Image 2.1,
@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)
 import medialab  # noqa: E402
 
 B = os.path.join(ROOT, "work", "retex", "batch")
-SHARE = "C:/Users/nikhi/OneDrive/AnD-retexture-test/batch"
+SHARE = "%USERPROFILE%/OneDrive/AnD-retexture-test/batch"
 OVERRIDES = [os.path.join(ROOT, "orig", "pc", "GameData", "overrides", "textures"),
              os.path.join(ROOT, "work", "instances", "main", "overrides", "textures")]
 GENERIC = ("Convert this video game asset into an upscaled realistic version of its original intention using modern "

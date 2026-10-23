@@ -1,5 +1,5 @@
 //! The mouse pointer in the menus and whether the mouse stays in the window: the old remaster's `[input]
-//! hardware_cursor` and `clip_cursor` (hook/enhance/input.cpp `InputInit`, `CursorSprite`, `Clip`), as typed settings
+//! hardware_cursor` and `clip_cursor` (archive/hook/enhance/input.cpp `InputInit`, `CursorSprite`, `Clip`), as typed settings
 //! ([`CursorSettings`], part of the graphics presets).
 //!
 //! - **The menu pointer** (`hardware_cursor`). The original hides the Windows pointer once at window creation

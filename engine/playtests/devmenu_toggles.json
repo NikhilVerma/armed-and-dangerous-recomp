@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"wait": 1.0},
  {"expect": {"health": [399, 401], "dev.open": false, "dev.on": []}},
  {"tap": "F1"}, {"wait": 0.5},

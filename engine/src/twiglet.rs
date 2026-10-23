@@ -1,4 +1,4 @@
-//! Twiglets (Twiglet, vtable 0x005af020; src/ai/ai_08.cpp, ai_09.cpp; docs/subsystems/twiglets.md): little wooden
+//! Twiglets (Twiglet, vtable 0x005af020; archive/src/ai/ai_08.cpp, ai_09.cpp; docs/subsystems/twiglets.md): little wooden
 //! creatures that come out of the dense trees (lev_4_m1's, the only ones a trigger activates in the shipped data) or are
 //! summoned by monks (lev_4_m1, lev_4_m2), pull a bomb from their back and run at the player to blow it up at his feet.
 //!

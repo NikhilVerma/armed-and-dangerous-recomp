@@ -1,6 +1,6 @@
 # Quality-of-life features: reconnaissance (2026-10-04)
 
-Static reconnaissance only (no game run). Evidence is from `work/decomp/<addr>.c`, `tools/recover.py --asm`
+Static reconnaissance only (no game run). Evidence is from `work/decomp/<addr>.c`, `archive/tools/recover.py --asm`
 and raw reads of `game.unpacked.exe` (vtables, constants). **Guess** marks anything not proven. Feature list:
 `docs/goals/remaster-basics.md` item 6.
 
@@ -63,7 +63,7 @@ direction design; not tested).
 **Recommended hooks**
 - Per-axis sensitivity / invert: hook 0x004f83c0 (or post-process input+0x2c/+0x30 right after it in a hook of
   0x004f8760): multiply X/Y separately, negate Y. Faithful default = unchanged.
-- Raw-input alternative (high-DPI, no DI): replace the mouse GetDeviceState result in `hook/src/input_hooks.cpp`
+- Raw-input alternative (high-DPI, no DI): replace the mouse GetDeviceState result in `archive/hook/src/input_hooks.cpp`
   (already hooks GetDeviceState) with accumulated WM_INPUT deltas.
 - XInput: synthesise joystick axes/buttons, either by faking the 0x34-byte joystick state in the GetDeviceState
   hook for input+0x160 (needs a device to exist; guess: none without a DI joystick) or by hooking 0x004f8600 and
@@ -73,12 +73,12 @@ direction design; not tested).
 
 m_brightness (game+0x4b4, default 1.5, menu "ui_gfxmenu_brightness" range 1.0..2.0 via temp 0x005fea28) is sent
 by 0x00401ce0 as `renderer->vt[+0x40](b, b, b)` = **Renderer_SetGamma 0x005091c0** (recovered:
-`src/renderer/auto_00507c10.cpp`). It clamps to 0..2, returns early unless renderer caps byte +0x15fd bit 2 is
+`archive/src/renderer/auto_00507c10.cpp`). It clamps to 0..2, returns early unless renderer caps byte +0x15fd bit 2 is
 set (guess: the FULLSCREENGAMMA cap), builds ramp[i] = pow(i/255, 1/gamma) * 65535 and calls
 `IDirect3DDevice9::SetGammaRamp(0, 0, ramp)`. That call has no effect in windowed mode (D3D9 documentation) and
 changes the whole desktop ramp in full screen.
 
-**Recommended**: in `hook/enhance/`, wrap Renderer_SetGamma: record the three gammas, skip the device ramp, and
+**Recommended**: in `archive/hook/enhance/`, wrap Renderer_SetGamma: record the three gammas, skip the device ramp, and
 apply `c' = pow(c, 1/gamma)` in a final present pass (Vulkan backend post pass, or a full-screen quad in the
 D3D9 facade before Present). Keep the original path when the switch is off.
 
@@ -161,8 +161,8 @@ substep only (guess: otherwise presses repeat); (4) audio update once per frame.
 ## Menu cursor, clicks and window capture (2026-10-09)
 
 The player reported that the menu cursor moved slower than Windows and felt accelerated, that mouse and keyboard
-fought over menu focus, and that clicking a menu item sometimes did nothing. Findings (src/ui/ui_03.cpp,
-src/game/ui_pass.cpp):
+fought over menu focus, and that clicking a menu item sometimes did nothing. Findings (archive/src/ui/ui_03.cpp,
+archive/src/game/ui_pass.cpp):
 
 - **Position.** The menu cursor is not built from DirectInput deltas. 0x00491380 reads `GetCursorPos` every frame
   and normalises it to the client area (manager g+0xab4: +0x320/+0x324 pixels from the centre, +0x328/+0x32c
@@ -192,8 +192,8 @@ count turns sens * s / 300. Speed is adjusted with `[qol] mouse_x` / `mouse_y` (
 
 ## Game controllers: DualShock 4, DualSense, Xbox (2026-10-09)
 
-`[input] gamepad` (remaster on) in hook/enhance/gamepad.cpp, on SDL3 3.4.16. SDL3 is zlib-licensed, statically
-linked and fetched by hook/CMakeLists.txt.
+`[input] gamepad` (remaster on) in archive/hook/enhance/gamepad.cpp, on SDL3 3.4.16. SDL3 is zlib-licensed, statically
+linked and fetched by archive/hook/CMakeLists.txt.
 - **Backends.** DS4 and DualSense use SDL's HIDAPI drivers (USB and Bluetooth). Xbox pads use XInput or WGI.
   - SDL's DirectInput backend is compiled out (`SDL_PRESEED OFF`, `HAVE_DINPUT_H` empty): this DLL is
     dinput8.dll, and the game's DirectInput hooks must not see SDL's devices.

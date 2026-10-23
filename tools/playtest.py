@@ -5,8 +5,10 @@
 Prints EVENT / EXPECT / PLAYTEST lines (plus --grep matches, e.g. AIDBG), the wall time and the exit code; the full
 log goes to SCRIPT.out. Exit code 1 when an expect failed or the game crashed or timed out.
 
-Fast scripts start from a saved state: a script with {"save": "NAME"} writes work/remaster/play/states/NAME.json,
-and a script with "load": "states/NAME.json" starts there (intro skipped). See docs/remaster-engine.md "Playtests".
+Fast scripts start from a saved state: a script with {"save": "NAME"} writes states/NAME.json next to itself, and a
+script with "load": "states/NAME.json" starts there (intro skipped). A missing state is written first by the script
+state_NAME.json next to the loading one (engine/playtests/state_after_pub.json). See docs/remaster-engine.md
+"Playtests".
 """
 import argparse
 import json
@@ -40,6 +42,23 @@ if a.timeout is None:
 engine = os.path.join(ROOT, 'engine')
 exe = os.path.join(engine, a.exe, 'release', 'and_remaster.exe')
 script = os.path.abspath(a.script)
+
+# The saved state the script starts from ("load", resolved against the script's folder) is written by a playtest of
+# its own, state_<NAME>.json next to it (engine/playtests/state_after_pub.json writes states/after_pub.json). On a
+# fresh clone or in a new worktree the state does not exist yet: write it first.
+try:
+    load = json.load(open(script, encoding='utf-8')).get('load')
+except (OSError, ValueError):
+    load = None
+if load:
+    state = os.path.join(os.path.dirname(script), load)
+    maker = os.path.join(os.path.dirname(script), 'state_' + os.path.splitext(os.path.basename(load))[0] + '.json')
+    if not os.path.exists(state) and os.path.exists(maker) and os.path.abspath(maker) != script:
+        print(f'state {os.path.relpath(state, ROOT)} missing: running {os.path.relpath(maker, ROOT)} first')
+        cmd = [sys.executable, os.path.abspath(__file__), maker, '--exe', a.exe, '--size', a.size]
+        if a.scene:
+            cmd += ['--scene', a.scene]
+        subprocess.run(cmd)
 out = os.path.splitext(script)[0] + '.out'
 env = dict(os.environ)
 for kv in a.env:

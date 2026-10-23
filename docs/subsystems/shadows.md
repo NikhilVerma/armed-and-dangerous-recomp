@@ -1,8 +1,8 @@
 # Shadows and lighting
 
 Static reconnaissance (2026-10-04) for replacing the game's shadows with shadow maps rendered by the Vulkan
-backend. Sources: `tools/recover.py <addr> --asm`, `work/decomp/`, `work/exports/functions.json`, constants read
-from the image (`tools/reginputs.py`), recovered code in `src/renderer/`. Nothing here was checked at runtime.
+backend. Sources: `archive/tools/recover.py <addr> --asm`, `work/decomp/`, `work/exports/functions.json`, constants read
+from the image (`archive/tools/reginputs.py`), recovered code in `archive/src/renderer/`. Nothing here was checked at runtime.
 **Guess** marks anything not proven.
 
 ## 1. What the game draws
@@ -10,7 +10,7 @@ from the image (`tools/reginputs.py`), recovered code in `src/renderer/`. Nothin
 There is **one** dynamic shadow technique: per-object **render-to-texture silhouettes, projected as decals** onto
 the world. No blob shadows, stencil volumes or lightmaps were found:
 
-- No stencil: `src/renderer` and `src/rhi` never set a stencil state (grep for `STENCIL` finds only Clear flags and
+- No stencil: `archive/src/renderer` and `archive/src/rhi` never set a stencil state (grep for `STENCIL` finds only Clear flags and
   depth-surface setup), and the Vulkan backend, which has no stencil test, matches D3D9 in the level/play scenarios.
   **Guess (strong):** no stencil shadows.
 - No lightmap: no string, texture name or format field mentions one (docs/formats has none). Whether world
@@ -134,7 +134,7 @@ Other controls (no other global flag found):
 | Goal | Hook | Notes |
 | --- | --- | --- |
 | (a) game shadows off | **0x004162b0** (115 B) and **0x004163c0** (119 B), both S0, single caller 0x00489070: return early when `[enhance] shadow_maps` is on | Same effect as m_enableShadows = 0 without touching the saved option. Cheaper alternative: write `[g_game+0xa7c]+4 = 0` after every 0x00401ce0 call (371 B, 9 callers), but that hides the user's setting. |
-| (b) view per frame | **fn_004fe9b0** (renderer virtual 20, S2, recovered in src/renderer/auto_004fe3f0.cpp): publish the block when it is g_game+0x704, or read renderer +0xb0/+0xf4 at the main pass | Alternative: recover **0x0040f6e0** (110 B, S0, one caller) and read g_game+0x704 and the projection there. |
+| (b) view per frame | **fn_004fe9b0** (renderer virtual 20, S2, recovered in archive/src/renderer/auto_004fe3f0.cpp): publish the block when it is g_game+0x704, or read renderer +0xb0/+0xf4 at the main pass | Alternative: recover **0x0040f6e0** (110 B, S0, one caller) and read g_game+0x704 and the projection there. |
 | (b) sun | **Renderer_SetLight 0x004ffbc0** (S2): record type-3 lights as they are set; or read renderer +0x169c slot 0 each frame | Already recovered, so no new recovery is needed. |
 | frame boundary | 0x00489610 (31 B, S0) wraps the main 0x00489070 call | Optional marker for "main scene starts". |
 

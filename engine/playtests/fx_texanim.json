@@ -1,4 +1,4 @@
-{"load": "C:/Users/nikhi/and-decomp/work/remaster/play/states/after_pub.json", "steps": [
+{"load": "states/after_pub.json", "steps": [
  {"note": "Fx_SetTextureAnimation 0x0041e310 (0x63 name, layer, frames, rate, loop): the frames advance on their stage"},
  {"wait": 1.0},
  {"warp": [-210, 380, 25, 0]},

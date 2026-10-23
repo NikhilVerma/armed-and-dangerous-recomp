@@ -1,6 +1,6 @@
 //! Lockstep comparison with the original game (tools/oracle.py, docs/remaster-engine.md "Oracle runs"): a playtest
 //! script with an `"oracle"` section gets the same scripted input the hook DLL feeds the original
-//! (hook/src/testoracle.cpp, input_hooks.cpp) and writes the same per-frame state trace, so the two runs can be
+//! (archive/hook/src/testoracle.cpp, input_hooks.cpp) and writes the same per-frame state trace, so the two runs can be
 //! compared field by field.
 //!
 //! ```json
@@ -21,7 +21,7 @@
 //!   moves him at the frame's present, so the original's trace has him there from the next frame on).
 //! - The trace (`<script>.trace.jsonl`): one line every `trace_every` frames from play frame `trace_from` (every frame
 //!   before frame 0; lines before the briefing are kept until it fixes the play frames), the schema of
-//!   hook/src/testoracle.cpp in game space (Z up), "t" counted from the first line; the run quits after `frames`.
+//!   archive/hook/src/testoracle.cpp in game space (Z up), "t" counted from the first line; the run quits after `frames`.
 //!   Events (triggers, deaths, sounds) before the first line are dropped. "vehicles": the big units by kind
 //!   ([`VehicleKind`]: the hook names them by class), each {"id", "kind", "pos", "health"}.
 
@@ -187,7 +187,7 @@ fn dik(code: u32) -> Option<KeyCode> {
     })
 }
 
-/// Parses the hook's keys_frames form (hook/src/input_hooks.cpp InputHooksInit).
+/// Parses the hook's keys_frames form (archive/hook/src/input_hooks.cpp InputHooksInit).
 pub fn parse_keys(text: &str) -> Vec<Scripted> {
     let mut out = Vec::new();
     for tok in text.split(',').map(str::trim).filter(|t| !t.is_empty()) {

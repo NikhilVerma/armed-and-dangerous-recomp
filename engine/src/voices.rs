@@ -1,7 +1,7 @@
 //! The AI's situation lines that other systems cue: the wall assault's (climb taunt, ladder placed, open gate) and the
 //! shrub patrol's fight taunt. The grunts' own cues (spotted, fight, hurt, dead, taunt, help, screams) are ai.rs's.
 //!
-//! The original's voice methods (src/audio/audio_01.cpp), each a slot of the character's vtable, each picking one line
+//! The original's voice methods (archive/src/audio/audio_01.cpp), each a slot of the character's vtable, each picking one line
 //! of a fixed list by (rand() x range) >> 15 for the speaker's voice set and keeping it as the speaker's line (+0xb50):
 //! - ClimbTaunt (+0x16c, 0x00438e80 -> 0x00438cb0): an army grunt arriving at his ladder or wall scale (GenericAI_Update
 //!   states 0xaa / 0xac, ai_06.cpp:2014-2024), under the shared vo_delay (Game+0xb44, 30..45 s); "GR1/2/3..._ClimbTaunt".

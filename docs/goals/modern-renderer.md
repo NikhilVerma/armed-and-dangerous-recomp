@@ -1,6 +1,6 @@
 # Goal: modern rendering backend
 
-Repo `C:\Users\nikhi\and-decomp`. Target `orig/pc/GameData/game.unpacked.exe` (SHA-256 `f6a690a4…`). Follows
+Repo `<repo>`. Target `orig/pc/GameData/game.unpacked.exe` (SHA-256 `f6a690a4…`). Follows
 `docs/goals/renderer-and-assets.md` (done 2026-10-03). Roadmap step 2 (`docs/roadmap.md`).
 
 ## Outcome
@@ -33,32 +33,32 @@ builds what they plug into.
 
 1. **Finish the renderer core.**
    - Every function in the range is at S2 and passes `tools/compare.py`.
-   - Use the workflow pattern from the pilot: agents write and compile, `tools/bisect_hooks.py` verifies.
+   - Use the workflow pattern from the pilot: agents write and compile, `archive/tools/bisect_hooks.py` verifies.
    - Retry the 16 functions skipped in the pilot after fixing the ABI-scanner gaps listed in the journal
      (tail-jump callees, false ST0 returns, stack-argument inference).
 2. **Draw the interface boundary.**
-   - Write `src/renderer/` down as one table: every renderer virtual (vtable `0x00589990`) and every direct call
+   - Write `archive/src/renderer/` down as one table: every renderer virtual (vtable `0x00589990`) and every direct call
      from game code into the renderer, with what it does.
-   - Specify the interface in `docs/renderer-interface.md` and `src/rhi/`:
+   - Specify the interface in `docs/renderer-interface.md` and `archive/src/rhi/`:
      - resource creation (textures, vertex/index buffers, shaders)
      - state (blend, depth, fog, samplers, transforms)
      - draws
      - frame begin/end and present
      - a per-frame scene description (camera, lights, mesh instances with material and bone matrices)
-   - Recovered code calls the interface. A D3D9 implementation of it, `src/rhi/d3d9/`, must keep
+   - Recovered code calls the interface. A D3D9 implementation of it, `archive/src/rhi/d3d9/`, must keep
      `tools/compare.py` identical. That is the proof that the boundary is complete.
-3. **New backend** (`hook/enhance/rhi_vulkan/` or `rhi_d3d12/`, `[render] backend=vulkan`, off by default):
+3. **New backend** (`archive/hook/enhance/rhi_vulkan/` or `rhi_d3d12/`, `[render] backend=vulkan`, off by default):
    - Translate the fixed-function and shader-model-1/2 state the game uses: texture stage combiners
      (`Material_InitCombiners`, colour-mix passes), fog modes, alpha test, the named pixel shaders and the
      `shaders.dat` vertex shaders.
    - Texture formats: DXT1-5, 16- and 32-bit formats, cube maps.
    - Device loss and reset; window, resolution and vsync from `[display]`.
 4. **Parity test.**
-   - `tools/compare_backends.py` runs the menu and `lev_1_m1` scenarios on both backends with the virtual clock.
+   - `archive/tools/compare_backends.py` runs the menu and `lev_1_m1` scenarios on both backends with the virtual clock.
    - It compares screenshots at fixed frames with a perceptual metric (exact pixels are not expected across
      APIs), records the thresholds, and fails on missing or extra geometry: compare draw counts per frame from
      the interface's own trace.
-   - Add it to `tools/check.ps1`.
+   - Add it to `archive/tools/check.ps1`.
 5. **Remaster hooks, exposed but unused:**
    - depth buffer and per-pixel motion vectors (previous-frame transforms per instance, including skinned
      meshes), checked by a debug view `[render] debug_view=depth|motion|normals`
@@ -68,15 +68,15 @@ builds what they plug into.
 ## Rules
 
 - Same as the previous goal: HOOK and `and.ini` switch per function, recovered only when it passes the comparison
-  test, `src/` faithful, additions in `hook/enhance/` and off by default.
-- The interface layer in `src/rhi/` is the one structural addition allowed in `src/`, because the D3D9 path
+  test, `src/` faithful, additions in `archive/hook/enhance/` and off by default.
+- The interface layer in `archive/src/rhi/` is the one structural addition allowed in `src/`, because the D3D9 path
   through it must stay bit-identical. Record this in `docs/decision.md` when step 2 starts.
 - Ask the human before downloading SDKs: Vulkan SDK, DLSS SDK, Agility SDK.
 
 ## Done when, in the running game
 
 1. Every function in `0x004fb000-0x0050d000` is at S2 or later in `symbols/functions.csv` and passes compare.
-2. The game draws only through `src/rhi/`. The D3D9 implementation still gives 900 identical frames in both
+2. The game draws only through `archive/src/rhi/`. The D3D9 implementation still gives 900 identical frames in both
    scenarios.
 3. `[render] backend=vulkan` (or d3d12) plays start-up -> menu -> `lev_1_m1` with no missing or incorrect
    geometry, textures, fog, transparency or UI, passing `compare_backends.py`. Texture and model overrides
@@ -85,7 +85,7 @@ builds what they plug into.
    and normals, and the frame renders through a linear HDR target plus tonemap with no visible change at
    default settings.
 5. Tracker, docs (`docs/renderer-interface.md`, `docs/subsystems/renderer.md`) and journal are updated, and
-   every commit passes `tools/check.ps1`.
+   every commit passes `archive/tools/check.ps1`.
 
 ## Status 2026-10-04
 

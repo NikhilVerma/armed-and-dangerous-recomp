@@ -21,7 +21,7 @@ PRIVATE = {"and.ini", "and.log", "and-d3d.txt", "and-coverage.txt", "and-profile
 PRIVATE_DIRS = {"SavedGames", "shaders"}
 RELINK = {"dinput8.dll", "dinput8.pdb"}  # the hook build: copied from build/hook-release (not the game folder,
 BUILD = os.path.join(ROOT, "build", "hook-release")  # which the player's running game may hold locked)
-# AND_HOOK_BUILD: an agent's own hook build (e.g. build/hook-tower, tools/build.ps1 -BuildDir from its worktree) for
+# AND_HOOK_BUILD: an agent's own hook build (e.g. build/hook-tower, archive/tools/build.ps1 -BuildDir from its worktree) for
 # its own instance, so a hook change is tried without replacing the shared build/hook-release
 if os.environ.get("AND_HOOK_BUILD"):
     BUILD = os.path.join(ROOT, os.environ["AND_HOOK_BUILD"])
@@ -69,7 +69,7 @@ def instance_dir(n):
     helper = os.path.join(ROOT, "build", "rthelper-x64", "rt_helper.exe")  # the 64-bit ray-tracing helper
     if os.path.exists(helper):
         _replace(helper, os.path.join(dst_root, "rt_helper.exe"))
-    # The helper's AA libraries: FSR 3.1, and the optional DLSS and XeSS (tools/fetch_aa_sdks.ps1).
+    # The helper's AA libraries: FSR 3.1, and the optional DLSS and XeSS (archive/tools/fetch_aa_sdks.ps1).
     for name in ("amd_fidelityfx_vk.dll", "nvngx_dlss.dll", "libxess.dll"):
         lib = os.path.join(ROOT, "build", "rthelper-x64", name)
         if os.path.exists(lib):

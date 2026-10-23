@@ -1,5 +1,5 @@
-//! Explosion debris that stays: the old remaster's `[persistence] debris_keep` (hook/enhance/persistence.cpp
-//! `KeepDebris`, called from the fx object update fn_0041a350 0x0041a350, src/renderer/render_r1.cpp:1065), as typed
+//! Explosion debris that stays: the old remaster's `[persistence] debris_keep` (archive/hook/enhance/persistence.cpp
+//! `KeepDebris`, called from the fx object update fn_0041a350 0x0041a350, archive/src/renderer/render_r1.cpp:1065), as typed
 //! settings ([`DebrisSettings`], part of the graphics presets).
 //!
 //! The original gives every debris piece a lifespan and a fade-out (1-12 s, docs/engine-limits.md): a building's
