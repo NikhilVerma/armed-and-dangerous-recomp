@@ -38,7 +38,8 @@ sys.path.insert(0, str(ROOT / "tools" / "formats"))
 from big_kinds import aud, fx, inst, prop, text  # noqa: E402
 
 GAME = ROOT / "orig" / "pc" / "GameData"
-EXE = GAME / "game.unpacked.exe"
+from gamefiles import game_exe  # noqa: E402
+EXE = game_exe(GAME)  # tools/gamefiles.py: game.unpacked.exe if present, else game.exe
 
 # Definition flags (+0x20). Readers in archive/src/audio/audio_02.cpp, archive/src/renderer/auto_004fb1f0.cpp, auto_004fb170.cpp.
 FLAGS = {
@@ -142,6 +143,7 @@ class Exe:
             nm, vs, va, rs, ro = struct.unpack_from("<8sIIII", d, pe + 24 + opt + 40 * i)
             self.secs.append((nm.rstrip(b"\0").decode(), va, rs, d[ro:ro + rs]))
         self.text = next(s for s in self.secs if s[0] == ".text")
+        self.text_readable = not any(s[0] == ".bind" for s in self.secs)
         self.data = [s for s in self.secs if s[0] in (".rdata", ".data")]
         self.lower = [(nm, va, raw.lower()) for nm, va, _, raw in self.data]
         rows = (ROOT / "symbols" / "functions.csv").read_text().splitlines()[1:]
@@ -156,7 +158,10 @@ class Exe:
         return f"0x{va:08x} (no tracked function)"
 
     def refs(self, va):
-        """Code addresses whose instruction bytes hold `va` (push imm32 / mov imm32)."""
+        """Code addresses whose instruction bytes hold `va` (push imm32 / mov imm32). None when .text is encrypted
+        (the SteamStub-wrapped game.exe, tools/gamefiles.py): the notes then name the tables, not the functions."""
+        if not self.text_readable:
+            return []
         _, tva, _, raw = self.text
         b, out, i = struct.pack("<I", va), [], raw.find(struct.pack("<I", va))
         while i >= 0:

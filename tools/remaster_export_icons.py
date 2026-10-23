@@ -1,7 +1,7 @@
 """Packs the input prompt icons the remaster engine uses into one atlas.
 
 Source: Kenney "Input Prompts" 1.5 (CC0, www.kenney.nl), unpacked under work/kenney_input_prompts/pack (not in
-git). Output: <out>/icons.png (RGBA, 128 px cells) and <out>/icons.json ({"cell": 128, "width", "height",
+git; without it the atlas built from it and committed in tools/data/input_prompts/ is copied). Output: <out>/icons.png (RGBA, 128 px cells) and <out>/icons.json ({"cell": 128, "width", "height",
 "icons": {name: [x, y, w, h]}}), read by engine/src/hud.rs for `<icon=name>` tags in texts.
 
 Usage: python tools/remaster_export_icons.py [--pack DIR] [--out DIR]
@@ -10,6 +10,7 @@ Usage: python tools/remaster_export_icons.py [--pack DIR] [--out DIR]
 import argparse
 import json
 import math
+import shutil
 from pathlib import Path
 
 from PIL import Image
@@ -56,6 +57,14 @@ def main():
     ap.add_argument("--out", default=root / "work/remaster/lev_1_m1/ui")
     a = ap.parse_args()
     pack, out = Path(a.pack), Path(a.out)
+    if not pack.is_dir():
+        # the atlas this tool builds, committed (Kenney's pack is CC0): a fresh clone needs no download
+        built = root / "tools" / "data" / "input_prompts"
+        out.mkdir(parents=True, exist_ok=True)
+        for name in ("icons.png", "icons.json"):
+            shutil.copyfile(built / name, out / name)
+        print(f"no pack at {pack}: copied the committed atlas {built.relative_to(root)} -> {out / 'icons.png'}")
+        return
     found = []
     for folder, names in ICONS.items():
         for n in names:

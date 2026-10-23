@@ -40,7 +40,8 @@ from big_kinds import font as fontkind, obj, objchunk, text as textkind, txtr, u
 import remaster_export as rx  # noqa: E402  (payload(), mesh_submeshes(), the texture converters)
 
 GAME = ROOT / "orig" / "pc" / "GameData"
-EXE = GAME / "game.unpacked.exe"
+from gamefiles import game_exe  # noqa: E402
+EXE = game_exe(GAME)  # tools/gamefiles.py: game.unpacked.exe if present, else game.exe
 DXT1, DXT2, DXT3 = rx.DXT1, rx.DXT2, rx.DXT3
 A8R8G8B8, R5G6B5 = rx.A8R8G8B8, rx.R5G6B5
 

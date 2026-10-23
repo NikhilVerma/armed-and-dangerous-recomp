@@ -23,7 +23,8 @@ import struct
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAIN = ROOT if (ROOT / "orig").exists() else ROOT.parents[2]   # a worktree reads the main checkout's orig/ and work/
-EXE = MAIN / "orig" / "pc" / "GameData" / "game.unpacked.exe"
+from gamefiles import game_exe  # noqa: E402
+EXE = game_exe(MAIN / "orig" / "pc" / "GameData")  # tools/gamefiles.py
 BASE = 0x400000
 MODE_TABLE, BLEND_TABLE = 0x005cb650, 0x005cb3a8
 MODES = 41           # modes 0..40 (0x29 is the death mode, outside the table)

@@ -1,0 +1,721 @@
+{
+ "cell": 128,
+ "width": 1024,
+ "height": 1920,
+ "icons": {
+  "playstation_button_color_cross": [
+   0,
+   0,
+   128,
+   128
+  ],
+  "playstation_button_color_circle": [
+   128,
+   0,
+   128,
+   128
+  ],
+  "playstation_button_color_square": [
+   256,
+   0,
+   128,
+   128
+  ],
+  "playstation_button_color_triangle": [
+   384,
+   0,
+   128,
+   128
+  ],
+  "playstation_trigger_l1": [
+   512,
+   0,
+   128,
+   128
+  ],
+  "playstation_trigger_l2": [
+   640,
+   0,
+   128,
+   128
+  ],
+  "playstation_trigger_r1": [
+   768,
+   0,
+   128,
+   128
+  ],
+  "playstation_trigger_r2": [
+   896,
+   0,
+   128,
+   128
+  ],
+  "playstation5_button_options": [
+   0,
+   128,
+   128,
+   128
+  ],
+  "playstation5_button_create": [
+   128,
+   128,
+   128,
+   128
+  ],
+  "playstation_dpad_up": [
+   256,
+   128,
+   128,
+   128
+  ],
+  "playstation_dpad_down": [
+   384,
+   128,
+   128,
+   128
+  ],
+  "playstation_dpad_left": [
+   512,
+   128,
+   128,
+   128
+  ],
+  "playstation_dpad_right": [
+   640,
+   128,
+   128,
+   128
+  ],
+  "playstation_stick_l": [
+   768,
+   128,
+   128,
+   128
+  ],
+  "playstation_stick_r": [
+   896,
+   128,
+   128,
+   128
+  ],
+  "playstation_button_l3": [
+   0,
+   256,
+   128,
+   128
+  ],
+  "playstation_button_r3": [
+   128,
+   256,
+   128,
+   128
+  ],
+  "xbox_button_color_a": [
+   256,
+   256,
+   128,
+   128
+  ],
+  "xbox_button_color_b": [
+   384,
+   256,
+   128,
+   128
+  ],
+  "xbox_button_color_x": [
+   512,
+   256,
+   128,
+   128
+  ],
+  "xbox_button_color_y": [
+   640,
+   256,
+   128,
+   128
+  ],
+  "xbox_lb": [
+   768,
+   256,
+   128,
+   128
+  ],
+  "xbox_lt": [
+   896,
+   256,
+   128,
+   128
+  ],
+  "xbox_rb": [
+   0,
+   384,
+   128,
+   128
+  ],
+  "xbox_rt": [
+   128,
+   384,
+   128,
+   128
+  ],
+  "xbox_button_menu": [
+   256,
+   384,
+   128,
+   128
+  ],
+  "xbox_button_view": [
+   384,
+   384,
+   128,
+   128
+  ],
+  "xbox_dpad_up": [
+   512,
+   384,
+   128,
+   128
+  ],
+  "xbox_dpad_down": [
+   640,
+   384,
+   128,
+   128
+  ],
+  "xbox_dpad_left": [
+   768,
+   384,
+   128,
+   128
+  ],
+  "xbox_dpad_right": [
+   896,
+   384,
+   128,
+   128
+  ],
+  "xbox_stick_l": [
+   0,
+   512,
+   128,
+   128
+  ],
+  "xbox_stick_r": [
+   128,
+   512,
+   128,
+   128
+  ],
+  "xbox_ls": [
+   256,
+   512,
+   128,
+   128
+  ],
+  "xbox_rs": [
+   384,
+   512,
+   128,
+   128
+  ],
+  "keyboard_x": [
+   512,
+   512,
+   128,
+   128
+  ],
+  "keyboard_f": [
+   640,
+   512,
+   128,
+   128
+  ],
+  "keyboard_space": [
+   768,
+   512,
+   128,
+   128
+  ],
+  "keyboard_enter": [
+   896,
+   512,
+   128,
+   128
+  ],
+  "keyboard_escape": [
+   0,
+   640,
+   128,
+   128
+  ],
+  "keyboard_r": [
+   128,
+   640,
+   128,
+   128
+  ],
+  "keyboard_q": [
+   256,
+   640,
+   128,
+   128
+  ],
+  "keyboard_tab": [
+   384,
+   640,
+   128,
+   128
+  ],
+  "keyboard_z": [
+   512,
+   640,
+   128,
+   128
+  ],
+  "keyboard_e": [
+   640,
+   640,
+   128,
+   128
+  ],
+  "keyboard_1": [
+   768,
+   640,
+   128,
+   128
+  ],
+  "keyboard_3": [
+   896,
+   640,
+   128,
+   128
+  ],
+  "keyboard_w": [
+   0,
+   768,
+   128,
+   128
+  ],
+  "keyboard_a": [
+   128,
+   768,
+   128,
+   128
+  ],
+  "keyboard_s": [
+   256,
+   768,
+   128,
+   128
+  ],
+  "keyboard_d": [
+   384,
+   768,
+   128,
+   128
+  ],
+  "mouse_left": [
+   512,
+   768,
+   128,
+   128
+  ],
+  "mouse_right": [
+   640,
+   768,
+   128,
+   128
+  ],
+  "mouse_move": [
+   768,
+   768,
+   128,
+   128
+  ],
+  "keyboard_delete": [
+   896,
+   768,
+   128,
+   128
+  ],
+  "keyboard_0": [
+   0,
+   896,
+   128,
+   128
+  ],
+  "keyboard_2": [
+   128,
+   896,
+   128,
+   128
+  ],
+  "keyboard_4": [
+   256,
+   896,
+   128,
+   128
+  ],
+  "keyboard_5": [
+   384,
+   896,
+   128,
+   128
+  ],
+  "keyboard_6": [
+   512,
+   896,
+   128,
+   128
+  ],
+  "keyboard_7": [
+   640,
+   896,
+   128,
+   128
+  ],
+  "keyboard_8": [
+   768,
+   896,
+   128,
+   128
+  ],
+  "keyboard_9": [
+   896,
+   896,
+   128,
+   128
+  ],
+  "keyboard_alt": [
+   0,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_apostrophe": [
+   128,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_arrow_down": [
+   256,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_arrow_left": [
+   384,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_arrow_right": [
+   512,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_arrow_up": [
+   640,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_b": [
+   768,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_backspace": [
+   896,
+   1024,
+   128,
+   128
+  ],
+  "keyboard_bracket_close": [
+   0,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_bracket_open": [
+   128,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_c": [
+   256,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_capslock": [
+   384,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_comma": [
+   512,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_ctrl": [
+   640,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_end": [
+   768,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_equals": [
+   896,
+   1152,
+   128,
+   128
+  ],
+  "keyboard_f1": [
+   0,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f10": [
+   128,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f11": [
+   256,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f12": [
+   384,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f2": [
+   512,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f3": [
+   640,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f4": [
+   768,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f5": [
+   896,
+   1280,
+   128,
+   128
+  ],
+  "keyboard_f6": [
+   0,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_f7": [
+   128,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_f8": [
+   256,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_f9": [
+   384,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_g": [
+   512,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_h": [
+   640,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_home": [
+   768,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_i": [
+   896,
+   1408,
+   128,
+   128
+  ],
+  "keyboard_insert": [
+   0,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_j": [
+   128,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_k": [
+   256,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_l": [
+   384,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_m": [
+   512,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_minus": [
+   640,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_n": [
+   768,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_numpad_enter": [
+   896,
+   1536,
+   128,
+   128
+  ],
+  "keyboard_numpad_plus": [
+   0,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_o": [
+   128,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_p": [
+   256,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_page_down": [
+   384,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_page_up": [
+   512,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_period": [
+   640,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_semicolon": [
+   768,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_shift": [
+   896,
+   1664,
+   128,
+   128
+  ],
+  "keyboard_slash_back": [
+   0,
+   1792,
+   128,
+   128
+  ],
+  "keyboard_slash_forward": [
+   128,
+   1792,
+   128,
+   128
+  ],
+  "keyboard_t": [
+   256,
+   1792,
+   128,
+   128
+  ],
+  "keyboard_tilde": [
+   384,
+   1792,
+   128,
+   128
+  ],
+  "keyboard_u": [
+   512,
+   1792,
+   128,
+   128
+  ],
+  "keyboard_v": [
+   640,
+   1792,
+   128,
+   128
+  ],
+  "keyboard_y": [
+   768,
+   1792,
+   128,
+   128
+  ]
+ }
+}
