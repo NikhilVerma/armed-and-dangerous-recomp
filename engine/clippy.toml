@@ -1,0 +1,4 @@
+# Bevy systems routinely take many parameters and complex query types; Bevy's own limit is 16 parameters per system
+# (bundle the rest in tuples, AGENTS.md).
+too-many-arguments-threshold = 16
+type-complexity-threshold = 1000

@@ -1,0 +1,26 @@
+# Editor defaults. Line endings are deliberately not set: files keep the endings they were committed with
+# (.gitattributes, tools/hooks/eol_check.py).
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.rs]
+indent_size = 4
+max_line_length = 120
+
+[*.py]
+indent_size = 4
+max_line_length = 120
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{cpp,h,hpp,inl}]
+indent_size = 4
