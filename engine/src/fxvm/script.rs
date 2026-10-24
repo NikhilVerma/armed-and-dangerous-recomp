@@ -434,7 +434,7 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             // Fx_Attach 0x0041dd50: a child fx on the pushed object (0x0f placed once, 0x2f following); both lists cleared
             "0x0f" | "0x2f" => {
                 let name = arg(1).as_str().unwrap_or("").to_lowercase();
-                if let (Some(_), Some(t)) = (cur, top) {
+                if let (Some(_), Some(t), false) = (cur, top, super::debug_skipped(&name)) {
                     if let Some(script) = ctx.data.fx.get(&name).cloned() {
                         let child = child_instance(vm, name.clone(), script, t, op == "0x2f", list1.as_ref(), list2.as_ref());
                         spawned.push(child);

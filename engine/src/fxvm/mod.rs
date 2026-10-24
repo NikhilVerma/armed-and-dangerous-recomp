@@ -207,13 +207,17 @@ fn engine_to_game() -> Quat {
 /// as every caller giving no rotation means it; any other rotation is the engine-space rotation of the placement.
 /// Placed fx entities (fn_004102e0 0x004102e0: an fx entity's init starts its effect) and the fx ears' toggles
 /// (FxOwner_Toggle 0x0041bf60) come here through level.rs and mission.rs.
+/// debug: FXSKIP=name1,name2 does not start those scripts (started fx and the 0x0f / 0x2f children; lower case)
+pub(crate) fn debug_skipped(name: &str) -> bool {
+    std::env::var("FXSKIP").is_ok_and(|v| v.split(',').any(|n| n == name))
+}
+
 fn start(mut vm: ResMut<FxVm>, data: Res<GameData>, mut events: MessageReader<StartFx>, mut restores: MessageReader<crate::fx::RestoreFx>) {
     let started = events.read().map(|e| (e, false));
     let restored = restores.read().map(|r| (&r.0, true));
     for (ev, restored) in started.chain(restored).collect::<Vec<_>>() {
         let name = ev.name.to_lowercase();
-        // debug: FXSKIP=name1,name2 does not start those scripts
-        if std::env::var("FXSKIP").is_ok_and(|v| v.split(',').any(|n| n == name)) {
+        if debug_skipped(&name) {
             continue;
         }
         if std::env::var("FXLOG").is_ok() {
