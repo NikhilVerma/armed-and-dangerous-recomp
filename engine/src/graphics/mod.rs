@@ -580,6 +580,9 @@ pub(crate) fn apply_cameras(
         c.remove::<(TemporalAntiAliasing, TemporalJitter, MipBias, Smaa, ContrastAdaptiveSharpening, ScreenSpaceAmbientOcclusion)>()
             .remove::<(DepthPrepass, NormalPrepass, MotionVectorPrepass, Bloom, Hdr, ShadowFilteringMethod)>();
         c.insert(msaa);
+        // the camera's weather domes add their light over a copy of the opaque scene (fxvm/over_scene.wesl): one
+        // copy a frame, only while such a dome is in view (Bevy's transmissive phase)
+        c.insert(bevy::pbr::ScreenSpaceTransmission { steps: 1, quality: bevy::pbr::ScreenSpaceTransmissionQuality::Low });
         match s.anti_aliasing {
             AntiAliasing::Taa => {
                 c.insert((TemporalAntiAliasing::default(), ShadowFilteringMethod::Temporal));

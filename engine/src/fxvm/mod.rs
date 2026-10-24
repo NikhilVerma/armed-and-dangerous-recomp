@@ -150,6 +150,7 @@ impl Plugin for FxVmPlugin {
         bevy::asset::embedded_asset!(app, "particle.wesl");
         bevy::asset::embedded_asset!(app, "fxlayer.wesl");
         bevy::asset::embedded_asset!(app, "fxadd.wesl");
+        bevy::shader::load_shader_library!(app, "over_scene.wesl");
         app.add_plugins(MaterialPlugin::<FxLayerMaterial>::default());
         app.add_plugins(MaterialPlugin::<FxAddMaterial>::default());
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());

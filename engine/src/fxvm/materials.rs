@@ -21,6 +21,9 @@ pub struct FxLayerMaterial {
     /// the record's opacity (+0x48): the texture factor (0x004897d0's constant alpha) is the object's alpha x this
     /// (the snow domes fxo_snow / fxo_snow_2: 0.8); `params.colour.w` holds the product
     pub opacity: f32,
+    /// added over the scene's own pixel (`params.flags.w`): drawn in the transmissive phase, which reads the opaque
+    /// pass (over_scene.wesl; the camera's weather domes)
+    pub over_scene: bool,
 }
 
 #[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
@@ -32,7 +35,7 @@ pub struct FxLayerParams {
     pub uv2_x: Vec4,
     pub uv2_y: Vec4,
     pub colour: Vec4,
-    /// t0 / t1 / t2 stored premultiplied (1) or not (0)
+    /// x, y, z: t0 / t1 / t2 stored premultiplied (1) or not (0); w: added over the scene's own pixel (1)
     pub flags: Vec4,
 }
 
@@ -62,6 +65,9 @@ impl Material for FxLayerMaterial {
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Add
     }
+    fn reads_view_transmission_texture(&self) -> bool {
+        self.over_scene
+    }
 }
 
 /// Additive fx meshes with one stage (fxadd.wesl): the texture times the material colour, added as the original adds
@@ -77,6 +83,9 @@ pub struct FxAddMaterial {
     /// 0x120, SRCALPHA / ONE) is the object's alpha x this (with 0x40000 the stage's alpha is the texture's x that
     /// constant: fxo_glow_red 0.1, fxo_trail_bullet 0.15); `params.colour.w` holds the product
     pub opacity: f32,
+    /// added over the scene's own pixel (`params.scene.z`): drawn in the transmissive phase, which reads the opaque
+    /// pass (over_scene.wesl; the camera's weather domes)
+    pub over_scene: bool,
 }
 
 #[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
@@ -86,7 +95,8 @@ pub struct FxAddParams {
     /// the uv transform's rows (u' = x.x u + x.y v + x.z; v' likewise with y)
     pub uv_x: Vec4,
     pub uv_y: Vec4,
-    /// x: the scene brightness the addition is matched over; y: the texture stored premultiplied (1)
+    /// x: the scene brightness the addition is matched over; y: the texture stored premultiplied (1); z: added over
+    /// the scene's own pixel instead (1)
     pub scene: Vec4,
 }
 
@@ -108,6 +118,9 @@ impl Material for FxAddMaterial {
     }
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Add
+    }
+    fn reads_view_transmission_texture(&self) -> bool {
+        self.over_scene
     }
 }
 

@@ -126,6 +126,9 @@ pub struct Ctx<'a, 'cw, 'cs> {
     pub physics: &'a mut Physics,
     /// the 3D camera: fx locked to it (the intro overlays) draw over the scene
     pub camera: Option<Entity>,
+    /// the camera and the entities it carries (a triggered camera_fx's holder, mission.rs): fx following one of them
+    /// are the camera's weather
+    pub camera_held: Vec<Entity>,
 }
 
 /// Where an instance's new object goes (game space) and what it follows: the parent fx object's attach point
@@ -153,6 +156,18 @@ fn placement(vm: &mut FxVm, inst_idx: usize, template_anim: Option<&str>) -> (Ma
         _ => None,
     };
     (place, follows)
+}
+
+/// The entity at the end of a chain of followed fx objects (an fx object following the camera's camera_fx domes
+/// ends at the camera).
+fn follow_root(vm: &FxVm, mut e: Entity) -> Entity {
+    for _ in 0..16 {
+        match vm.objects.get(&e).and_then(|o| o.follow) {
+            Some((p, _)) => e = p,
+            None => break,
+        }
+    }
+    e
 }
 
 /// Fx_CreateObject 0x004234d0: the template's mesh as an fx object (class `fx`, FxObject_Load 0x00418f60 clears its
@@ -198,6 +213,12 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
         }
         let parts = model.parts.clone();
         let locked = follows.is_some() && !inst.follow_pos_only && inst.parent.is_some() && inst.parent == ctx.camera;
+        // the camera's weather (camera_fx: the snow and rain domes, the wind spray) adds the original's gamma-space
+        // light over the scene's own pixels (over_scene.wesl)
+        let weather = follows.is_some_and(|(f, _)| ctx.camera_held.contains(&follow_root(vm, f)));
+        if weather {
+            debug!("fx: {template} is camera weather (added over the scene)");
+        }
         e.with_children(|c| {
             for (mesh, mat) in parts {
                 // own material per part: fades and texture animation change it (fx meshes draw unlit, additive
@@ -219,9 +240,10 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                         // the record's opacity (+0x48), 0x004897d0's constant alpha for a translucent record
                         params: FxLayerParams::new(
                             Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], def.alpha()),
-                            Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, 0.0),
+                            Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, weather as u8 as f32),
                         ),
                         opacity: def.alpha(),
+                        over_scene: weather,
                     });
                     layers.push(lm.clone());
                     c.spawn((Mesh3d(mesh), MeshMaterial3d(lm), bevy::light::NotShadowCaster));
@@ -268,7 +290,8 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                     });
                     let mut params = FxAddParams::new(colour, super::particles::WHITE_OVER, premultiplied(&ctx.lib.dir, &name));
                     params.colour.w = opacity;
-                    let am = ctx.add_materials.add(FxAddMaterial { base: tex, params, opacity });
+                    params.scene.z = weather as u8 as f32;
+                    let am = ctx.add_materials.add(FxAddMaterial { base: tex, params, opacity, over_scene: weather });
                     texture_name.get_or_insert(name);
                     adds.push(am.clone());
                     c.spawn((Mesh3d(mesh), MeshMaterial3d(am), bevy::light::NotShadowCaster));
@@ -951,14 +974,15 @@ pub fn run(
     mut materials: ResMut<Assets<StandardMaterial>>,
     (mut layer_materials, mut add_materials): (ResMut<Assets<FxLayerMaterial>>, ResMut<Assets<FxAddMaterial>>),
     mut physics: NonSendMut<Physics>,
-    cams: Query<Entity, With<Camera3d>>,
+    cams: Query<(Entity, Option<&Children>), With<Camera3d>>,
     (alive, fx_entities): (Query<()>, Query<(), With<FxEntity>>),
 ) {
     let t0 = std::time::Instant::now();
     let dt = time.delta_secs();
     let vm = &mut *vm;
     vm.time += dt;
-    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, add_materials: &mut add_materials, physics: &mut physics, camera: cams.iter().next() };
+    let camera_held: Vec<Entity> = cams.iter().next().map(|(c, ch)| std::iter::once(c).chain(ch.into_iter().flat_map(|ch| ch.iter())).collect()).unwrap_or_default();
+    let mut ctx = Ctx { commands: &mut commands, data: &data, lib: &mut lib, assets: &assets, meshes: &mut meshes, materials: &mut materials, layer_materials: &mut layer_materials, add_materials: &mut add_materials, physics: &mut physics, camera: cams.iter().next().map(|c| c.0), camera_held };
     let mut i = 0;
     while i < vm.instances.len() {
         // the object an fx runs on no longer answers (its virtual +0xd8): an ended fx object (out of `objects`, its

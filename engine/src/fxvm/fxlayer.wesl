@@ -6,6 +6,7 @@
 //   blend:   SRCALPHA, ONE (table 0x0057d9e0 entry 1): additive
 // Gamma space as the original (samples back to gamma); the result added as it is (see the end).
 import bevy_pbr::render::forward_io::VertexOutput;
+import and_remaster::fxvm::over_scene::added_light;
 
 struct FxLayerParams {
     // the uv transforms' rows of layers 1 and 2: u' = x.x u + x.y v + x.z, v' = y.x u + y.y v + y.z
@@ -15,7 +16,8 @@ struct FxLayerParams {
     uv2_y: vec4<f32>,
     // rgb: the material colour (emissive: the domes are unlit), w: the fade / texture factor
     colour: vec4<f32>,
-    // x, y, z: t0, t1, t2 stored premultiplied (the export's `premultiplied`: DXT2 in the bank)
+    // x, y, z: t0, t1, t2 stored premultiplied (the export's `premultiplied`: DXT2 in the bank); w: added over the
+    // scene's own pixel (the camera's weather domes, over_scene.wesl)
     flags: vec4<f32>,
 }
 
@@ -55,5 +57,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // is linear, where an addition of c in gamma brightens by (dst + c)^2.2 - dst^2.2: more than c over the bright
     // snow, less over dark ground. Added as it is (c in linear), the flakes keep their strength over the snow within a
     // factor ~2; the earlier c^2.2 (2026-10-14 to 10-18) made faint flakes (c ~0.2 -> 0.03) all but vanish
+    // the camera's weather domes add exactly the original's gamma-space light over the scene behind them (the rain
+    // levels' dark scenes went grey under the wind spray added as it is: over_scene.wesl)
+    if (p.flags.w > 0.5) {
+        return vec4(added_light(in.position, col * alpha, true, 0.6), 0.0);
+    }
     return vec4(max(col * alpha, vec3(0.0)), 0.0);
 }
