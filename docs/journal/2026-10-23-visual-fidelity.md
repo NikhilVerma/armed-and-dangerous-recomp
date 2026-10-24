@@ -30,8 +30,14 @@ roofs black; then more levels in the gallery, a like-for-like hero, and walk vid
 - **Level fog defaults.** LevelProperties_Load reads fog_near / fog_far / colour with the property set p_globalsettings
   and the reader's defaults behind the level's own values; nine levels have no fog_near of their own and the engine
   drew them without fog. lev_3_m3's town through the gate is in its orange haze again.
-- **Roofs (G4).** Not a bug: the undersides are as black in the original (ambient 0.1, facing away from both lights);
-  the snow over them and the ACES wash made it worse.
+- **Roofs (G4), 2026-10-24.** The lighting matched the original (Renderer_UpdateLightConstants 0x004ff2e0: c3 =
+  material ambient x the lights' summed ambient + emissive); the conversion did not: gamematerial.wesl turned the
+  GPU's sRGB-decoded samples to gamma with pow(1/2.2) and back with pow(2.2), and the sRGB curve's linear toe made
+  every value under ~0.05 near black (the eaves at 2 / 255, the original 9-10). The sRGB curve both ways is
+  byte-exact: 8.9 / 8.8. It also brought the non-snow levels' saturation onto the original's.
+- **Snow puffs.** The original's camera-locked emitter, ported faithfully (count, size, speed, direction: the camera
+  object's frame is view space, fxo_white sits at z -1.26); brighter over dark walls because the original blends in
+  gamma space. Listed under Known differences.
 - **Gallery** regenerated with three non-snow levels (lev_2_m3, lev_3_m3, lev_4_m1) and a side-by-side hero of the
   same view; **videos** (tools/compare_videos.py): see docs/comparisons.md and below.
 

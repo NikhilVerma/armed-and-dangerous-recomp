@@ -29,25 +29,7 @@
    "note": "an extras token on the way: its message (play frame ~134) dismissed with Enter"
   },
   {
-   "level": "lev_1_m1_b"
-  },
-  {
-   "level": "lev_1_m3"
-  },
-  {
-   "level": "lev_2_m1"
-  },
-  {
-   "level": "lev_2_m2"
-  },
-  {
    "level": "lev_2_m3"
-  },
-  {
-   "level": "lev_3_m1"
-  },
-  {
-   "level": "lev_3_m2"
   },
   {
    "level": "lev_3_m3"
@@ -56,16 +38,36 @@
    "level": "lev_4_m1"
   },
   {
-   "level": "lev_4_m2"
-  },
-  {
    "level": "lev_4_m3"
   },
   {
-   "level": "lev_5_m1"
+   "level": "lev_5_m2"
   },
   {
-   "level": "lev_5_m2"
+   "level": "lev_1_m1_b"
+  },
+  {
+   "level": "lev_1_m3"
+  },
+  {
+   "level": "lev_2_m1",
+   "keys": "0:ENTER*3,10:17*620,60:ENTER*3,120:ENTER*3",
+   "note": "the original shows its mission briefing after the detected one: Enter again at play frames 60 and 120"
+  },
+  {
+   "level": "lev_2_m2"
+  },
+  {
+   "level": "lev_3_m1"
+  },
+  {
+   "level": "lev_3_m2"
+  },
+  {
+   "level": "lev_4_m2"
+  },
+  {
+   "level": "lev_5_m1"
   },
   {
    "level": "lev_5_m3"
