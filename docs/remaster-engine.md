@@ -1489,6 +1489,14 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
 
 ## Tips and traps
 
+- **The sky hides nothing.** The original draws the sky lists first (ScenePass_Render 0x00489070 flag 0x10) and the
+  world over them. Anything drawn "as the sky" (farclip.rs SkyMaterial, the 0x62 fx backgrounds in FxLayerMaterial)
+  has no prepass and writes depth 0 (reverse Z, infinitely far); with a prepass its colour pass is untested and keeps
+  only the pixels nothing unclipped covers. Prepassed, lev_2_m2's dome floor (z -33, above the gorge camera) hid every
+  ridge beyond that plane (2026-10-25). A material whose WESL module has two `@fragment` entry points must name one in
+  `specialize` (wgpu refuses the pipeline otherwise, and it silently draws nothing).
+- **DXT2 is sampled as stored.** D3D9 never un-premultiplies DXT2 (it decodes as DXT3): an additive record adds the
+  stored colour times alpha again. Dividing by alpha first made the turret trails fat white spindles (fxadd.wesl).
 - **A custom vertex shader against Bevy's prepass depth.** With a depth prepass (TAA, SSAO, SMAA + AO) the game
   material's colour pass tests GreaterEqual against the depth Bevy's own prepass shader wrote for the same triangles;
   the two programs need not round the clip position alike, and where ours came out a hair farther whole triangles
