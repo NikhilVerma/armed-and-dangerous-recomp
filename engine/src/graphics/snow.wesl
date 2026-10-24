@@ -169,7 +169,9 @@ struct FlakeOut {
 }
 
 fn to_linear(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(2.2));
+    // the sRGB curve, as gamematerial.wesl (a 2.2 power darkened the darkest values)
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
 @if(!SIM)

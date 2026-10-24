@@ -40,12 +40,10 @@ fn highlight_rolloff(x: vec3<f32>) -> vec3<f32> {
     return x * (eased / peak);
 }
 
-fn to_gamma(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
-}
-
-fn to_linear(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(2.2));
+// sRGB encode without the clamp at white: values above it (additive effects, bloom) keep their excess for the curve
+fn srgb_encode_unclamped(c: vec3<f32>) -> vec3<f32> {
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
 }
 
 fn srgb_encode(c: vec3<f32>) -> vec3<f32> {
@@ -63,7 +61,8 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let src = textureSample(screen, screen_sampler, in.uv);
     var c = src.rgb;
     if (settings.aces != 0u) {
-        c = to_linear(highlight_rolloff(to_gamma(c)));
+        // the game's values, as gamematerial.wesl writes them (the sRGB curve, both ways)
+        c = srgb_decode(highlight_rolloff(srgb_encode_unclamped(c)));
     }
     if (settings.dither != 0u) {
         // two uniform hashes summed: triangular noise in (-1, 1) steps, which hides banding without the noise level

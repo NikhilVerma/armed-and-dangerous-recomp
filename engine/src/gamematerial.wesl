@@ -98,11 +98,16 @@ fn vertex(vertex_in: Vertex) -> GameOut {
 
 // The original computes in gamma space (D3D9: texture bytes times light bytes, no sRGB). Bevy samples sRGB textures
 // as linear and writes linear to an sRGB target, so samples go back to gamma here and only the result to linear.
+// Both with the sRGB curve itself (the exact inverse of the GPU's decode and encode), so a texture byte and a result
+// byte are the original's: a 2.2 power instead (until 2026-10-24) crushed everything below ~0.05 to near black (the
+// sRGB curve's linear toe), e.g. the village's dark wood under the eaves at 2 / 255 where the original shows 9-10.
 fn to_gamma(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
 }
 fn to_linear(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(2.2));
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
 @fragment
