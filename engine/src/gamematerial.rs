@@ -253,6 +253,8 @@ pub struct GameLights {
     pub fill_col: Vec3,
     pub ambient: Vec3,
     pub fog: Option<(f32, f32, Vec3)>,
+    /// the level's far plane at draw distance 1 (level_clip_far); options.rs world_far scales it by the option
+    pub clip_far: f32,
     /// what the environment materials reflect where the level has no env map marker (or env_maps is off): the fog
     /// colour, the sky at the horizon (approximation; the original then has no cube texture at all, see
     /// graphics/env_map.rs)
@@ -296,6 +298,7 @@ impl GameLights {
         }
         let (near, far, c) = level_fog(scene, data);
         l.fog = Some((near, far, c));
+        l.clip_far = level_clip_far(scene, data, far);
         l.env = c;
         l
     }
@@ -311,6 +314,24 @@ pub fn level_fog(scene: &crate::scene::SceneFile, data: &crate::gamedata::GameDa
     let set = data.template_props("global_settings");
     let g = |k: &str, default: f32| scene.settings.get(k).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or_else(|| set.f(k, default));
     (g("fog_near", 10.0), g("fog_far", 3000.0), Vec3::new(g("fog_red", 255.0), g("fog_green", 255.0), g("fog_blue", 255.0)) / 255.0)
+}
+
+/// The level's far plane (camera +0xd4, Camera_SetFar 0x0040f8b0 from LevelProperties_Load 0x00423900): the level's
+/// clip_far (global_settings, its property set: p_globalsettings 0), or when that is 0 fog_far plus the diagonal of
+/// one landscape grid cell (sqrt(s * s + s * s), s = landscape +0x2c, 0x00449440; the world is culled by whole cells).
+/// lev_1_m1: 1500 + 150 * sqrt 2 = 1712.132, the far plane of its camera dumps. lev_bonus_m1 / lev_3_m3 give 5000,
+/// lev_4_m5 / lev_5_m5 12000: their distant walls and towers stood beyond the old fog_far-based guess. Scenes exported
+/// before `cell_size` was written fall back to that guess (fog_far * 1712.132 / 1500).
+pub fn level_clip_far(scene: &crate::scene::SceneFile, data: &crate::gamedata::GameData, fog_far: f32) -> f32 {
+    let set = data.template_props("global_settings");
+    let clip = scene.settings.get("clip_far").and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or_else(|| set.f("clip_far", 0.0));
+    if clip != 0.0 {
+        return clip;
+    }
+    match scene.cell_size {
+        Some(s) => (s * s + s * s).sqrt() + fog_far,
+        None => fog_far * crate::options::DEFAULT_CLIP_FAR / 1500.0,
+    }
 }
 
 /// A texture by its game name (the remaster's version when the preset uses one: graphics.rs), with the world
@@ -332,9 +353,9 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
     let v4 = |c: [f32; 3], w: f32| Vec4::new(c[0], c[1], c[2], w);
     let l3 = |v: Vec3, w: f32| v.extend(w);
     let (fog_col, fog_range) = match lights.fog {
-        // far clip at the original camera's far plane (1712 = fog_far * 1712.132 / 1500, its camera dumps): beyond
-        // it the sky dome shows, as in its captures (without the clip a hard pale band of fully fogged land showed)
-        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, crate::options::world_far(far, 1.0), 0.0)),
+        // far clip at the original camera's far plane (level_clip_far): beyond it the sky dome shows, as in its
+        // captures (without the clip a hard pale band of fully fogged land showed)
+        Some((near, far, c)) => (c.extend(1.0), Vec4::new(near, far, crate::options::world_far(lights.clip_far, 1.0), 0.0)),
         None => (Vec4::ZERO, Vec4::ZERO),
     };
     // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip
@@ -359,7 +380,9 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             diffuse: v4(def.diffuse, def.alpha()),
             specular: v4(def.specular, if def.specular.iter().any(|c| *c > 0.0) { def.power } else { 0.0 }),
             // the cube * TFACTOR stage: the record's +0x40 grey (MaterialDef::env_factor)
-            env: l3(lights.env, def.env_factor.clamp(0.0, 1.0)),
+            // a level without an env map marker binds no cube at all (fn_00487e30: EnvMap_FindNearest finds none,
+            // the stage's texture is 0) and the stage adds black: lev_2_m2's bronze pipes are rust, not pale cream
+            env: l3(if lights.env_probe.is_some() { lights.env } else { Vec3::ZERO }, def.env_factor.clamp(0.0, 1.0)),
             sun_dir: l3(lights.sun_dir, 0.0),
             sun_col: l3(lights.sun_col, 0.0),
             fill_dir: l3(lights.fill_dir, 0.0),

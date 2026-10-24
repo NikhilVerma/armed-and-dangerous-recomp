@@ -201,15 +201,14 @@ impl GameOptions {
     }
 }
 
-/// The far plane at draw distance 1.0 as a multiple of the level's fog_far: the original's camera dumps on lev_1_m1
-/// give far 1712.132 with fog_far 1500 (camera +0xd4 * +0xd0; how the game computes it is open, docs/subsystems/
-/// camera.md): guess, the same ratio on every level. Beyond fog_far everything is the fog colour anyway.
-const FAR_OVER_FOG: f32 = 1712.132 / 1500.0;
+/// The far plane when no level is loaded (lev_1_m1's: fog_far 1500 + its landscape cell's diagonal).
+pub const DEFAULT_CLIP_FAR: f32 = 1712.132;
 
-/// Where the world ends for the camera: the original's far plane at this draw distance option (the game material
-/// clips there; graphics.rs fits the shadow cascades to it).
-pub fn world_far(fog_far: f32, draw_distance: f32) -> f32 {
-    fog_far * FAR_OVER_FOG * draw_distance_scale(draw_distance)
+/// Where the world ends for the camera: the level's far plane (`clip_far`, gamematerial.rs level_clip_far) times
+/// the draw distance option's scale (0x0040f860: camera +0xd4 * +0xd0). The game material clips there; graphics.rs
+/// fits the shadow cascades to it.
+pub fn world_far(clip_far: f32, draw_distance: f32) -> f32 {
+    clip_far * draw_distance_scale(draw_distance)
 }
 
 pub struct OptionsPlugin;
@@ -255,11 +254,11 @@ fn apply(
     for (e, p) in &cams {
         if let Projection::Perspective(pp) = p {
             let mut pp = pp.clone();
-            let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
+            let clip_far = game_lights.as_ref().map_or(DEFAULT_CLIP_FAR, |l| l.clip_far);
             // the original's far plane: objects wholly beyond it are culled (the game material also clips each pixel
             // there, so nothing visible changes); the sky dome (radius 20000) is never culled (level.rs). Culled
             // objects also stay out of the remaster's depth prepass, where their clipped depth would hide the sky
-            pp.far = world_far(fog_far, o.level_draw_distance(mission.as_deref()));
+            pp.far = world_far(clip_far, o.level_draw_distance(mission.as_deref()));
             commands.entity(e).insert(Projection::Perspective(pp));
         }
     }

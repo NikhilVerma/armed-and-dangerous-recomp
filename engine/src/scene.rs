@@ -14,6 +14,9 @@ pub struct SceneFile {
     pub level: String,
     pub landscape: String,
     pub bounds: [[f32; 3]; 2],
+    /// The landscape grid's cell size (landscape +0x2c; tools/remaster_export.py); None in older exports.
+    #[serde(default)]
+    pub cell_size: Option<f32>,
     pub instances: Vec<InstanceDef>,
     #[serde(default)]
     pub logic: Vec<LogicDef>,

@@ -181,7 +181,7 @@ fn bake(
         BAKE_START => {
             // the clear colour behind everything (the sky dome covers it) is the fog colour, as before the bake
             let target = images.add(atlas_target(probe.face, Color::srgb(lights.env.x, lights.env.y, lights.env.z)));
-            let far = lights.fog.map_or(1500.0, |f| crate::options::world_far(f.1, 1.0));
+            let far = crate::options::world_far(lights.clip_far, 1.0);
             for (i, (forward, up)) in FACES.iter().enumerate() {
                 commands.spawn((
                     Camera3d::default(),

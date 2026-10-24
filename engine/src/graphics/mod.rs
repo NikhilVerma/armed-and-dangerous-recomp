@@ -658,8 +658,8 @@ fn apply_shadows(
     if map.size != size {
         map.size = size;
     }
-    let fog_far = game_lights.as_ref().and_then(|l| l.fog.map(|f| f.1)).unwrap_or(1500.0);
-    let world_far = crate::options::world_far(fog_far, options.level_draw_distance(mission.as_deref()));
+    let clip_far = game_lights.as_ref().map_or(crate::options::DEFAULT_CLIP_FAR, |l| l.clip_far);
+    let world_far = crate::options::world_far(clip_far,options.level_draw_distance(mission.as_deref()));
     for (e, mut l, cfg, level) in &mut lights {
         let level = match level {
             Some(l) => l.0.clone(),
