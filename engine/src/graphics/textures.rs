@@ -77,14 +77,19 @@ pub fn texture_path(name: &str) -> String {
     }
 }
 
+/// Whether the HUD uses the pack's retextures (`ui_texture_path`).
+const HUD_RETEXTURES: bool = false;
+
 /// The asset path of a HUD texture (`file`: its UI export, `textures/<name>.png` under the level's `ui/`): the
 /// remaster's version of `name` when the preset uses one and the bank stores the texture with straight alpha, else
 /// the export. The retextures keep a premultiplied (DXT2) original's premultiplied texels, which the HUD's alpha
 /// blend would darken at every soft edge, while the UI export un-premultiplies them (tools/remaster_export_ui.py):
 /// those stay the export's until the pack carries straight-alpha versions.
+/// Off for now (`HUD_RETEXTURES`): the pack's HUD art redraws the figures and lettering (the villagers panel's
+/// peasants garbled, "CAPTURED" doubled; work/retexfix/cmp_lev_3_m3_hud_orb.png), worse than the original's.
 pub fn ui_texture_path(name: &str, file: &str, premultiplied: bool) -> String {
     let lower = name.to_lowercase();
-    if !premultiplied && SET.read().is_ok_and(|s| s.as_ref().is_some_and(|s| s.remaster.contains(&lower))) {
+    if HUD_RETEXTURES && !premultiplied && SET.read().is_ok_and(|s| s.as_ref().is_some_and(|s| s.remaster.contains(&lower))) {
         format!("textures_remaster/{lower}.dds")
     } else {
         format!("ui/{file}")
