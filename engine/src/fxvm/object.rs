@@ -303,7 +303,11 @@ impl Facing {
     pub fn rotation(self, cam: &Transform, axes: Quat) -> Option<Quat> {
         let dir = axes.inverse() * cam.forward().as_vec3();
         let (axis, v) = match self {
-            Facing::Camera => return Some(cam.rotation * axes),
+            // the object's game-space matrix is the camera's (axes^-1 * cam), put back into engine space by `axes`: the
+            // camera's own rotation. A card (modelled in the game x-y plane: fxo_peasant, the glows, the flashes) then
+            // faces the eye; `cam.rotation * axes` (until 2026-10-24) turned its face to the camera's up, edge-on, so
+            // the peasants' and the jumper pack's orb (fx_peasant_2) never showed
+            Facing::Camera => return Some(cam.rotation),
             Facing::Upright => (Vec3::Z, Vec3::new(-dir.x, -dir.y, 0.0)),
             Facing::AboutX => (Vec3::X, Vec3::new(0.0, -dir.y, -dir.z)),
         };
@@ -1014,5 +1018,19 @@ mod tests {
         assert!((game * Vec3::Y - Vec3::Z).length() < 1e-4);
         assert!((game * Vec3::Z - Vec3::X).length() < 1e-4);
         assert!(Facing::Camera > Facing::Upright && Facing::Upright > Facing::AboutX);
+    }
+
+    /// A camera card (0x2e) modelled in the game x-y plane shows its face: model z towards the eye, model y the
+    /// camera's up, model x its right.
+    #[test]
+    fn camera_card_faces_the_eye() {
+        let axes = crate::level::game_to_engine();
+        let eye = axes * Vec3::new(100.0, -40.0, 60.0);
+        let cam = Transform::from_translation(eye).looking_at(Vec3::ZERO, axes * Vec3::Z);
+        let r = Facing::Camera.rotation(&cam, axes).unwrap();
+        let to_eye = eye.normalize();
+        assert!((r * Vec3::Z - to_eye).length() < 1e-4, "{:?} vs {:?}", r * Vec3::Z, to_eye);
+        assert!((r * Vec3::Y - cam.up().as_vec3()).length() < 1e-4);
+        assert!((r * Vec3::X - cam.right().as_vec3()).length() < 1e-4);
     }
 }

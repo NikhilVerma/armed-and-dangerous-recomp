@@ -77,6 +77,20 @@ pub fn texture_path(name: &str) -> String {
     }
 }
 
+/// The asset path of a HUD texture (`file`: its UI export, `textures/<name>.png` under the level's `ui/`): the
+/// remaster's version of `name` when the preset uses one and the bank stores the texture with straight alpha, else
+/// the export. The retextures keep a premultiplied (DXT2) original's premultiplied texels, which the HUD's alpha
+/// blend would darken at every soft edge, while the UI export un-premultiplies them (tools/remaster_export_ui.py):
+/// those stay the export's until the pack carries straight-alpha versions.
+pub fn ui_texture_path(name: &str, file: &str, premultiplied: bool) -> String {
+    let lower = name.to_lowercase();
+    if !premultiplied && SET.read().is_ok_and(|s| s.as_ref().is_some_and(|s| s.remaster.contains(&lower))) {
+        format!("textures_remaster/{lower}.dds")
+    } else {
+        format!("ui/{file}")
+    }
+}
+
 /// The world's texture sampler: repeat, trilinear, anisotropic as the settings say (16x in both presets: the
 /// engine's look since 2026-10-13). `fx` samplers (decals, effects) are anisotropic only with `anisotropic_fx`.
 pub fn world_sampler(address: ImageAddressMode, fx: bool) -> ImageSamplerDescriptor {

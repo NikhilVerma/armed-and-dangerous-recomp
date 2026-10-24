@@ -65,6 +65,9 @@ struct NavDef {
 #[derive(Deserialize)]
 struct TexDef {
     file: String,
+    /// stored premultiplied in the game's bank (DXT2); the export un-premultiplied it
+    #[serde(default)]
+    premultiplied_in_bank: bool,
 }
 
 #[derive(Deserialize)]
@@ -291,7 +294,8 @@ pub fn spawn(
     let font_field = images.add(crate::sdffont::font_field(&ui)?);
     let mut textures = HashMap::new();
     for (name, t) in &layout.textures {
-        textures.insert(name.clone(), assets.load(format!("ui/{}", t.file)));
+        // the Remaster's retexture where there is one (the villagers' panel figures, the compass, the weapon icons)
+        textures.insert(name.clone(), assets.load(crate::graphics::ui_texture_path(name, &t.file, t.premultiplied_in_bank)));
     }
     let text_material = font_materials.add(FontMaterial { color: LinearRgba::WHITE, field: font_field.clone() });
     let shadow_material = font_materials.add(FontMaterial { color: LinearRgba::BLACK, field: font_field });
@@ -406,10 +410,12 @@ fn build_model(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &m
         }
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, q.vertices.iter().map(|v| [v[0], v[1], 0.0]).collect::<Vec<_>>());
-        // exported uv: v = 0 is the bottom row of the upright image; Bevy samples v = 0 at the top
-        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, q.vertices.iter().map(|v| [v[2], 1.0 - v[3]]).collect::<Vec<_>>());
-        mesh.insert_indices(Indices::U32(q.triangles.iter().flatten().copied().collect()));
         let tex = q.texture.as_ref().and_then(|t| hud.textures.get(t)).cloned();
+        // exported uv: v = 0 is the bottom row of the upright image; Bevy samples v = 0 at the top (the UI export's
+        // PNG is upright; a retexture keeps the bank's row order, bottom row first)
+        let bank = tex.as_ref().is_some_and(bank_rows);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, q.vertices.iter().map(|v| [v[2], if bank { v[3] } else { 1.0 - v[3] }]).collect::<Vec<_>>());
+        mesh.insert_indices(Indices::U32(q.triangles.iter().flatten().copied().collect()));
         // textured quads keep the texture's colour (vertex colours are alpha / unused there); flat quads use theirs,
         // stored blue-first (the compass's objective half-disc #001eff is the orange of the original captures)
         let color = if tex.is_some() {
@@ -685,6 +691,12 @@ fn spawn_pub(commands: &mut Commands, meshes: &mut Assets<Mesh>, materials: &mut
     ));
 }
 
+/// Whether a HUD texture is a retexture (graphics::ui_texture_path): a DDS keeps the game bank's row order, bottom
+/// row first, where the UI export's PNGs are upright.
+fn bank_rows(h: &Handle<Image>) -> bool {
+    h.path().is_some_and(|p| p.path().extension().is_some_and(|e| e.eq_ignore_ascii_case("dds")))
+}
+
 /// The size of an item icon in a 96 x 48 slot, by texture (the textures' aspect).
 fn icon_size(tex: &str) -> Vec2 {
     match tex {
@@ -762,7 +774,9 @@ fn pub_view(
         for (i, (p, tex)) in view.icons.iter().enumerate() {
             let Some(img) = hud.textures.get(*tex) else { continue };
             let size = icon_size(tex);
-            let mat = materials.add(ColorMaterial { texture: Some(img.clone()), ..default() });
+            // a retexture's rows run bottom first (bank_rows): the rectangle's v turned over
+            let uv_transform = if bank_rows(img) { Affine2::from_cols_array(&[1.0, 0.0, 0.0, -1.0, 0.0, 1.0]) } else { Affine2::IDENTITY };
+            let mat = materials.add(ColorMaterial { texture: Some(img.clone()), uv_transform, ..default() });
             let q = commands
                 .spawn((
                     Mesh2d(meshes.add(Rectangle::new(size.x, size.y))),
