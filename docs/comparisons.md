@@ -33,16 +33,18 @@ map marker, as the original renders it once at load, and reflects it per pixel: 
 ice (`graphics/env_map.rs`). The GPU snowfall (`graphics/snow.rs`: 200,000 flakes falling through gusting wind and
 settling on surfaces) replaces the original's snow cylinders at about their visible amount. Also: Roman's sun shadow
 (4 cascades of 8192 px, PCSS soft edges), height fog in place of the linear fog, ambient occlusion, the retextured
-landscape. Contrast / saturation: original 47.7 / 0.157, remaster 47.6 / 0.157 (before this pass: 31.1 / 0.088).
+landscape. Contrast / saturation: original 47.7 / 0.157, remaster 47.3 / 0.154 (before this pass: 31.1 / 0.088).
 
 ### Village
 
 ![lev_1_m1 village](images/compare/l1_village.jpg)
 
 The village houses. Cascaded shadows (Roman's on the snow), ambient occlusion under the eaves and where the walls
-meet the ground, retextured walls, roofs and barrels, TAA with sharpening. The roof undersides are black in both: the
-dark wood (ambient 0.1) faces away from both of the level's lights. The soft white blobs are the original's own
-camera-locked snow particles. Contrast / saturation: 55.2 / 0.219 against 54.1 / 0.207 (before: 38.6 / 0.116).
+meet the ground, retextured walls, roofs and barrels, TAA with sharpening. The roof undersides are dark brown planks in both
+(the dark wood, ambient 0.1, faces away from both of the level's lights; the remaster crushed it to black until it
+converted the game's values with the sRGB curve instead of a 2.2 power). The soft white blobs are the original's own
+camera-locked snow particles (see Known differences). Contrast / saturation: 55.2 / 0.219 against 52.8 / 0.199
+(before: 38.6 / 0.116).
 
 ### Village street
 
@@ -90,7 +92,7 @@ camera at the same play frame (not the dumped camera), 1280x960 against 1920x108
 
 lev_2_m3's start, 5 s after the briefing: a warm, hazy palette, nothing like the snow levels. Retextured ground and
 rock, the hill's soft shadow, ambient occlusion along the fence and the slope's folds. Contrast / saturation 53.6 /
-0.278 against 59.4 / 0.308.
+0.278 against 57.7 / 0.270.
 
 ### The town through the gate, lev_3_m3
 
@@ -98,15 +100,15 @@ rock, the hill's soft shadow, ambient occlusion along the fence and the slope's 
 
 lev_3_m3's start: the town seen through the gate, in the level's orange haze (fog 176, 104, 58). Until this pass the
 remaster drew this level, and eight others, without any fog: their global settings give no fog_near of their own, and
-the original then takes its property set's value (gamematerial.rs `level_fog`). Roman is lit darker in the remaster
-here and in the other non-snow levels (character lighting: not looked at in this pass).
+the original then takes its property set's value (gamematerial.rs `level_fog`). Saturation 0.547 against 0.563.
 
 ### Grass hills in late light, lev_4_m1
 
 ![lev_4_m1 hills](images/compare/l4m1_hills.jpg)
 
 lev_4_m1's start: mossy hills under trees, the strongest colour of the set. Soft canopy shadows across the grass
-(the original has none from the trees), ambient occlusion in the rock's folds, retextured grass and stone.
+(the original has none from the trees), ambient occlusion in the rock's folds, retextured grass and stone. Saturation
+0.763 against 0.767.
 
 ### Water mill, lev_4_m3
 
@@ -182,6 +184,15 @@ size, and the remaster's settings. The original runs one instance at a time in i
 400 KB. The original very occasionally crashes on exit before its last frame is dumped (lev_3_m3, once): run the shot
 again.
 
-Not in the set: an explosion pair (a blast needs a scripted moment that frames the fireball in both games), and
-lev_5_m3's night rain, where the remaster's rain and wind-spray domes still grey the whole view out
-(docs/player-feedback.md G5).
+Not in the set: an explosion pair (a blast needs a scripted moment that frames the fireball in both games).
+
+## Known differences
+
+Open visual differences against the original, found with these tools (status in docs/player-feedback.md):
+
+- **Snow puffs near the camera** (lev_1_m1): the big soft white blobs are the original's own camera-locked snow emitter (fx_camera_l1_m1_locked, the same count, size and speed), but they read brighter over dark walls than in the original, which blends in gamma space where the remaster blends in linear light (matched over the snow's brightness).
+- **lev_5_m3's night rain**: the camera's rain and wind-spray domes (fxo_rain_1..3, fxo_wind_spray) grey the whole view out; their textures are dark, so the cause is in the fx materials, not found yet (G5).
+- **Sky holes** on lev_5_m3 and lev_bonus_m1: bright white patches where the sky should show (the lev_5_m3 ones are lit snow in front of the rain domes; lev_bonus_m1's not examined).
+- **lev_3_m3's town through the gate**: was missing (black) for want of the level's fog; fixed, the town still reads darker than the original's.
+- **lev_1_m1 pub windows**: not lit as in the original (not examined).
+- **Characters** are lit a little darker than the original's in the non-snow levels (Roman in lev_2_m3, lev_4_m1).
