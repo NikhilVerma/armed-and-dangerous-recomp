@@ -1,6 +1,6 @@
 # Renderer subsystem
 
-The game's Direct3D 9 layer, recovered into `src/renderer/` and reached through `src/rhi/` (docs/renderer-interface.md).
+The game's Direct3D 9 layer, recovered into `archive/src/renderer/` and reached through `archive/src/rhi/` (docs/renderer-interface.md).
 
 ## Extent
 
@@ -8,7 +8,7 @@ The game's Direct3D 9 layer, recovered into `src/renderer/` and reached through 
   2026-10-04). All pass `tools/compare.py`.
 - **Unrelated code in the range:** zlib (`Zlib_*`), wave-file reading, ambient sounds and heap helpers are linked
   into the same address range.
-- **Single entry from game code:** the vtable at `0x00589990`, 129 slots (`tools/vtable.py`). The only other direct
+- **Single entry from game code:** the vtable at `0x00589990`, 129 slots (`archive/tools/vtable.py`). The only other direct
   call is the factory `Renderer_Create`.
 - **Device access:** nothing outside the range touches the device (`Renderer` +0x14cc) or IDirect3D9 (+0x14c8).
 
@@ -19,7 +19,7 @@ The game's Direct3D 9 layer, recovered into `src/renderer/` and reached through 
 | Device and modes | `Renderer_ParseOptions`, `Renderer_AddDisplayModes`, `Renderer_FindDisplayMode`, `Renderer_SetDisplayMode`, `Renderer_ResetDevice`, `Renderer_ReleaseDevice` | Device loss: release, then restore default-pool resources (`Renderer_RestoreTextures`, `VertexBufferSet_Restore`) |
 | State | `Renderer_InitStateCache`, `DrawState_Set`, `Renderer_SetStageAddressing`, `Renderer_SetViewportRect` | Render states go through a cache; draw states are objects the renderer hands out |
 | Materials | `Material_InitCombiners`, `Renderer_BuildColorMixPass`, `Renderer_GetNamedPixelShader` | Fixed-function colour-mix combiners plus named ps 1.x shaders |
-| Textures | `Renderer_RegisterTexture` (src/renderer/textures.cpp), `Renderer_CreateTextureFromImages`, `Texture_LoadFromSurface`, `Renderer_UpdateTextureLod`, `Renderer_SetMaxTextureLod`, `TextureBuckets_Init` | Managed textures use SetLOD for distance streaming |
+| Textures | `Renderer_RegisterTexture` (archive/src/renderer/textures.cpp), `Renderer_CreateTextureFromImages`, `Texture_LoadFromSurface`, `Renderer_UpdateTextureLod`, `Renderer_SetMaxTextureLod`, `TextureBuckets_Init` | Managed textures use SetLOD for distance streaming |
 | Text | `Renderer_DrawTextA`, `Renderer_TextIsTagStart`, `Renderer_TextSkipTaggedBlock` | Tagged text markup |
 | Meshes | `SkinMesh_CheckTexCoordChannels`, the strip draws near `0x004fe01f` | Skin meshes are triangle strips (docs/formats/big-skin.md 3.4) |
 
@@ -37,7 +37,7 @@ layout.
 | c42..c44 | rigid draws: the 3x4 world*view matrix (0x004e2910) |
 | c[a0.x + 42..] | skinned draws: the bone palette, 3 registers per bone, blend weights in v1 (the number of bones per vertex and the index source are not decoded yet) |
 
-The Vulkan backend's scene description inverts c22..c25 to recover camera-space positions (`src/rhi/vulkan/vk_scene.cpp`).
+The Vulkan backend's scene description inverts c22..c25 to recover camera-space positions (`archive/src/rhi/vulkan/vk_scene.cpp`).
 
 ## Camera
 

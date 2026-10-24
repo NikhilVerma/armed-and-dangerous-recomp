@@ -1,0 +1,18 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"warp_companion": [0, 175, -78, 14]},
+ {"warp_companion": [1, 175, -60, 14]},
+ {"wait": 3.0},
+ {"spawn": [300, -69, 14]},
+ {"wait": 0.5},
+ {"look_at": [300, -69, 20]},
+ {"wait": 0.3},
+ {"tap": "Digit1"}, {"wait": 0.5},
+ {"expect": {"q_order": "attack", "jonesy_order": "attack"}},
+ {"kill": 1000},
+ {"wait": 13.0},
+ {"expect": {"q_order": "defend_me", "jonesy_order": "defend_me", "q_fight": "none", "jonesy_fight": "none"}},
+ {"quit": true}
+]}

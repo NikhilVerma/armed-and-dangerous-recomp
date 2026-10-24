@@ -1,0 +1,19 @@
+{
+ "steps": [
+  {"wait": 1.5},
+  {"expect": {"movie": null, "game_paused": false}},
+  {"movie": "pm_logo"}, {"wait": 1.0},
+  {"expect": {"movie.name": "pm_logo", "game_paused": true}},
+  {"tap": "Escape"}, {"wait": 0.5},
+  {"expect": {"movie": null, "game_paused": false, "menu.page": "Main"}},
+  {"movie": {"play": "pub_01", "loop": true, "skippable": false, "behind": 0.0, "at": 29.5}}, {"wait": 1.2},
+  {"expect": {"movie.name": "pub_01", "movie.time": [0.2, 1.0], "game_paused": false}},
+  {"tap": "Enter"}, {"wait": 0.3},
+  {"expect": {"movie.name": "pub_01"}},
+  {"movie": {"stop": true}}, {"wait": 0.3},
+  {"expect": {"movie": null}},
+  {"movie": "no_such_movie,pm_logo"}, {"wait": 0.5},
+  {"expect": {"movie.name": "pm_logo", "movie.left": 0}},
+  {"quit": true}
+ ]
+}

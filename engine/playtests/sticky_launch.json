@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "preset": "remaster", "steps": [
+ {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (the bombs are in the bullets' list, 0x00481320), which this test is not about"},
+ {"ai_force": "grunts_hold"},
+ {"cheat": "SHIELDME"},
+ {"wait": 5.0},
+ {"warp": [-271, 680, 80, 180]},
+ {"spawn": [-275, 620, 80]},
+ {"wait": 1.0},
+ {"expect": {"launches": 0}},
+ {"click": "Right"},
+ {"wait": 2.0},
+ {"expect": {"sticky_on_character": 1}},
+ {"wait": 3.5},
+ {"expect": {"sticky_live": 0, "launches": 1, "fx.started.fx_imp_sticky": [2, 10]}},
+ {"quit": true}
+]}

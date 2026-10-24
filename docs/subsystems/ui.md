@@ -1,7 +1,7 @@
 # UI and HUD (2D drawing and layout)
 
 Static reconnaissance, 2026-10-04: Ghidra exports (`work/decomp/`, `work/exports/functions.json`), the recovered
-renderer (`src/renderer/`) and a dump of `lev_1_m1_big12_ui.big` (`tools/formats/bigtool.py dump`). Nothing here
+renderer (`archive/src/renderer/`) and a dump of `lev_1_m1_big12_ui.big` (`tools/formats/bigtool.py dump`). Nothing here
 was run. Statements marked **guess** are not verified. Goal: `docs/goals/remaster-basics.md` (UI at any aspect
 ratio).
 
@@ -14,10 +14,10 @@ bottom left, y up. Layout data is authored in **640x480 virtual pixels** and div
 | --- | --- |
 | Screen transform 0x004f01c0 (renderer in arg0). It builds three static matrices once (flag byte 0x005fb898) and sets them: projection 0x0064aab0 (virtual 19, +0x4c): perspective, fov pi/2, aspect 1, near 1, far 10000 (0x004e3490). View 0x0064aa68 (virtual 20, +0x50): scale (2, 2, 1) times translate (-0.5, -0.5, -1) (0x004e2d90, 0x004e2910). World 0x0064aa20 (virtual 21, +0x54): identity. A vertex (x, y, 0) lands at NDC (2x-1, 2y-1). | decomp 0x004f01c0, 0x004e3490 |
 | Because the projection is perspective, a vertex with z != 0 is scaled towards the screen centre (0.5, 0.5). UI meshes pass a z (see 0x00464e20). | 0x004e3490: m[14] = -1 (w = -z) |
-| Glyph size: Renderer_DrawGlyph (0x005078c0) uses pixelW = Renderer_GetPixelWidth (0x00506f90) = 1 / (2 * viewport half width +0x40), pixelH likewise (0x00506fc0, +0x44). Text callers pass 0 for both (0x00495e80), so **glyphs are sized in physical pixels**: text does not grow with resolution. | src/renderer/auto_00503900.cpp, auto_00504b90.cpp, decomp 0x00495e80 |
-| Viewport block renderer +0x40 = {half w, half h, centre x, centre y} in pixels; virtual 31 (+0x7c, 0x004b0300) returns its address. Renderer_SetViewport(null) = whole back buffer (+0x1634, +0x1638). | src/renderer/auto_004fde30.cpp, decomp 0x004b0300 |
-| Renderer_GetAspect (virtual 34, 0x00508860) = +0x1648 = W / H * 0.75 (1.0 at 4:3), set by 0x00503b30. | src/loader/auto_00502cb0.cpp |
-| Constants: 0x005bcbf8 = 1/640, 0x005bcbf4 = 1/480, 0x005bce1c = 480.0, 0x005bcd90 = 4/3, 0x005bcb4c = 0.5. Readers of 1/640: 0x004190a0, 0x00464b10, 0x00464e20, 0x00465720, 0x00467f50, 0x0046b0a0, 0x0046b0d0, 0x004948d0, 0x004a3260. | image read via tools/reginputs.py; grep of work/decomp |
+| Glyph size: Renderer_DrawGlyph (0x005078c0) uses pixelW = Renderer_GetPixelWidth (0x00506f90) = 1 / (2 * viewport half width +0x40), pixelH likewise (0x00506fc0, +0x44). Text callers pass 0 for both (0x00495e80), so **glyphs are sized in physical pixels**: text does not grow with resolution. | archive/src/renderer/auto_00503900.cpp, auto_00504b90.cpp, decomp 0x00495e80 |
+| Viewport block renderer +0x40 = {half w, half h, centre x, centre y} in pixels; virtual 31 (+0x7c, 0x004b0300) returns its address. Renderer_SetViewport(null) = whole back buffer (+0x1634, +0x1638). | archive/src/renderer/auto_004fde30.cpp, decomp 0x004b0300 |
+| Renderer_GetAspect (virtual 34, 0x00508860) = +0x1648 = W / H * 0.75 (1.0 at 4:3), set by 0x00503b30. | archive/src/loader/auto_00502cb0.cpp |
+| Constants: 0x005bcbf8 = 1/640, 0x005bcbf4 = 1/480, 0x005bce1c = 480.0, 0x005bcd90 = 4/3, 0x005bcb4c = 0.5. Readers of 1/640: 0x004190a0, 0x00464b10, 0x00464e20, 0x00465720, 0x00467f50, 0x0046b0a0, 0x0046b0d0, 0x004948d0, 0x004a3260. | image read via archive/tools/reginputs.py; grep of work/decomp |
 
 ### Draw paths (all end in the same screen transform)
 
@@ -68,7 +68,7 @@ Use the object being drawn, not the vertices: in the 0x00464460 loop each object
 | Object name (`ui_mouse_cursor`, `ui_crosshair`, `ui_*_crosshair`, `ui_hit_*`, `ui_background`, `ui_ad_image`, `ui_pub_interior`) | Exceptions (below) |
 | Paths outside 0x00464460 (0x00415dc0 callers: loading, credits, backgrounds, fades, version string) | Not UI objects: full-screen or centred by their own code |
 
-## 3. Anchoring design (proposal, `hook/enhance/`, off by default)
+## 3. Anchoring design (proposal, `archive/hook/enhance/`, off by default)
 
 Let k = (4/3) / (W/H) (k < 1 on wide screens). Express each element in 4:3 space, then map x -> a + k * x:
 
@@ -108,6 +108,24 @@ Let k = (4/3) / (W/H) (k < 1 on wide screens). Express each element in 4:3 space
 - **Glyph snapping** in DrawGlyph rounds to pixelW; with virtual pixels text may blur slightly.
 - **The comparison scenarios do not execute GetAspect or QueryInfo** (src comments), so 0x00464e20 and
   0x00465720 may not run in menu+level. Trace which UI paths run before relying on them.
+
+## 4. The pub screen's slots and cursor (2026-10-15, from archive/src/engine/missing_01.cpp and the level-1 coverage run)
+
+- The pub screen's per-frame handler is the screen's input slot 0x00493130, a tail jump to 0x004695d0 with the pub
+  controller (Game+0xa74). It runs the two bars, the award presentation (states 0..9 of +0xa8), the new-weapons
+  notice and the cursor. Ported in engine/src/pubscreen.rs; the module doc lists the steps and the remaster's additions.
+- The 14 slots are `ui_slot` objects on the ref markers: ref_weapon_01..03 (kind 0), ref_sp_weapon_01..05 (1),
+  ref_mission_bombs (3), ref_slot_01..05 (2) (0x00467fe0, strings read from the exe). Their record ids and nav links
+  (+0x478..+0x488: id, left, right, up, down) are in the bank and in layout.json `nav`. The pub row links only
+  left / right, so after the notice the keys stay on that row. Only the pointer reaches Roman's slots from there.
+- Input bits (0x00491140): 1 up, 2 down, 4 left, 8 right, 0x10 accept, 0x20 back. The keys follow +0x47c / +0x480 /
+  +0x484 / +0x488 for bits 4 / 8 / 1 / 2. The target is looked up by record id (0x00463b90).
+- Pointer: 0x00463a00 picks the visible object whose hit test (vt+0x140) contains the cursor. A slot's box is set by
+  0x00467f50 to +-0.08 x +-0.07 of the screen about its ref point. ref_mission_bombs gets no box.
+- Moves between anchors (0x00464c60 start, 0x00464c90 advance): t = (now - start) x 10, so 0.1 s, blending only
+  the translation.
+- Capture (work/shots/cov-pub-700..900.png): the cursor starts on Roman's first weapon slot. "Press Esc to exit pub"
+  shows from the start, and "Select the weapon you want" stays up after the only weapon is taken.
 
 ## Open questions
 

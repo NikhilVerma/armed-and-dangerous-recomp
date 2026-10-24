@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.3},
+ {"audio": {"stop_all_but_music": true}},
+ {"wait": 0.3},
+ {"audio": {"play": "fire_small_lp", "offset": [0, 40, 0], "looped": true, "held_by": "roman"}},
+ {"wait": 0.3},
+ {"expect": {"audio.playing.fire_small_lp": 1, "audio.refused.loop_slot": null}},
+ {"audio": {"play": "fire_med_lp", "offset": [0, 40, 0], "looped": true, "held_by": "roman"}},
+ {"audio": {"play": "fire_large_lp", "offset": [0, 40, 0], "looped": true, "held_by": null}},
+ {"wait": 0.3},
+ {"expect": {"audio.refused.loop_slot.fire_med_lp": 1, "audio.refused.loop_slot.fire_large_lp": 1, "audio.playing.fire_med_lp": null, "audio.playing.fire_large_lp": null, "audio.playing.fire_small_lp": 1}},
+ {"audio": {"play": "fire_med_lp", "offset": [0, 40, 0], "looped": false, "held_by": "roman"}},
+ {"wait": 0.3},
+ {"expect": {"audio.started.fire_med_lp": 1, "audio.refused.loop_slot.fire_med_lp": 1}},
+ {"quit": true}
+]}

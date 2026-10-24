@@ -1,0 +1,6 @@
+# The engine's house style: lines up to 120 columns, short constructs kept on one line. The code is not
+# rustfmt-clean yet (a one-off `cargo fmt` would touch most files and conflict with every open branch), so CI does
+# not run `cargo fmt --check`; format the files you touch, and run it once over everything after the open branches
+# are merged (docs/decision.md 2026-10-23).
+max_width = 120
+use_small_heuristics = "Max"

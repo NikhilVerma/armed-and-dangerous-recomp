@@ -1,0 +1,14 @@
+{
+ "load": "states/after_pub.json",
+ "steps": [
+  {"wait": 1.0},
+  {"warp": [-210, 380, 25, 0]},
+  {"wait": 0.5},
+  {"fx": {"name": "fx_explosion_turret_mortar", "at": [-210, 430, 25], "clear": true}},
+  {"wait": 0.08},
+  {"expect": {"fx.lights": 1, "fx.light.attenuation1": [0.0399, 0.0401], "fx.light.specular": [2.9, 3.0], "fx.light.r": 1.0, "fx.light.z": [-500, 500]}},
+  {"wait": 0.5},
+  {"expect": {"fx.lights": 0, "fx.max_lights": 1, "fx.max_extent": [5, 1000]}},
+  {"quit": true}
+ ]
+}

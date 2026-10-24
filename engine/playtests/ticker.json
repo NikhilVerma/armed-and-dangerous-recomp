@@ -1,0 +1,14 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"mission_obj.sites.252.alpha": 0.5, "mission_obj.sites.252.enabled": true, "mission_obj.compass_target": "234,252", "tickers": 4}},
+ {"warp": [-84, 30, 13, 0]},
+ {"wait": 0.5},
+ {"hold_use": 1.0},
+ {"expect": {"mission_obj.sites.252.armed": false}},
+ {"wait": 0.2},
+ {"hold_use": 2.3},
+ {"expect": {"mission_obj.sites.252.armed": true, "mission_obj.sites.252.tagged": false, "mission_obj.sites.252.alpha": 1.0, "mission_obj.compass_target": "234"}},
+ {"wait": 6.5},
+ {"expect": {"triggers.556": 1, "objects.248.husk": true, "mission_obj.sites.252.done": true}},
+ {"quit": true}
+]}

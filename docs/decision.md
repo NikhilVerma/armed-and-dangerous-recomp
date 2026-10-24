@@ -158,3 +158,179 @@ How this coexists with faithful recovery:
 - Jolt needs SSE2 and its math types depend on the instruction set, while the hook DLL is built /arch:IA32 (x87, for
   faithful float behaviour): Jolt and its bridge are a separate static library (hook/physics/) compiled with SSE2 and
   reached only through a plain C interface.
+
+## 2026-10-08: DLSS and XeSS SDK licences accepted
+
+- Asked: "may I download NVIDIA's DLSS SDK and Intel's XeSS SDK? Using them means accepting their licence terms on
+  your behalf." Human: "Yes, both".
+- Pinned: NVIDIA DLSS SDK v310.9.1 (NVIDIA RTX SDKs licence) and Intel XeSS SDK v3.0.2 (Intel Simplified Software
+  Licence). They are cloned into `work/sdk` by `tools/fetch_aa_sdks.ps1` and never committed. Their runtime DLLs
+  (`nvngx_dlss.dll`, `libxess.dll`) are copied next to the game by `tools/deploy.ps1`.
+- FSR 3.1 stays the remaster default (`[render] aa=1`). DLSS / DLAA is `aa=2`, XeSS `aa=3`.
+
+## 2026-10-11: tests only on request
+
+- Human: "your tests take ages, pls don't run them unless i say so".
+- Agents no longer run `tools/check.ps1` or `tools/compare.py` by default. They build, check the change with a
+  targeted capture where useful, and say in the commit message that the oracle was not run. The full checks run
+  when the human asks (and before any merge to main).
+- Human: "we will run tests after human validation". Order: change, build, the human plays and validates it, then
+  the tests run.
+
+## 2026-10-13: a new engine, reusable across games
+
+- Human: "my big goal is to remaster many of my fav old games so its something that needs to scale and ideally
+  reusable engine with reusable functions and approaches", "keep the recovered C++ and link it in ... to get the
+  initial MVP built", "get an MVP level working of the game in the new engine", with "modern toolchains, Jolt physics
+  and more, feel free to reuse existing community plugins for menus and such".
+- Human: "don't add fake or your own explosions pls, we need to use what the game does", "it should play as the game
+  and enhance it rather than make it worse".
+- Chosen: **Bevy 0.20** (Rust) as the shared engine in `engine/`, **Jolt Physics 5.6** through `oxijolt` (built from
+  its vendored source), **bevy_egui** for menus. Game data is exported from the retail `.big` files by
+  `tools/remaster_export.py` into a game-neutral scene format; behaviour comes from the game's own property sets,
+  templates and fx scripts. Game logic not yet ported runs as labelled stand-ins until the recovered code replaces
+  it (grunt AI, the player).
+- The D3D9 hook path stays: it is the oracle for the recovered code and the shipping remaster until the new engine
+  plays the whole game.
+
+## 2026-10-13: the new engine stays a manual port, one verified piece at a time
+
+- Human, after seeing look-and-feel gaps (single aim pose, flat materials, no terrain snow, dead grunts floating,
+  vertical tracers, pickups): "i am ok with the most efficient approach, we have gotten surprisingly close with
+  manual rewrites", "but i just need to ensure we do it piece by piece and each piece is properly ported".
+- Rule for engine/ from now on: a piece (one system or behaviour) is ported from the recovered code with the
+  function addresses cited in the source, then verified against the original before the next piece starts:
+  a capture of the original (tools/shot.py) side by side with the engine's (tools/ui_compare.py), or a logged
+  value from a playtest run compared with the recovered rule. Guesses stay labelled. A piece is not called done
+  while its comparison shows a difference.
+- Future levels' mechanics (jetpacks, capture the flag, escort missions, ...) are ported the same way, each as its
+  own piece.
+
+- Human, the same day, on what counts: "the subjective part means the new game should look and play the same OR
+  better than old. the objective part means: no unexpected behaviour, bugs, crashes, glitches"; "if the score is
+  poor but the game looks subjectively better then the score is irrelevant"; "it should look a faithful
+  remaster/remake". Porting order: rendering, then player movement, the sticky bomb (homing), guns, zoom, the rest;
+  verification by playing the same inputs in both (e.g. dismiss the briefing, walk forward 5 s) and comparing.
+- Human, 2026-10-13: "this is such an old game, we can probably live with high LOD for all cases": the engine draws
+  every object's finest LOD at all distances (the original switches by Object_SelectLod 0x00452f50; not ported).
+
+## 2026-10-14: port by subsystem, each working in isolation; levels after
+
+- Human: "Instead of vertical slices, let's do subsystems and ensure they work in isolation. And eventually, we
+  will have enough of them built to start testing levels." Context: the game logic is about a third of the exe
+  (symbols/functions.csv: AI 12 %, game 11 %, UI / audio / anim / camera / input / save the rest; libraries
+  Havok / qhull / D3DX / CRT / zlib 42 %), all of it already recovered as C++ in src/. Porting one level
+  mechanic at a time re-read the same code from cold for each feature and cost 200k-400k tokens per mechanic.
+- Rule for engine/ from now on: one subsystem at a time (e.g. grunt AI, player, mission / triggers, weapons and
+  projectiles, pickups, HUD, audio cues), ported in one pass from its recovered source files with addresses
+  cited, scoped to the functions the levels reach (hook coverage of the original). Each subsystem gets its own
+  isolation tests (headless playtests from saved states, or unit tests, with expect checks), added to
+  tools/regress.py. Level playthroughs and look comparisons come once enough subsystems stand.
+- This replaces the per-level mechanics inventory as the work order (docs/level1-mechanics.md stays as the
+  checklist of what level 1 needs); the 2026-10-13 rule (each piece verified against the original, guesses
+  labelled) still applies to each subsystem.
+
+## 2026-10-14: the remaster's code is a base for the human's own games
+
+- Human: "in future I would like to build my own games by borrowing mechanics from the decompiled games. So I want
+  to make sure that whatever you do has a good enough code quality that it can be built upon ... hack on, build
+  upon, extend upon, add mod support". A long-term instruction.
+- Rule for engine/ (and shared tooling; src/ stays the faithful decomp, where "no restructuring for taste" still
+  holds): behaviour stays faithful, structure is clean. Each mechanic is a self-contained module / Bevy plugin
+  with a clear public API and no hidden coupling to Armed and Dangerous; game specifics live in data (properties,
+  templates, tuning, mission scripts) so mods can change content without recompiling; names say what things do,
+  with the original's addresses as provenance in doc comments; tests per mechanic double as usage examples;
+  unavoidable hacks are labelled and logged as debt. This adds to the 2026-10-13 "reusable remaster engine" goal.
+
+## 2026-10-15: two presets — Remaster for the human, Original for comparisons
+
+- Human: "For your own comparisons, feel free to use the original game settings. For ME to play: you must have
+  implemented proper remaster with the new textures, better shadows, better physics and all the goodies we agreed
+  on." The Bevy engine had the original's look only; the remaster goodies (AI retextures in
+  GameData/overrides/textures, AO with snow exempt, temporal AA via libraries, 16x anisotropic, no shadow pop-in,
+  max draw distance, soft particles; docs/decision.md 2026-10-08, memory priorities-2026-10-08) existed only on the
+  D3D9 / Vulkan hook route.
+- Rule: the engine has a Remaster preset (default for a normal launch: what the human plays) and an Original
+  preset (the original's textures and look) that every tool run uses automatically (--play, --snap, --camera,
+  --bench comparisons, render_compare). Builds handed to the human must have the Remaster preset working; the
+  4K 100 fps floor applies to it.
+
+## 2026-10-15: the goal restated — a clean, idiomatic Rust rewrite with the game as the oracle
+
+- Human: "Our goal is to rewrite the game in Bevy and Rust. Imagine someone sat down on a desk and they had the game
+  in front of them and they could play the game and reproduce the code. The game is the oracle and they are writing
+  the code. The code that is written should be native to how someone in an idiomatic Rust code would write. And it
+  should be written in a way that can be then updated in the future so that the outcome is greater or equal to the
+  original game. So no hacks, ... a clean room or clean code implementation and it should be mimicking the original
+  game and ... be greater than or equals to the original game. Once it's done, we will then refactor the code and
+  remaster the game by adding advanced features, rendering features, and advanced gameplay features. We can add level
+  selectors, we can modify difficulty selectors. For example, difficulties can increase the enemy count."
+- Rule for engine/: behaviour is the specification (the running original is the oracle; the recovered C++ explains
+  what and why). The Rust is designed, not transliterated: idiomatic types and names, Bevy-native structure (plugins,
+  components, resources, messages, states, schedules), data-driven where the game is data-driven, no hacks (a
+  workaround is either replaced by the real mechanism or logged as debt with a plan). Addresses stay as provenance in
+  doc comments. Outcome >= original: faithful first, then better.
+- Phase 2, after the 1:1 rewrite: refactor, then remaster features (rendering, gameplay), e.g. a level selector and
+  difficulty settings that scale things like enemy counts. Design now so those are data / settings, not rewrites.
+
+## 2026-10-16: refactors from the Bevy idioms review only where they fix a bug
+
+The human, on docs/review/bevy-idioms-2026-10-16.md: "ordering should only be fixed if it's buggy, remember our goal
+is 1:1 or better."
+
+- System ordering, the shared random stream and the fixed step are changed only where they cause an observable
+  defect: a divergence from the original shown by the oracle or a playtest, or a bug the player sees. Each such fix
+  carries that evidence. No sweeping re-ordering for idiom's sake.
+- The rest of the review (structure, typed data, assets, crates) waits for the phase-2 refactor.
+
+## 2026-10-17: features first, idiomatic from scratch, then tune toward the original
+
+The human: "If it's turning out to be too hard ... make sure that our code is idiomatic, written the way you would
+write a game from scratch, and then at least get all the features done even if they are not exactly like the original
+game. Then we try to make it similar to the original game ... and hammer those features to feel similar." Then:
+"typed components, systems, and stage data".
+
+- Order changes: feature-complete first. Every deferred feature (docs/port/features.csv) gets built so it works and
+  plays right in every level that uses it, then a tuning pass brings it toward the original.
+- Build each feature as a from-scratch Bevy design: typed components, systems in a plugin, and typed stage (level)
+  data. The recovered C++ and the running original tell what the feature does; they do not dictate the structure.
+- Typed data: properties and level data are deserialised once into typed structs (serde, defaults, Reflect),
+  not looked up by string key in systems. New code does this; existing string lookups are converted as their
+  modules are touched.
+- The oracle comparison moves from a gate to the tuning pass: a feature lands when it works, is tested by a playtest,
+  and every level that uses it can still be finished; frame-exact comparison with the original follows. Visible
+  differences found then are tuning work, logged per feature.
+- Unchanged: no hacks, tests that do not pass by luck, levels finishable, the 4K 100 fps floor, outcome >= original
+  as the end state.
+- Clarified the same day: "We can use the original code as reference. Vindaloo and shark gun had specific mechanics
+  and should at least have a best-shot faithful replication." Features-first does not mean invented behaviour: each
+  feature's mechanics (numbers, timings, rules, states) come from the recovered C++ as a best-shot faithful
+  replication; only the structure is free (idiomatic Bevy). What gets deferred to the tuning pass is frame-exact
+  verification against the running original, not reading the original code.
+
+## 2026-10-23: open source
+
+The human decided to publish the repository as open source. This replaces the earlier private-repository stance
+(2026-10-03 "Visibility stays private") and the earlier release plan of a binary-only mod (hook DLL + injector,
+never shipping source).
+
+- **Licence:** dual MIT OR Apache-2.0 (LICENSE-MIT, LICENSE-APACHE; engine/Cargo.toml `license = "MIT OR
+  Apache-2.0"`). Third-party code keeps its own licence (THIRD_PARTY_NOTICES.md: the XeGTAO port and Bevy shader
+  helpers in the engine, the Kenney CC0 prompt icons, archive/third_party).
+- **Archive:** the DLL-injector era moves to `archive/` with `git mv` and stays published as reference: the hook DLL
+  (hook/, incl. enhance, fsr, physics), rthelper/, the recovered C++ (src/, incl. src/rhi, the old Vulkan renderer),
+  third_party/ (used only by those), and the tools that only serve the DLL / recovery pipeline. archive/README.md:
+  what it was, that it is the reference spec the Bevy engine is checked against, and that it is not maintained.
+  The empty placeholders recomp/, port/ and tests/{boot,diff,replay} are dropped. The oracle tools that drive the
+  original game for the engine (shot.py, oracle_diff.py, coverage_level.py, render_compare.py and the harness they
+  import: compare.py, instances.py, coverage.py) stay in tools/.
+- **History:** published in full; wip/full-decomp merges into main first.
+- **Bring your own game:** players build from source and export the assets from their own copy
+  (`python tools/setup_assets.py --game "<install dir>"`). The exporters read only the executable's data sections,
+  which the SteamStub wrapper leaves unencrypted (byte-identical to the unwrapped file, checked on build 251748), so
+  the installed game.exe works as is: nothing is unwrapped or patched, and the repository gives no instructions to
+  remove DRM. The optional AI retexture pack is distributed separately (never committed; where: not decided yet).
+- **No binary release yet:** a signed Windows build needs a Microsoft developer / code-signing account the human does
+  not have yet. It is a roadmap milestone; until then no releases or binaries are published.
+- AGENTS.md updated: the "do not publish" rule now means agents ask before any push, release or upload; the
+  decompilation-loop rules that applied to src/ moved with it into the archive's documents.

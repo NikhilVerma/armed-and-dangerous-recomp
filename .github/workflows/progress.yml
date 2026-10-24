@@ -1,0 +1,49 @@
+# Regenerates the README's progress badges and charts (docs/progress/*.svg, tools/progress.py) from the repository's
+# own data after every push to main that touches that data, and commits them when they changed. Plain SVG in the
+# repository: no external badge service, no Pages site to enable. The commit is made by github-actions[bot]; a branch
+# protection rule that blocks bot pushes to main needs an exception for it (or switch this job to opening a PR).
+name: Progress graphs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - symbols/functions.csv
+      - docs/port/**
+      - docs/audit/**
+      - docs/journal/**
+      - engine/src/**
+      - engine/playtests/**
+      - tools/progress.py
+      - tools/port_queue.py
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: progress
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Regenerate docs/progress
+        run: python tools/progress.py
+      - name: Commit if changed
+        run: |
+          if [ -n "$(git status --porcelain docs/progress)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/progress
+            git commit -m "Progress graphs: regenerate from the repository's data [skip ci]"
+            git push
+          else
+            echo "docs/progress is up to date"
+          fi

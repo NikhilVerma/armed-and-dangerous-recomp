@@ -1,0 +1,287 @@
+{
+ "title": true,
+ "steps": [
+  {
+   "wait": 3.0
+  },
+  {
+   "expect": {
+    "window.fullscreen": true,
+    "menu.page": "Main"
+   }
+  },
+  {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+  {
+   "expect": {
+    "menu.page": "Main",
+    "menu.selected": "ui_mainmenu_options"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "menu.page": "Options",
+    "menu.selected": "ui_shellmenu_back"
+   }
+  },
+  {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+  {
+   "expect": {
+    "menu.page": "Options",
+    "menu.selected": "ui_optionsmenu_gfx"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_brightness"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_resolution"
+   }
+  },
+  {
+   "tap": "ArrowRight"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Graphics"
+   }
+  },
+  {
+   "tap": "ArrowRight"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "Original"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Fullscreen"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Anti-aliasing"
+   }
+  },
+  {
+   "tap": "ArrowRight"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.value": "SMAA"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_drawdistance"
+   }
+  },
+  {
+   "tap": "ArrowLeft"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Effects ..."
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_shadows"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "shot": "gfx_edited"
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Remaster Textures"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Ambient Occlusion"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Soft Particles"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Soft Shadows"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "Detail and Shadows"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "Gfx",
+    "menu.selected": "ui_gfxmenu_apply"
+   }
+  },
+  {
+   "tap": "Enter"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "expect": {
+    "window.fullscreen": false,
+    "window.width": [640, 1600],
+    "window.height": [480, 1200],
+    "window.shadows": false,
+    "window.draw_distance": [
+     0.94,
+     0.96
+    ],
+    "window.graphics_preset": "original",
+    "window.graphics.anti_aliasing": "smaa",
+    "window.graphics.remaster_textures": true
+   }
+  },
+  {
+   "quit": true
+  }
+ ]
+}

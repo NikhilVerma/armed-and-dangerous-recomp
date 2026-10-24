@@ -1,0 +1,7 @@
+{"preset": "remaster", "load": "states/after_pub.json", "steps": [
+ {"wait": 4.0},
+ {"expect": {"geometry.tessellated": [1, 100000], "geometry.mip_bias": -1.0, "geometry.alpha_to_coverage": 0, "geometry.terrain_detail": 8.0, "geometry.shadow_strength": 0.55, "geometry.lod_objects": 0}},
+ {"shot": "view"},
+ {"wait": 0.5},
+ {"quit": true}
+]}

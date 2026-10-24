@@ -1,0 +1,14 @@
+{"load": "states/after_pub.json", "preset": "remaster", "steps": [
+ {"wait": 1.0},
+ {"warp": [-210, 380, 25, 0]},
+ {"mouse": [0, 250]},
+ {"wait": 0.5},
+ {"click": "Right"},
+ {"wait": 1.5},
+ {"expect": {"sticky_stuck": 1, "sticky_on_character": 0}},
+ {"wait": 4.0},
+ {"expect": {"sticky_live": 0, "fx.started.fx_imp_sticky": [1, 10], "fx.started.fx_sticky_flash": [1, 10], "fx.started.fx_sticky_blast_ring_snow": [1, 10], "fx.max_particles": [60, 100000]}},
+ {"shot": "blast"},
+ {"wait": 0.5},
+ {"quit": true}
+]}

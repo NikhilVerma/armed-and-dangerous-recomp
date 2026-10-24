@@ -1,0 +1,24 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300,340:1",
+  "skip_briefing": 1,
+  "resolution": [
+    2560,
+    1440
+  ],
+  "shots": [
+    400
+  ],
+  "settings": {
+    "render.skip_ui": 0,
+    "playground.post_fx": 1
+  },
+  "variants": {
+    "prescale0": {
+      "render.post_blur_prescale": 0
+    },
+    "prescale2": {
+      "render.post_blur_prescale": 2
+    }
+  }
+}

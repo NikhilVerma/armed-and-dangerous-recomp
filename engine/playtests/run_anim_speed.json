@@ -1,0 +1,7 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 4.0},
+ {"expect": {"anim_rate.rated": [1, 40], "anim_rate.top_count": [1, 40], "anim_rate.top_min": [0.89, 0.9], "anim_rate.top_max": [0.89, 0.9]}},
+ {"wait": 2.0},
+ {"expect": {"anim_rate.rated": [1, 40], "anim_rate.top_count": [1, 40], "anim_rate.top_min": [0.89, 0.9], "anim_rate.top_max": [0.89, 0.9]}},
+ {"quit": true}
+]}

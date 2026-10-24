@@ -1,0 +1,11 @@
+{
+ "about": "ten rifle shots and a reload at the start point (clip / ammo, the shots' sounds)",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:MOUSE1,42:MOUSE1,54:MOUSE1,66:MOUSE1,78:MOUSE1,90:MOUSE1,102:MOUSE1,114:MOUSE1,126:MOUSE1,138:MOUSE1,170:19",
+ "frames": 300,
+ "trace_every": 2,
+ "suite": true,
+ "known": {
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (original: the run cycle's fs_* notes at 2, 6, 18, 20, 36 after the briefing stop; remaster 12, 16, 32: charanim.rs notes of the run / stop blend)"
+ }
+}

@@ -1,0 +1,13 @@
+{
+ "about": "walk and turn with the mouse, then strafe right",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:17*200,60:MOUSEX10*40,140:MOUSEX-10*40,230:32*60",
+ "frames": 320,
+ "trace_every": 2,
+ "suite": true,
+ "known": {
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (original: the run cycle's fs_* notes at 2, 6, 18, 20, 36 after the briefing stop; remaster 12, 16, 32: charanim.rs notes of the run / stop blend)",
+  "companion.jonesy.pos": "B9: the companions do not idle at their formation slot while Roman walks off (original: they stop ~20 units behind him from frame ~38 to ~54, then follow; ai.rs companions arrive only within 4 units of the slot)",
+  "companion.q.pos": "B9: the companions do not idle at their formation slot while Roman walks off (original: they stop ~20 units behind him from frame ~38 to ~54, then follow; ai.rs companions arrive only within 4 units of the slot)"
+ }
+}

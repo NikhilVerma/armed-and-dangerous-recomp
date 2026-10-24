@@ -1,0 +1,2 @@
+audit,dates,functions_read,batches,raw_findings,differences,packages,outcomes
+accuracy audit: every ported game-logic function read against the recovered C++ (pass 1); the differences fixed or triaged in 42 packages (wave 2),2026-10-21/22,1419,525,1636,1560,42,docs/journal/2026-10-22-fix2-g*.md (one table row per difference; column "outcome")

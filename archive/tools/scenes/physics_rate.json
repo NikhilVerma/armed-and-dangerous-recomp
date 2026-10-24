@@ -1,0 +1,55 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "player": "hide",
+  "camera_look": [
+    -217.0,
+    1030.0,
+    150.0,
+    -217.0,
+    990.0,
+    140.0
+  ],
+  "fov": 60,
+  "spawn": [
+    {
+      "template": "grunt",
+      "at": [
+        -216.5,
+        1000.0,
+        170.0
+      ],
+      "yaw": 0,
+      "frame": 380
+    }
+  ],
+  "kill": [
+    {
+      "spawn": 1,
+      "frame": 381
+    }
+  ],
+  "shots": [
+    700
+  ],
+  "settings": {
+    "render.skip_ui": 1,
+    "limits.log": 1
+  },
+  "variants": {
+    "hz60": {},
+    "hz144": {
+      "test.clock_step_ms": 6.9444
+    },
+    "hz144_original": {
+      "test.clock_step_ms": 6.9444,
+      "limits.physics_fixed_step": 0
+    },
+    "hz240": {
+      "test.clock_step_ms": 4.1667
+    },
+    "hz30": {
+      "test.clock_step_ms": 33.333
+    }
+  }
+}

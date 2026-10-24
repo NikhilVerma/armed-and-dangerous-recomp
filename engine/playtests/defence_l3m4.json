@@ -1,0 +1,16 @@
+{"scene": "lev_3_m4_bd", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"base_turret.mounted": true, "base_turret.intro": false, "army.platoons": [1, 1000], "goliath.phase": "Scripted", "goliath.walked": [0, 1]}},
+ {"send": 912}, {"send": 900},
+ {"wait": 24.0},
+ {"shot": "shrubs"},
+ {"expect": {"shrubpatrol.guarding": [1, 2], "goliath.phase": "Scripted", "goliath.walked": [50, 2000], "army.released": [1, 1000]}},
+ {"send": 8}, {"wait": 10.0},
+ {"expect": {"army.breach_runners": [1, 100], "base_culled": 0}},
+ {"destroy": 258}, {"wait": 1.0},
+ {"expect": {"goliath": null}},
+ {"send": 456}, {"wait": 9.0},
+ {"expect": {"mission": "Won"}},
+ {"quit": true}
+]}

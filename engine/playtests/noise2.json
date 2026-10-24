@@ -1,0 +1,14 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [300, -200, 16, -136]},
+ {"wait": 2.5},
+ {"expect": {"ai.noise": 0}},
+ {"hold_mouse": "Left"},
+ {"wait": 0.4},
+ {"release_mouse": "Left"},
+ {"wait": 0.5},
+ {"expect": {"ai.noise": [1, 20]}},
+ {"wait": 2.5},
+ {"expect": {"ai.noise": 0}},
+ {"quit": true}
+]}

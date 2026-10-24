@@ -1,0 +1,72 @@
+{
+ "load": "states/after_pub.json",
+ "preset": "remaster",
+ "steps": [
+  {
+   "note": "the Audio page's Master Volume (options master_volume, the old remaster's [audio] master): a linear factor on every voice over the groups' levels (audio.rs Mixer::master_gain; unit test master_volume_scales_every_group)"
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "audio": {
+    "stop_all_but_music": true
+   }
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "audio": {
+    "play": "amb_pub_busy",
+    "looped": true
+   }
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "expect": {
+    "audio.master_volume": 1.0,
+    "audio.level_db.amb_pub_busy": [
+     -0.1,
+     0.1
+    ]
+   }
+  },
+  {
+   "options": {
+    "master_volume": 0.5
+   }
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "expect": {
+    "audio.master_volume": 0.5,
+    "audio.level_db.amb_pub_busy": [
+     -0.1,
+     0.1
+    ],
+    "audio.groups_db.sfx": 0
+   }
+  },
+  {
+   "options": {
+    "master_volume": 0.0
+   }
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "expect": {
+    "audio.master_volume": 0.0
+   }
+  },
+  {
+   "quit": true
+  }
+ ]
+}

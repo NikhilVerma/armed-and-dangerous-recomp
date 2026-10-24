@@ -1,0 +1,22 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"mission_obj.volumes.194.on_enter": 808, "mission_obj.volumes.271.on_enter": 713, "mission_obj.volumes.269.on_enter": 0, "mission_obj.volumes.194.enabled": true}},
+ {"warp": [16, 384, 9, 0]},
+ {"wait": 0.5},
+ {"expect": {"triggers.808": 1, "mission_obj.volumes.194.inside": 1, "mission_obj.volumes.194.on_enter": 808}},
+ {"warp": [16, 300, 9, 0]},
+ {"wait": 0.5},
+ {"expect": {"mission_obj.volumes.194.inside": 0}},
+ {"warp": [16, 384, 9, 0]},
+ {"wait": 0.5},
+ {"expect": {"triggers.808": 2}},
+ {"warp": [-194, 55, 14, 0]},
+ {"wait": 0.5},
+ {"expect": {"triggers.713": 1, "mission_obj.volumes.271.on_enter": 0}},
+ {"warp": [-194, 90, 14, 0]},
+ {"wait": 0.5},
+ {"warp": [-194, 55, 14, 0]},
+ {"wait": 0.5},
+ {"expect": {"triggers.713": 1}},
+ {"quit": true}
+]}

@@ -1,0 +1,15 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"warp_companion": [0, 175, -60, 14]},
+ {"warp_companion": [1, 175, -78, 14]},
+ {"wait": 3.0},
+ {"expect": {"q_since_shot": -1, "jonesy_since_shot": -1, "banter_lines": 0}},
+ {"hold_mouse": "Left"}, {"wait": 1.5}, {"release_mouse": "Left"}, {"wait": 2.0},
+ {"expect": {"q_since_shot": -1, "jonesy_since_shot": -1, "banter_lines": 0}},
+ {"wait": 18.0},
+ {"expect": {"banter_lines": 0}},
+ {"wait": 10.0},
+ {"expect": {"banter_lines": 1}},
+ {"quit": true}
+]}

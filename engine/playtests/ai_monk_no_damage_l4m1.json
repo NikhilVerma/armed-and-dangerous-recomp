@@ -1,0 +1,19 @@
+{"scene": "lev_4_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"mission": "Playing", "ai.no_damage": 1}},
+ {"cheat": "SHIELDME"},
+ {"note": "monk 536 (mode trigger_charge, trigger_no_damage 1, activate 4001) takes no damage while he waits (0x004371e0)"},
+ {"warp": [3672, 372, -140, 0]},
+ {"wait": 0.5},
+ {"note": "start"},
+ {"kill": 500},
+ {"wait": 0.5},
+ {"expect": {"ai.no_damage": 1, "ai.live": {"as": "start"}, "ai.near.mind": "WaitTrigger"}},
+ {"send": 4001},
+ {"wait": 0.5},
+ {"expect": {"ai.no_damage": 0}},
+ {"kill": 500},
+ {"wait": 0.5},
+ {"expect": {"ai.live": {"as": "start", "at_most": true, "margin": -1}}},
+ {"quit": true}
+]}

@@ -1,0 +1,27 @@
+{
+ "title": true,
+ "steps": [
+  {"wait": 0.5},
+  {"expect": {"movie": null}},
+  {"movie": {"play": "pre_1_1_opening", "at": 23.0, "subtitles": true}}, {"wait": 0.5},
+  {"expect": {"movie.name": "pre_1_1_opening", "movie.time": [23.0, 23.6], "movie.subtitle": "sub_rom01006"}},
+  {"shot": "rom01006"},
+  {"movie": {"play": "pre_1_1_opening", "at": 26.0}}, {"wait": 0.5},
+  {"expect": {"movie.time": [26.0, 26.6], "movie.subtitle": ""}},
+  {"movie": {"play": "pre_1_1_opening", "at": 30.5}}, {"wait": 0.5},
+  {"expect": {"movie.time": [30.5, 31.1], "movie.subtitle": "sub_rom01007"}},
+  {"shot": "rom01007"},
+  {"movie": {"play": "pre_1_1_opening", "at": 14.0}}, {"wait": 0.5},
+  {"expect": {"movie.time": [14.0, 14.6], "movie.subtitle": ""}},
+  {"movie": {"play": "pre_1_1_opening", "at": 16.0, "subtitles": false}}, {"wait": 0.5},
+  {"expect": {"movie.subtitle": "sup_002"}},
+  {"shot": "bergog"},
+  {"movie": {"play": "pre_1_1_opening", "at": 23.0}}, {"wait": 0.5},
+  {"expect": {"movie.subtitle": ""}},
+  {"movie": {"play": "pre_1_1_opening", "at": 301.5, "subtitles": true}}, {"wait": 0.3},
+  {"expect": {"movie.name": "pre_1_1_opening", "movie.frames": 9080}},
+  {"until": "movie_done"},
+  {"expect": {"movie": null, "game_paused": false}},
+  {"quit": true}
+ ]
+}

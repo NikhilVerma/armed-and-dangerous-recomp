@@ -3,7 +3,7 @@
 Status 2026-10-06: static only (no runs, no builds). Purpose: everything a per-step "mirror every Havok rigid body into
 Jolt" pass has to read. Havok code stays fenced (docs/subsystems/physics.md section 1); this file describes only data
 layouts, established from the constructors / accessors in `orig/pc/GameData/game.unpacked.exe` (base 0x400000,
-capstone) and from the recovered glue in `src/physics/physics_01..04.cpp`. Every row gives an address as evidence.
+capstone) and from the recovered glue in `archive/src/physics/physics_01..04.cpp`. Every row gives an address as evidence.
 **guess** = inferred from data flow, not proven. Names are suggested (no symbols in the binary).
 
 Conventions used throughout (all evidence-backed):
@@ -129,6 +129,11 @@ rejected when both words are non-zero and neither `A & (B >> 16)` nor `B & (A >>
 vs keyframed or fixed; owner virtual +0xa0(other) veto. World filter 0x00411850 additionally rejects dynamic vs
 dynamic unless an owner is ragdolled (+0x421) or has property key 1. Body_Create defaults the word to 0x4000 for
 bodies without a shape. Mesh and hull shapes built by 0x00412450 carry `layer << 16 | part` in shape +8.
+(2026-10-16, agent-charbody) 0x00411850 is not a pair filter for the simulation: the game calls it from the
+swept-body contact listener Type19Listener_OnContact 0x004df8a0 to decide whether to clamp speeds, and as a pair filter
+it would refuse a character against the landscape (no owner, not ragdolled). Characters do collide with each other:
+oracle lev_2_m2, grunt 16 (radius 4) walks round grunt 15 at 7.7..7.97 apart. The AI owner's +0xa0 veto is
+GenericAIObject_Slot40 0x00432590 (+0x50c / +0x510, grunt-ai.md section 14).
 
 Rigid body cinfo (Havok, 0x8c bytes; defaults 0x00459730, filled by Body_Create 0x00457030, consumed by 0x004afd80):
 u16 +0 (-> entity +0x34), u16 +2 (-> +0x4c), +4 shape, +8 filter info, +0x10 position, +0x20 rotation quaternion,

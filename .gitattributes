@@ -1,0 +1,22 @@
+# Line endings: the repository holds both CRLF and LF text files (about 180 CRLF, mostly engine/playtests,
+# tools/oracle_scenarios, some engine sources and the archive; the rest LF). Git must not convert either way, so a
+# checkout is byte-identical to what was committed whatever core.autocrlf says. A modified file keeps its own endings
+# (tools/hooks/eol_check.py runs on commit; .editorconfig does not force a style).
+* -text
+
+# Binary files (none are committed today; images such as docs/images/preview.png may be)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.dds binary
+*.wav binary
+*.ogg binary
+*.zip binary
+*.7z binary
+*.bin binary
+
+# GitHub language statistics: third-party sources kept with the archive are not this project's code
+archive/third_party/** linguist-vendored

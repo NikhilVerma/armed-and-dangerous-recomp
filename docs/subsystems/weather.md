@@ -1,7 +1,7 @@
 # Weather (snow, rain): camera-attached fx domes
 
-Status: 2026-10-04, static reconnaissance only (nothing run). Sources: `work/decomp/`, `tools/recover.py --asm`,
-`tools/vtable.py`, and `bigtool.py dump` of lev_1_m1 / lev_5_m* banks (fx, obj, prop, inst, skin). Goal: replace
+Status: 2026-10-04, static reconnaissance only (nothing run). Sources: `work/decomp/`, `archive/tools/recover.py --asm`,
+`archive/tools/vtable.py`, and `bigtool.py dump` of lev_1_m1 / lev_5_m* banks (fx, obj, prop, inst, skin). Goal: replace
 the game's snow with a GPU snow simulation in the Vulkan backend. **Guess** marks anything unconfirmed.
 
 ## Summary
@@ -148,7 +148,7 @@ then 0x004102e0 / 0x0040f750. 0x0041a350 (6,616 B) and 0x00420770 (10,512 B) do 
 
 ## Findings 2026-10-04 (runtime)
 
-- **World axes:** Z is up. Measured: the camera's up axis in world space is (0, 0, 1) (hook/enhance/weather.cpp
+- **World axes:** Z is up. Measured: the camera's up axis in world space is (0, 0, 1) (archive/hook/enhance/weather.cpp
   fx_log output). The first GPU snow fell along -y, i.e. sideways.
 - **The "snow bubbles"** are particles, not the cylinders: the camera-locked intro fx `fx_camera_l1_m1_locked`
   attaches an invisible `fxo_glow_red` emitter to the camera_fx object (parent pointer at object +0x34, written by
@@ -161,6 +161,19 @@ then 0x004102e0 / 0x0040f750. 0x0041a350 (6,616 B) and 0x00420770 (10,512 B) do 
   skips the camera emitter's update, whatever the creation path.
 - **Recovered:** 0x004234d0 Fx_CreateObject (opcode 0x05), with g_fxObjectCreated; Fx_AttachMesh gained
   g_fxAttachAllowed (unused by the remaster now).
-- **GPU snow** is a simulation (src/rhi/vulkan/vk_snow.cpp): per-flake position and velocity in a storage buffer,
+- **GPU snow** is a simulation (archive/src/rhi/vulkan/vk_snow.cpp): per-flake position and velocity in a storage buffer,
   born in the sky, terminal fall plus gusting, swirling wind with drag, respawned on landing (depth buffer) or below
   the volume; not drawn while the game is paused (the pause menu shows a frozen copy of the scene).
+
+## Remaster engine (Bevy) port, 2026-10-19
+
+engine/src/graphics/snow.rs (`SnowPlugin`, settings block `SnowSettings`: `snow`, `snow_amount`, `snow_tuning`) and
+snow.wesl port the Vulkan snow above (vk_snow.cpp shaders to WGSL, same maths, constants and defaults; world Y up in
+Bevy, so the ground plane is x, z). What Bevy forced: the pass is a render-world system in `Core3d`'s
+EarlyPostProcess set after TAA (no motion vectors for the flakes, so they are drawn on the resolved image, as the
+hook drew them after its AA at SceneEnd), reading the depth prepass (reverse Z: view z = -P32 / (d + P22)). The flake
+volume is filled when the pipelines are first ready (not on the first prepared frame: the pipelines compile in the
+background, and a fill consumed before then left every flake at the origin). Active while a live fx object named in
+`snow_tuning.replaces` (fxo_snow, fxo_snow_2) exists; those are made invisible (marker `HiddenBySnow`, restored when
+the setting goes off). Unlike the hook, the camera's flake emitter fxo_glow_red is not muted (player feedback FX1 wants
+its flakes). Playtest state "snow": active, flakes, cylinders_hidden / cylinders_shown, frames_drawn.

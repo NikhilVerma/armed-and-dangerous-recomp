@@ -1,0 +1,21 @@
+{"load": "states/after_pub.json", "steps": [
+ {"note": "Hud_ProjectMarkers 0x00406840: on the mounted gun (Game+0xac8 4) only ui_stig_mg_crosshair, no gun crosshair; on foot again the gun's"},
+ {"wait": 0.5},
+ {"loadout": {"guns": ["rifle"]}},
+ {"warp": [16, 384, 20, 180]},
+ {"wait": 0.5},
+ {"warp": [71, 235, 20, 180]},
+ {"wait": 4.0},
+ {"kill_gunner": 1000},
+ {"wait": 0.5},
+ {"warp": [71, 150, 16, 0]},
+ {"wait": 0.5},
+ {"expect": {"turret.near": true, "hud.crosshair": "ui_crosshair", "hud.weapon_icon": "ui_player_rifle"}},
+ {"tap": "KeyF"},
+ {"wait": 0.5},
+ {"expect": {"turret.mounted": true, "hud.crosshair": "ui_stig_mg_crosshair", "hud.weapon_icon": "ui_player_rifle"}},
+ {"tap": "KeyF"},
+ {"wait": 0.5},
+ {"expect": {"turret.mounted": false, "hud.crosshair": "ui_crosshair"}},
+ {"quit": true}
+]}

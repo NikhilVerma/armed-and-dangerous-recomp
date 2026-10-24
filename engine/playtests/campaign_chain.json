@@ -1,0 +1,27 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"send": 123}, {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Stats"}},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"stats.phase": 4, "campaign.money": 6000}},
+ {"note": "level1"},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"},
+ {"expect": {"campaign.level": "lev_1_m1_b", "level_generation": 1, "campaign.money": {"as": "level1"}}},
+
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"loadout.in_hand": "machinegun", "loadout.mg": 1100}},
+ {"send": 4000}, {"until": "message"}, {"wait": 0.5},
+ {"expect": {"mission": "Won"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Stats"}},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"stats.phase": 4, "campaign.money": 8000}},
+ {"note": "level2"},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"campaign.end": "movie", "campaign.level": "lev_1_m1_b"}},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"},
+ {"expect": {"campaign.level": "lev_1_m3", "level_generation": 2, "campaign.money": {"as": "level2"}, "campaign.end": "none"}},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"mission": "Playing", "loadout.in_hand": "machinegun", "loadout.rifle": true, "loadout.stickies": 5, "health": [1, 100000]}},
+ {"quit": true}
+]}

@@ -1,0 +1,10 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 3.0},
+ {"expect": {"q_lead": true, "jonesy_lead": false}},
+ {"warp": [190, 60, 14, 180]},
+ {"wait": 8.0},
+ {"shot": "after_turn"},
+ {"warp": [190, -60, 14, 0]},
+ {"wait": 8.0},
+ {"quit": true}
+]}

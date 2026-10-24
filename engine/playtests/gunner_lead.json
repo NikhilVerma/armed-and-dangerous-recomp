@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [16, 384, 20, 180]},
+ {"wait": 0.5},
+ {"warp": [71, 235, 20, 180]},
+ {"wait": 4.0},
+ {"expect": {"turret.ai": true, "gunner.phase": "On"}},
+ {"cheat": "SHIELDME"},
+ {"goto": [30, 240, 20], "near": 6, "wait": 8},
+ {"goto": [110, 240, 20], "near": 6, "wait": 8},
+ {"goto": [30, 240, 20], "near": 6, "wait": 8},
+ {"goto": [110, 240, 20], "near": 6, "wait": 8},
+ {"goto": [30, 240, 20], "near": 6, "wait": 8},
+ {"expect": {"gunner.phase": "On", "gunner.shots": [2, 1000], "ai.led_shots": [1, 1000]}},
+ {"quit": true}
+]}

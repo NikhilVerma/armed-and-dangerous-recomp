@@ -1,0 +1,13 @@
+{"load": "states/after_pub.json", "steps": [
+ {"note": "frames of keg 94's explosion from 40 units north (the original's capture: work/shots/orig_keg, the sticky's blast at (-176, 415))"},
+ {"wait": 0.5}, {"loadout": {"health": 5000}},
+ {"warp": [-176, 415, 16, 180]}, {"wait": 1.0},
+ {"shot": "before"},
+ {"destroy": 94},
+ {"wait": 0.033}, {"shot": "f02"},
+ {"wait": 0.067}, {"shot": "f06"},
+ {"wait": 0.1}, {"shot": "f12"},
+ {"wait": 0.133}, {"shot": "f20"},
+ {"wait": 0.4}, {"shot": "f44"},
+ {"quit": true}
+]}

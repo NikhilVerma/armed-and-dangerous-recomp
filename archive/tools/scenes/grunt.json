@@ -1,0 +1,8 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "log_player": 1,
+  "spawn": [{"template": "grunt", "at": [-216.5, 1005.0, 126.0], "yaw": 90, "frame": 380}],
+  "shots": [400, 430, 460, 490],
+  "variants": {"textures_on": {}, "textures_off": {"overrides.textures": 0}}
+}

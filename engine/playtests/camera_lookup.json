@@ -1,0 +1,14 @@
+{"comment": "Player feedback 2026-10-18 (bookmark 2, lev_1_m1): looking up, the camera came in close behind Roman and his back filled the screen. The original (0x0040e56c) turns the eye about Camera_start (Roman's head), not the far look point, and tilts the view by 1.2 x the pitch looking up, so the camera stays further back and Roman drops low in the frame.",
+ "load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 2.0},
+ {"expect": {"cam_mode": "follow", "cam_dist": [22.6, 23.6], "look_pitch": [-0.16, -0.14]}},
+ {"mouse": [0, -3000]},
+ {"wait": 0.3},
+ {"expect": {"look_pitch": [0.99, 1.01], "cam_pitch": [1.2, 1.28], "cam_body_dist": [3.4, 6.0], "cam_aim_err": [30, 60]}},
+ {"land": [23.83, 376.88, 189]},
+ {"wait": 1.0},
+ {"expect": {"look_pitch": [0.99, 1.01], "cam_pitch": [1.2, 1.28], "cam_body_dist": [3.4, 6.0], "cam_aim_err": [30, 60]}},
+ {"quit": true}
+]}

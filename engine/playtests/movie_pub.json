@@ -1,0 +1,22 @@
+{"steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 3.3333},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"expect": {"movie": null}},
+ {"warp": [194, -80, 16, 0]},
+ {"wait": 1.0},
+ {"hold_use": 0.3},
+ {"wait": 1.0},
+ {"expect": {"menu.page": "Pub", "pub.open": true, "movie.name": "pub_01", "movie.time": [0.5, 1.8], "game_paused": true}},
+ {"shot": "pub"},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 0.5},
+ {"expect": {"movie.name": "pub_01", "pub.offer": 1}},
+ {"tap": "Escape"}, {"wait": 0.5},
+ {"expect": {"pub.open": false, "movie": null}},
+ {"quit": true}
+]}

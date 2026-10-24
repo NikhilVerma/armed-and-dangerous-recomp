@@ -1,7 +1,7 @@
 # `.big` kind `text`: the string bank
 
 Status: 2026-10-03. Module: `tools/formats/big_kinds/text.py`. Files: `<level>_big01_text.big`, magic
-0xDEADC0DE, loader **0x00496060 TextData_Load** (recovered: `src/loader/auto_0048afb0.cpp`).
+0xDEADC0DE, loader **0x00496060 TextData_Load** (recovered: `archive/src/loader/auto_0048afb0.cpp`).
 Roundtrip: `.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip "orig/pc/GameData/**/*_text.big"`
 gives 25 ok / 25.
 

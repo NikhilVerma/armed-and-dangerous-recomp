@@ -1,0 +1,61 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "player": "hide",
+  "skip_briefing": 2,
+  "camera_look": [
+    -320.0,
+    962.0,
+    175.0,
+    -217.0,
+    962.0,
+    140.0
+  ],
+  "fov": 50,
+  "spawn": [
+    {
+      "template": "grunt_barracks_mini",
+      "at": [
+        -217.0,
+        960.0,
+        127.0
+      ],
+      "yaw": 0,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -217.0,
+        962.0,
+        160.0
+      ],
+      "yaw": 0,
+      "frame": 800,
+      "exact": 1
+    }
+  ],
+  "kill": [
+    {
+      "spawn": 2,
+      "frame": 806
+    },
+    {
+      "spawn": 1,
+      "frame": 1100
+    }
+  ],
+  "shots": [
+    880,
+    1000,
+    1090,
+    1200,
+    1400
+  ],
+  "settings": {
+    "render.skip_ui": 1
+  },
+  "variants": {
+    "repro": {}
+  }
+}

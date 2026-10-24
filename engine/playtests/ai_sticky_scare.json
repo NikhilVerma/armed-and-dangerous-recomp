@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"cheat": "SHIELDME"},
+ {"wait": 1.0},
+ {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (0x00481320); the scare needs none"},
+ {"ai_force": "grunts_hold"},
+ {"warp": [-271, 680, 80, 180]},
+ {"spawn": [-275, 620, 80]},
+ {"spawn": [-283, 616, 80]},
+ {"wait": 1.0},
+ {"expect": {"special": "stickybomb", "ai.flees": 0}},
+ {"note": "0x0042fb60: the grunt the bomb sticks to runs 250 from Roman, the ones within 25 (the one spawned beside him, any placed one there) 100 from him"},
+ {"click": "Right"},
+ {"wait": 2.0},
+ {"expect": {"sticky_on_character": 1, "ai.flees": [2, 4], "ai.max_flee": 250}},
+ {"quit": true}
+]}

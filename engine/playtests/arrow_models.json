@@ -1,0 +1,8 @@
+{"load": "states/after_pub.json", "steps": [
+ {"cheat": "SHIELDME"},
+ {"wait": 2.0},
+ {"expect": {"ai.archers": [1, 20], "arrows.stuck": 0, "arrows.made": 0}},
+ {"wait": 18.0},
+ {"expect": {"arrows.made": [1, 200], "arrows.stuck_total": [1, 200], "arrows.linger_max": [0, 2.5]}},
+ {"quit": true}
+]}

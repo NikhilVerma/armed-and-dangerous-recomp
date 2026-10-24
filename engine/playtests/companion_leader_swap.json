@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"warp_companion": [0, 160, -60, 14]},
+ {"warp_companion": [1, 160, -78, 14]},
+ {"wait": 6.0},
+ {"expect": {"q_lead": false, "jonesy_lead": true, "q_dist": [0, 50], "jonesy_dist": [0, 50]}},
+ {"warp": [190.68, -69.44, 13.76, 270]},
+ {"wait": 6.0},
+ {"expect": {"q_lead": false, "jonesy_lead": true, "q_dist": [0, 27], "jonesy_dist": [0, 50]}},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 6.0},
+ {"expect": {"q_lead": false, "jonesy_lead": true}},
+ {"quit": true}
+]}

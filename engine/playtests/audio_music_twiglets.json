@@ -1,0 +1,12 @@
+{"scene": "lev_4_m1", "steps": [
+ {"note": "Music_Update 0x0044f580 counts the twiglets of World+0xe7c (not AI: near and far within music_nearby_range); the swarm running at Roman makes the battle music (lev_4_m1 has no grunt near the generators)"},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"twiglets.live": 0}},
+ {"loadout": {"health": 5000}},
+ {"warp": [210, -57, -28, 0]},
+ {"wait": 8.0},
+ {"expect": {"audio.music.near": 0, "audio.music.state": 0}},
+ {"wait": 12.0},
+ {"expect": {"audio.music.near": [3, 99], "audio.music.far": [3, 99], "audio.music.state": [2, 4]}},
+ {"quit": true}
+]}

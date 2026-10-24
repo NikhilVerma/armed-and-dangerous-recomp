@@ -1,0 +1,9 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 2.0},
+ {"expect": {"render_fx.hdr": false, "render_fx.dither": false, "render_fx.aces": false, "render_fx.prepass": false,
+             "render_fx.motion_blur": false, "render_fx.fog_modern": false, "render_fx.ao_contact": 0.0,
+             "render_fx.ao_falloff": null}},
+ {"shot": "original"},
+ {"wait": 0.5},
+ {"quit": true}
+]}

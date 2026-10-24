@@ -1,0 +1,13 @@
+{"load": "states/after_pub.json", "steps": [
+ {"note": "a charge (0x0042ce70) makes the point list +0x958, and while it exists vt+0x180 0x0043ecf0 keeps the target at any range: the smoking troop of barracks 25 still holds Roman after he warps ~830 units away (beyond 2 x scan_distance)"},
+ {"wait": 0.5},
+ {"loadout": {"health": 5000}},
+ {"land_by": [25, 120]}, {"wait": 0.5},
+ {"destroy": 25}, {"wait": 1.0},
+ {"wait": 6.0},
+ {"expect": {"toss.smoking_charging": 1}},
+ {"warp": [400, 100, 16, 0]},
+ {"wait": 1.0},
+ {"expect": {"ai.charged_far": [1, 10]}},
+ {"quit": true}
+]}

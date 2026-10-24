@@ -1,0 +1,581 @@
+// Back-buffer screenshots for tests (handover s12: capture at present time, not from the desktop).
+//
+// [test] shots=8,15   seconds after start-up at which to save and-shot-<seconds>s.bmp next to the game.
+#include <windows.h>
+#include <d3d9.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+#include <cstdint>
+#include "config.h"
+#include "game/game_object.h"
+#include "log.h"
+#include "gen/orig_calls.h"
+
+static float g_shotTimes[16];
+static int g_shotCount, g_nextShot;
+static ULONGLONG g_startTick;
+
+void TestShotInit()
+{
+    g_startTick = GetTickCount64();
+    char buf[256];
+    char ini[MAX_PATH];
+    GetModuleFileNameA(nullptr, ini, MAX_PATH);
+    strcpy(strrchr(ini, '\\') + 1, "and.ini");
+    GetPrivateProfileStringA("test", "shots", "", buf, sizeof(buf), ini);
+    for (char* tok = strtok(buf, ","); tok && g_shotCount < 16; tok = strtok(nullptr, ","))
+        g_shotTimes[g_shotCount++] = static_cast<float>(atof(tok));
+}
+
+void D3DTraceSuppress(bool on);
+
+static void SaveBackBuffer(IDirect3DDevice9* dev, const char* path)
+{
+    D3DTraceSuppress(true);
+    struct Unsuppress { ~Unsuppress() { D3DTraceSuppress(false); } } unsuppress;
+    IDirect3DSurface9* back = nullptr;
+    IDirect3DSurface9* copy = nullptr;
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lr;
+    if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)))
+        return;
+    back->GetDesc(&desc);
+    if (SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &copy,
+                                                   nullptr)) &&
+        SUCCEEDED(dev->GetRenderTargetData(back, copy)) && SUCCEEDED(copy->LockRect(&lr, nullptr, D3DLOCK_READONLY)))
+    {
+        FILE* f = fopen(path, "wb");
+        if (f)
+        {
+            BITMAPFILEHEADER fh{};
+            BITMAPINFOHEADER ih{};
+            ih.biSize = sizeof(ih);
+            ih.biWidth = desc.Width;
+            ih.biHeight = -static_cast<LONG>(desc.Height);  // top-down
+            ih.biPlanes = 1;
+            ih.biBitCount = 32;
+            fh.bfType = 0x4d42;
+            fh.bfOffBits = sizeof(fh) + sizeof(ih);
+            fh.bfSize = fh.bfOffBits + desc.Width * desc.Height * 4;
+            fwrite(&fh, sizeof(fh), 1, f);
+            fwrite(&ih, sizeof(ih), 1, f);
+            for (UINT y = 0; y < desc.Height; y++)
+                fwrite(static_cast<BYTE*>(lr.pBits) + y * lr.Pitch, 4, desc.Width, f);  // X8R8G8B8 = BGRA bytes
+            fclose(f);
+            Log("test: saved %s (%ux%u, format %d)", path, desc.Width, desc.Height, desc.Format);
+        }
+        copy->UnlockRect();
+    }
+    if (copy)
+        copy->Release();
+    back->Release();
+}
+
+// [test] hash_frames=first:every:count   FNV-1a hash of the back buffer at those frame numbers, logged as
+// "hash frame N 0x..." and appended to and-hashes.txt. With [test] clock_step_ms the frames are deterministic.
+static unsigned g_frame, g_hashFirst, g_hashEvery = 1, g_hashCount;
+
+void TestHashInit()
+{
+    char buf[64], ini[MAX_PATH];
+    GetModuleFileNameA(nullptr, ini, MAX_PATH);
+    strcpy(strrchr(ini, '\\') + 1, "and.ini");
+    GetPrivateProfileStringA("test", "hash_frames", "", buf, sizeof(buf), ini);
+    if (buf[0])
+    {
+        sscanf(buf, "%u:%u:%u", &g_hashFirst, &g_hashEvery, &g_hashCount);
+        DeleteFileA("and-hashes.txt");
+        Log("test: hashing frames %u + k*%u, %u frames", g_hashFirst, g_hashEvery, g_hashCount);
+    }
+}
+
+static unsigned long long HashBackBuffer(IDirect3DDevice9* dev)
+{
+    D3DTraceSuppress(true);
+    struct Unsuppress { ~Unsuppress() { D3DTraceSuppress(false); } } unsuppress;
+    IDirect3DSurface9* back = nullptr;
+    IDirect3DSurface9* copy = nullptr;
+    D3DSURFACE_DESC desc;
+    D3DLOCKED_RECT lr;
+    unsigned long long h = 1469598103934665603ull;
+    if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)))
+        return 0;
+    back->GetDesc(&desc);
+    if (SUCCEEDED(dev->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &copy,
+                                                   nullptr)) &&
+        SUCCEEDED(dev->GetRenderTargetData(back, copy)) && SUCCEEDED(copy->LockRect(&lr, nullptr, D3DLOCK_READONLY)))
+    {
+        for (UINT y = 0; y < desc.Height; y++)
+        {
+            const BYTE* row = static_cast<BYTE*>(lr.pBits) + y * lr.Pitch;
+            for (UINT x = 0; x < desc.Width * 4; x++)
+            {
+                if ((x & 3) == 3)
+                    continue;  // X8R8G8B8: ignore the unused byte
+                h = (h ^ row[x]) * 1099511628211ull;
+            }
+        }
+        copy->UnlockRect();
+    }
+    if (copy)
+        copy->Release();
+    back->Release();
+    return h;
+}
+
+int TestFramesSinceLoad();
+static bool FrameNumber(unsigned absolute, unsigned* f);
+
+extern void (*g_testMaterialApplied)(const uint8_t* material, const char* const names[4]);
+
+// [test] log_materials=1: every distinct material the renderer binds, once (and-materials.txt): its pointer, the
+// four stages' texture names, the pixel shader (+0x4c), the flags word (+0x48), the stage slots (+4..+7) and the
+// colour / alpha op words of stages 0-3 (+0x18 step 0xc), for porting the material set-ups to the remaster engine.
+static void LogMaterial(const uint8_t* m, const char* const names[4])
+{
+    static FILE* out = fopen("and-materials.txt", "w");
+    static const uint8_t* seen[4096];
+    static unsigned count;
+    if (!out || count >= 4096)
+        return;
+    for (unsigned i = 0; i < count; ++i)
+        if (seen[i] == m)
+            return;
+    seen[count++] = m;
+    auto d = [m](unsigned o) { return *reinterpret_cast<const uint32_t*>(m + o); };
+    fprintf(out, "mat %p ps %08x flags %08x slots %02x %02x %02x %02x ops", static_cast<const void*>(m), d(0x4c), d(0x48),
+            m[4], m[5], m[6], m[7]);
+    for (unsigned s = 0; s < 4; ++s)
+        fprintf(out, " [%08x %08x %08x]", d(0x18 + s * 0xc), d(0x1c + s * 0xc), d(0x20 + s * 0xc));
+    for (unsigned s = 0; s < 4; ++s)
+        fprintf(out, " t%u=%s", s, names[s] ? names[s] : "-");
+    fprintf(out, "\n");
+    fflush(out);
+}
+
+extern void (*g_testSoundStarted)(const char* name, float volume);
+extern void (*g_testHit)(uint32_t victim, uint32_t projectile, uint32_t record);
+extern void (*g_testRayHit)(uint32_t projectile, uint32_t object, uint32_t record);
+extern void (*g_testShot)(uint32_t weapon, uint32_t muzzle, uint32_t aim);
+extern void (*g_testSpawnShot)(uint32_t parent, uint32_t bone, uint32_t from, uint32_t to, uint32_t useTarget);
+
+// [test] log_hits=1 also writes and-spawnshots.txt: frame, the emitter bone's name (when readable), the parent's
+// position, P minus it, Q, use_target
+static void LogSpawnShot(uint32_t parent, uint32_t bone, uint32_t from, uint32_t to, uint32_t useTarget)
+{
+    FILE* out = fopen("and-spawnshots.txt", "a");
+    if (!out)
+        return;
+    float pos[4] = {};
+    using GetPos = void(__thiscall*)(void*, float*);
+    reinterpret_cast<GetPos>((*reinterpret_cast<void***>(parent))[0x54 / 4])(reinterpret_cast<void*>(parent), pos);
+    const char* nm = "?";
+    if (bone > 0x10000 && !IsBadReadPtr(reinterpret_cast<const void*>(bone), 4))
+        nm = reinterpret_cast<const char*>(bone);
+    const float* p = reinterpret_cast<const float*>(from);
+    const float* q = reinterpret_cast<const float*>(to);
+    fprintf(out, "%d %s %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %u\n", TestFramesSinceLoad(), nm, pos[0], pos[1], pos[2], p[0] - pos[0],
+            p[1] - pos[1], p[2] - pos[2], q[0], q[1], q[2], useTarget & 0xff);
+    fclose(out);
+}
+
+// [test] log_hits=1 also writes and-shots.txt: every shot: frame, the weapon's owner (+0x54c) position (vt+0x54),
+// the muzzle point minus that position, the aim point
+static void LogShot(uint32_t weapon, uint32_t muzzle, uint32_t aim)
+{
+    FILE* out = fopen("and-shots.txt", "a");
+    if (!out)
+        return;
+    const uint32_t owner = *reinterpret_cast<const uint32_t*>(weapon + 0x54c);
+    float pos[4] = {};
+    if (owner)
+    {
+        using GetPos = void(__thiscall*)(void*, float*);
+        reinterpret_cast<GetPos>((*reinterpret_cast<void***>(owner))[0x54 / 4])(reinterpret_cast<void*>(owner), pos);
+    }
+    const float* m = reinterpret_cast<const float*>(muzzle);
+    const float* a = reinterpret_cast<const float*>(aim);
+    fprintf(out, "%d %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", TestFramesSinceLoad(), pos[0], pos[1], pos[2], m[0] - pos[0], m[1] - pos[1],
+            m[2] - pos[2], a[0], a[1], a[2]);
+    fclose(out);
+}
+
+// [test] log_hits=1 also writes and-rayhits.txt: every projectile ray hit: frame, object (0 for none), 1 when the
+// object is the player, the object's vtable, the point (record +4)
+static void LogRayHit(uint32_t projectile, uint32_t object, uint32_t rec)
+{
+    FILE* out = fopen("and-rayhits.txt", "a");
+    if (!out)
+        return;
+    const uint32_t player = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    const float* at = reinterpret_cast<const float*>(rec + 4);
+    fprintf(out, "%d %u %d %u %.2f %.2f %.2f\n", TestFramesSinceLoad(), object, object == player ? 1 : 0,
+            object ? *reinterpret_cast<const uint32_t*>(object) : 0u, at[0], at[1], at[2]);
+    fclose(out);
+}
+int TestFramesSinceLoad();  // testscenario.cpp
+
+// [test] log_hits=1: every projectile hit (and-hits.txt): frame since load, 1 when the victim is the player, the
+// part's bone (record +0x10 through 0x00458660 / 0x004eb670, "-" for none), the hit point (record +4) minus the
+// victim's position (vt+0x54), the damage (projectile +0x46c)
+static void LogHit(uint32_t victim, uint32_t projectile, uint32_t rec)
+{
+    FILE* out = fopen("and-hits.txt", "a");
+    if (!out)
+        return;
+    const uint32_t player = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    float pos[4] = {};
+    using GetPos = void(__thiscall*)(void*, float*);
+    reinterpret_cast<GetPos>((*reinterpret_cast<void***>(victim))[0x54 / 4])(reinterpret_cast<void*>(victim), pos);
+    const float* at = reinterpret_cast<const float*>(rec + 4);
+    const uint32_t part = *reinterpret_cast<const uint32_t*>(rec + 0x10);
+    const char* bone = "-";
+    if (part != 0xffffffffu)
+        if (uint32_t node = orig::fn_00458660(part, victim))
+            if (uint32_t name = orig::fn_004eb670(0, node))
+                bone = reinterpret_cast<const char*>(name);
+    // the part's bone in the world (0x00453c50 with the bone name: its matrix, translation in column 3), minus the
+    // victim's position: where the animation has put that part
+    float bm[17] = {};
+    if (bone[0] != '-')
+        orig::fn_00453c50(victim, reinterpret_cast<uint32_t>(bone), reinterpret_cast<uint32_t>(bm), 1, 0, 0, 1, 0, 0);
+    fprintf(out, "%d %d %s %.2f %.2f %.2f %.4g %.2f %.2f %.2f\n", TestFramesSinceLoad(), victim == player ? 1 : 0, bone, at[0] - pos[0],
+            at[1] - pos[1], at[2] - pos[2], *reinterpret_cast<const float*>(projectile + 0x46c), bm[3] - pos[0], bm[7] - pos[1],
+            bm[11] - pos[2]);
+    fclose(out);
+}
+
+// [test] log_sounds=1: every sound started (and-sounds.txt): the frame since the level load, the definition name and
+// the volume passed to the driver, to compare the remaster engine's sounds with the original's on the same inputs.
+static void LogSound(const char* name, float volume)
+{
+    static FILE* out = fopen("and-sounds.txt", "w");
+    if (!out)
+        return;
+    fprintf(out, "%d %.32s %.3f\n", TestFramesSinceLoad(), name, volume);
+    fflush(out);
+}
+
+void TestMaterialLogInit()
+{
+    if (ConfigInt("test", "log_materials", 0))
+        g_testMaterialApplied = LogMaterial;
+    if (ConfigInt("test", "log_sounds", 0))
+        g_testSoundStarted = LogSound;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testHit = LogHit;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testRayHit = LogRayHit;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testShot = LogShot;
+    if (ConfigInt("test", "log_hits", 0))
+        g_testSpawnShot = LogSpawnShot;
+}
+
+extern void* g_testCamera;
+extern float g_testCameraFov, g_testCameraAspect;
+
+// The frame's camera next to its dump (and-frame-N.camera.json), for rendering the same view elsewhere (the remaster
+// engine's comparisons): the view matrix Game+0x704 (as Camera_SetupProjection 0x0040f6e0 passes it to SetView, 16
+// floats in memory order), the FOV (camera +0xf4, after the [camera] adjustments), near (+0xf8), far (+0xd4 * +0xd0),
+// the aspect passed (0: from the viewport) and the letterbox constants 0x005bcf24 / 0x005bcf28.
+static void TestDumpCamera(unsigned frame)
+{
+    if (!g_game || !g_testCamera)
+        return;
+    char path[64];
+    sprintf(path, "and-frame-%05u.camera.json", frame);
+    FILE* out = fopen(path, "w");
+    if (!out)
+        return;
+    const float* view = reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(g_game) + 0x704);
+    const uint8_t* cam = static_cast<const uint8_t*>(g_testCamera);
+    auto f32 = [](const void* p) { return *static_cast<const float*>(p); };
+    fprintf(out, "{\"view\": [");
+    for (int i = 0; i < 16; ++i)
+        fprintf(out, "%s%.7g", i ? ", " : "", view[i]);
+    fprintf(out, "], \"fov\": %.7g, \"aspect\": %.7g, \"near\": %.7g, \"far\": %.7g, \"letterbox\": [%.7g, %.7g]",
+            g_testCameraFov, g_testCameraAspect, f32(cam + 0xf8), f32(cam + 0xd4) * f32(cam + 0xd0),
+            *reinterpret_cast<const float*>(0x005bcf24), *reinterpret_cast<const float*>(0x005bcf28));
+    // the player's position (Game+0x748, its vt+0x54(out): as Camera_Update reads it), for movement comparisons
+    void* player = *reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    if (player)
+    {
+        float pos[4] = {};
+        using GetPos = void(__thiscall*)(void*, float*);
+        reinterpret_cast<GetPos>((*reinterpret_cast<void***>(player))[0x54 / 4])(player, pos);
+        fprintf(out, ", \"player\": [%.7g, %.7g, %.7g]", pos[0], pos[1], pos[2]);
+        // its health (+0x454, as every damageable object's: Object_TakeDamage 0x004555e0)
+        fprintf(out, ", \"player_health\": %.7g", *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(player) + 0x454));
+        // the companions the player holds (+0xad0 Jonesy, +0xad4 Q: 0x0047afa0 ai_07.cpp:3924): position and health
+        // (+0x454), null when gone
+        fprintf(out, ", \"companions\": [");
+        for (int i = 0; i < 2; ++i)
+        {
+            void* c = *reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(player) + 0xad0 + 4 * i);
+            if (i)
+                fprintf(out, ", ");
+            if (!c)
+            {
+                fprintf(out, "null");
+                continue;
+            }
+            float cp[4] = {};
+            reinterpret_cast<GetPos>((*reinterpret_cast<void***>(c))[0x54 / 4])(c, cp);
+            fprintf(out, "[%.7g, %.7g, %.7g, %.7g]", cp[0], cp[1], cp[2], *reinterpret_cast<const float*>(reinterpret_cast<const uint8_t*>(c) + 0x454));
+        }
+        fprintf(out, "]");
+        // the mission's shooter limit (Game+0xc50, ai_max_fire: grunts beyond it fire fake bullets, ai_02.cpp:1217)
+        // its "ref_hit_00" point (0x00428280: where the AI aim and look), for aim comparisons
+        float hp[4] = {};
+        orig::fn_00428280(reinterpret_cast<uint32_t>(hp), reinterpret_cast<uint32_t>(player), reinterpret_cast<uint32_t>(player), 0x005b68fcu);
+        fprintf(out, ", \"player_hit\": [%.7g, %.7g, %.7g]", hp[0], hp[1], hp[2]);
+        // the aim-pitch blend (+0x580, docs/remaster-engine.md: the anim pair _b / _t) and the anim slots (+0x248: 4 x 0x20,
+        // entry index at +0, time +4, flags +0x1c), for pose comparisons
+        {
+            const uint8_t* pb = reinterpret_cast<const uint8_t*>(player);
+            fprintf(out, ", \"player_blend\": %.4g, \"player_slots\": [[%d, %.3g, %u], [%d, %.3g, %u], [%d, %.3g, %u], [%d, %.3g, %u]]", *reinterpret_cast<const float*>(pb + 0x580),
+                    *reinterpret_cast<const int*>(pb + 0x248), *reinterpret_cast<const float*>(pb + 0x24c), *reinterpret_cast<const uint32_t*>(pb + 0x264),
+                    *reinterpret_cast<const int*>(pb + 0x268), *reinterpret_cast<const float*>(pb + 0x26c), *reinterpret_cast<const uint32_t*>(pb + 0x284),
+                    *reinterpret_cast<const int*>(pb + 0x288), *reinterpret_cast<const float*>(pb + 0x28c), *reinterpret_cast<const uint32_t*>(pb + 0x2a4),
+                    *reinterpret_cast<const int*>(pb + 0x2a8), *reinterpret_cast<const float*>(pb + 0x2ac), *reinterpret_cast<const uint32_t*>(pb + 0x2c4));
+            // the slots' anims by name: the actor's anim table (+0x414: +0xc entries of 0xc, +8 the anim), the anim's
+            // name guessed at its +0 (a char pointer when it reads as text)
+            fprintf(out, ", \"player_anims\": [");
+            const uint8_t* tab = *reinterpret_cast<const uint8_t* const*>(pb + 0x414);
+            for (int k = 0; k < 4; ++k)
+            {
+                int e = *reinterpret_cast<const int*>(pb + 0x248 + 0x20 * k);
+                char nm[48] = "-";
+                if (tab && e >= 0)
+                {
+                    const uint8_t* ent = *reinterpret_cast<const uint8_t* const*>(tab + 0xc) + e * 0xc;
+                    const uint32_t* w = reinterpret_cast<const uint32_t*>(ent);
+                    const uint8_t* an = reinterpret_cast<const uint8_t*>(w[2]);
+                    // try the entry's words and the anim's first words as names
+                    const uint32_t cand[5] = {w[0], w[1], an ? *reinterpret_cast<const uint32_t*>(an) : 0u, an ? *reinterpret_cast<const uint32_t*>(an + 4) : 0u, an ? *reinterpret_cast<const uint32_t*>(an + 8) : 0u};
+                    sprintf(nm, "?%08x/%08x/%08x", w[0], w[1], w[2]);
+                    for (uint32_t c : cand)
+                    {
+                        if (c < 0x10000 || IsBadReadPtr(reinterpret_cast<const void*>(c), 8))
+                            continue;
+                        const char* str = reinterpret_cast<const char*>(c);
+                        int n = 0;
+                        while (n < 40 && str[n] >= 0x20 && str[n] < 0x7f)
+                            ++n;
+                        if (n >= 4 && str[n] == 0)
+                        {
+                            snprintf(nm, sizeof(nm), "%s", str);
+                            break;
+                        }
+                    }
+                }
+                fprintf(out, "%s\"%s\"", k ? ", " : "", nm);
+            }
+            fprintf(out, "]");
+            // each part's ragdoll body shape (entity +0x24): Havok type (vtable slot 1; wrappers 0x12 / 0x13 -> +0xc,
+            // 0x19 -> +0x28 as Shape_Classify unwraps) and the first floats of the unwrapped shape, to tell its kind / size
+            fprintf(out, ", \"player_part_shapes\": [");
+            const uint8_t* parts = *reinterpret_cast<const uint8_t* const*>(reinterpret_cast<const uint8_t*>(player) + 0x1bc);
+            for (int k = 0; parts && k < 40 && *reinterpret_cast<const uint32_t*>(parts + k * 0x4c); ++k)
+            {
+                const uint8_t* ent = *reinterpret_cast<const uint8_t* const*>(parts + k * 0x4c);
+                const uint8_t* sh = *reinterpret_cast<const uint8_t* const*>(ent + 0x24);
+                using GetType = int(__thiscall*)(const void*);
+                int t = sh ? reinterpret_cast<GetType>((*reinterpret_cast<void* const* const*>(sh))[1])(sh) : -1;
+                int t0 = t;
+                for (int guard = 0; sh && guard < 4 && (t == 0x12 || t == 0x13 || t == 0x19); ++guard)
+                {
+                    sh = *reinterpret_cast<const uint8_t* const*>(sh + (t == 0x19 ? 0x28 : 0xc));
+                    t = sh ? reinterpret_cast<GetType>((*reinterpret_cast<void* const* const*>(sh))[1])(sh) : -1;
+                }
+                const float* f = sh ? reinterpret_cast<const float*>(sh + 0xc) : nullptr;
+                fprintf(out, "%s[%d, %d, %.3g, %.3g, %.3g, %.3g, %.3g, %.3g, %.3g, %.3g]", k ? ", " : "", t0, t, f ? f[0] : 0, f ? f[1] : 0, f ? f[2] : 0,
+                        f ? f[3] : 0, f ? f[4] : 0, f ? f[5] : 0, f ? f[6] : 0, f ? f[7] : 0);
+            }
+            fprintf(out, "]");
+        }
+        // the player's collision parts (the 0x4c-byte list at +0x1bc, until a 0 first dword) by bone (0x00458660)
+        {
+            fprintf(out, ", \"player_parts\": [");
+            const uint8_t* parts = *reinterpret_cast<const uint8_t* const*>(reinterpret_cast<const uint8_t*>(player) + 0x1bc);
+            for (int k = 0; parts && k < 40 && *reinterpret_cast<const uint32_t*>(parts + k * 0x4c); ++k)
+            {
+                const char* nm = "?";
+                if (uint32_t node = orig::fn_00458660(k, reinterpret_cast<uint32_t>(player)))
+                    if (uint32_t name = orig::fn_004eb670(0, node))
+                        nm = reinterpret_cast<const char*>(name);
+                fprintf(out, "%s\"%s\"", k ? ", " : "", nm);
+            }
+            fprintf(out, "]");
+        }
+        fprintf(out, ", \"ai_max_fire\": %u", *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xc50));
+    }
+    // every AI object's position (World Game+0xa84 list +0xe7c, walked with 0x004e7340 / 0x004e73c0 to the end),
+    // to compare placements with the remaster engine
+    const uint32_t world = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(g_game) + 0xa84);
+    // object lists of the World (Game+0xa84): +0xe7c AI, +0xe94 damageable objects (companions are there); positions by
+    // vt+0x54 and the class vtable, for placement comparisons with the remaster engine
+    if (world)
+    {
+        const struct { const char* name; uint32_t off; } lists[] = {{"ai", 0xe7c}, {"damageable", 0xe94}};
+        for (const auto& l : lists)
+        {
+            uint32_t iter[2] = {0, 0};
+            fprintf(out, ", \"%s\": [", l.name);
+            bool first = true;
+            using GetPos = void(__thiscall*)(void*, float*);
+            for (uint32_t o = orig::fn_004e7340(*reinterpret_cast<const uint32_t*>(world + l.off), reinterpret_cast<uint32_t>(iter)); o;
+                 o = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+            {
+                void* obj = reinterpret_cast<void*>(o);
+                float pos[4] = {};
+                reinterpret_cast<GetPos>((*reinterpret_cast<void***>(obj))[0x54 / 4])(obj, pos);
+                // its world matrix (vt+0x5c: 4x4 row-major, translation in column 3, as 0x00453180 reads it): column 1
+                float m[20] = {};
+                using GetMat = void(__thiscall*)(void*, float*);
+                reinterpret_cast<GetMat>((*reinterpret_cast<void***>(obj))[0x5c / 4])(obj, m);
+                // AI objects (the AI list, and the companions Q111 0x5a6df8 / Molmer 0x5ae5f8 in the damageable list): the
+                // object's address, its target (+0x588, an address), health (+0x454), anim state (+0x498) and flags (+0x488)
+                const uint32_t vt = *reinterpret_cast<uint32_t*>(obj);
+                const bool ai = l.off == 0xe7c || vt == 0x5a6df8 || vt == 0x5ae5f8;
+                const uint8_t* b = reinterpret_cast<const uint8_t*>(obj);
+                fprintf(out, "%s[%.7g, %.7g, %.7g, %u, %.4g, %.4g, %.4g, %u, %u, %.4g, %u, %u]", first ? "" : ", ", pos[0], pos[1], pos[2], vt,
+                        m[1], m[5], m[9], o, ai ? *reinterpret_cast<const uint32_t*>(b + 0x588) : 0u,
+                        *reinterpret_cast<const float*>(b + 0x454), ai ? *reinterpret_cast<const uint32_t*>(b + 0x498) : 0u,
+                        ai ? *reinterpret_cast<const uint32_t*>(b + 0x488) : 0u);
+                first = false;
+            }
+            fprintf(out, "]");
+        }
+    }
+    fprintf(out, "}\n");
+    fclose(out);
+}
+
+// [test] warp=FRAME:x,y,z (game axes): at that frame (counted as hash_frames) the player is teleported there with
+// Object_SetPosition 0x00457870 (al = 0: constraint dropped, body moved out of and back into its world), so a later
+// part of a level can be compared with the remaster engine's playtest warp step on the same inputs.
+static void TestWarp(unsigned f)
+{
+    static bool done = false;
+    static float pos[4];
+    static unsigned at = 0;
+    static bool parsed = false;
+    if (!parsed)
+    {
+        parsed = true;
+        char buf[128], ini[MAX_PATH];
+        GetModuleFileNameA(nullptr, ini, MAX_PATH);
+        strcpy(strrchr(ini, '\\') + 1, "and.ini");
+        GetPrivateProfileStringA("test", "warp", "", buf, sizeof(buf), ini);
+        if (sscanf(buf, "%u:%f,%f,%f", &at, &pos[0], &pos[1], &pos[2]) != 4)
+            done = true;
+    }
+    if (done || f < at || !g_game)
+        return;
+    void* player = *reinterpret_cast<void* const*>(reinterpret_cast<const uint8_t*>(g_game) + 0x748);
+    if (!player)
+        return;
+    done = true;
+    orig::fn_00457870(0, reinterpret_cast<uint32_t>(pos), reinterpret_cast<uint32_t>(player), 0, 0, 0);
+    Log("test warp at frame %u to %.1f %.1f %.1f", f, pos[0], pos[1], pos[2]);
+}
+
+void TestHashBeforePresent(IDirect3DDevice9* dev)
+{
+    unsigned f;
+    if (!FrameNumber(g_frame++, &f))
+        return;
+    TestWarp(f);
+    if (!g_hashCount || f < g_hashFirst || (f - g_hashFirst) % g_hashEvery || (f - g_hashFirst) / g_hashEvery >= g_hashCount)
+        return;
+    unsigned long long h = HashBackBuffer(dev);
+    Log("hash frame %u 0x%016llx", f, h);
+    static const int dump = ConfigInt("test", "dump_hashed", 0);
+    if (dump)
+    {
+        char path[64];
+        sprintf(path, "and-frame-%05u.bmp", f);
+        SaveBackBuffer(dev, path);
+        TestDumpCamera(f);
+    }
+    if (FILE* out = fopen("and-hashes.txt", "a"))
+    {
+        fprintf(out, "%u %016llx\n", f, h);
+        fclose(out);
+    }
+}
+
+void TestShotBeforePresent(IDirect3DDevice9* dev)
+{
+    if (g_nextShot >= g_shotCount)
+        return;
+    float elapsed = (GetTickCount64() - g_startTick) / 1000.0f;
+    if (elapsed < g_shotTimes[g_nextShot])
+        return;
+    char path[64];
+    sprintf(path, "and-shot-%gs.bmp", g_shotTimes[g_nextShot]);
+    SaveBackBuffer(dev, path);
+    g_nextShot++;
+}
+
+// For backends that present without the real D3D9 device (rhi::vulkan): the same frame counting and selection as
+// TestHashBeforePresent. Returns true when this frame is to be saved (hash_frames + dump_hashed) and gives its
+// number; the backend then reads its back buffer and calls TestSaveBgra.
+int TestFramesSinceLoad();  // testscenario.cpp
+
+// [test] hash_from_load=1: hash_frames counts from the end of the scenario's level load instead of start-up, so
+// backends whose loading takes a different number of frames are compared at the same game time.
+static bool FrameNumber(unsigned absolute, unsigned* f)
+{
+    static const int fromLoad = ConfigInt("test", "hash_from_load", 0);
+    if (!fromLoad)
+        return *f = absolute, true;
+    int since = TestFramesSinceLoad();
+    if (since < 0)
+        return false;
+    *f = static_cast<unsigned>(since);
+    return true;
+}
+
+bool TestFrameDump(unsigned* frame)
+{
+    unsigned f;
+    if (!FrameNumber(g_frame++, &f))
+        return false;
+    TestWarp(f);
+    *frame = f;
+    if (!g_hashCount || f < g_hashFirst || (f - g_hashFirst) % g_hashEvery || (f - g_hashFirst) / g_hashEvery >= g_hashCount)
+        return false;
+    static const int dump = ConfigInt("test", "dump_hashed", 0);
+    return dump != 0;
+}
+
+void TestSaveBgra(unsigned frame, const void* pixels, unsigned width, unsigned height, unsigned pitch)
+{
+    char path[64];
+    sprintf(path, "and-frame-%05u.bmp", frame);
+    FILE* f = fopen(path, "wb");
+    if (!f)
+        return;
+    BITMAPFILEHEADER fh{};
+    BITMAPINFOHEADER ih{};
+    ih.biSize = sizeof(ih);
+    ih.biWidth = width;
+    ih.biHeight = -static_cast<LONG>(height);
+    ih.biPlanes = 1;
+    ih.biBitCount = 32;
+    fh.bfType = 0x4d42;
+    fh.bfOffBits = sizeof(fh) + sizeof(ih);
+    fh.bfSize = fh.bfOffBits + width * height * 4;
+    fwrite(&fh, sizeof(fh), 1, f);
+    fwrite(&ih, sizeof(ih), 1, f);
+    for (unsigned y = 0; y < height; y++)
+        fwrite(static_cast<const BYTE*>(pixels) + y * pitch, 4, width, f);
+    fclose(f);
+    Log("test: saved %s (%ux%u, backend)", path, width, height);
+}

@@ -1,0 +1,182 @@
+// Rendering enhancements. Switches in [render] in and.ini, all off by default.
+//
+//   wireframe=1   draw everything as wireframe
+//   soft_particles=1, soft_particles_range=2   (Vulkan; remaster default on) particles fade near the surface
+//                 behind them instead of cutting into it (below, and src/rhi/vulkan/vk_device.cpp)
+//
+// The game has its own debug switch for this: bit 1 of the renderer's option byte (+0x1628) makes
+// Renderer_BeginScene (0x005042d0, src/loader/auto_00502cb0.cpp) set D3DRS_FILLMODE to D3DFILL_WIREFRAME
+// instead of D3DFILL_SOLID. Nothing in the shipped game sets the bit; this sets it before each scene and leaves
+// the rest to the recovered code.
+#include "config.h"
+#include "game.h"
+#include "game/camera.h"
+#include "game/game_object.h"
+#include "gen/orig_calls.h"
+#include "hooks.h"
+#include "renderer/scene_pass.h"
+#include "log.h"
+#include "settings.h"
+#include "rhi/rhi.h"
+
+#include <cstring>
+
+static void* g_nextBeginScene;
+
+// Soft particles (Vulkan backend, [render] soft_particles; src/rhi/vulkan/vk_device.cpp SoftParticleMode): the
+// backend fades only draws made while rhi::Hints().particlePass is set. The scene pass (ScenePass_Render,
+// src/renderer/scene_pass.cpp, flag 0x20) draws the particle pools with Fx_DrawParticles (0x00423820) and the
+// streamers with Streamers_Draw (0x00494f80); both are wrapped to set the flag around the call. The phase decides,
+// not the render states alone: decals, the game's shadow decals and the translucent layers are also blended without
+// depth writes, and a decal lies on its surface, so it would fade out entirely.
+static bool* g_particlePass;
+static void* g_nextFxDrawParticles;
+static void* g_nextStreamersDraw;
+
+// Same registers as the original (edi = fx manager; stack: dt, callee pops 4); every register kept.
+static __declspec(naked) void Render_FxDrawParticles()
+{
+    __asm {
+        push eax
+        mov eax, g_particlePass
+        mov byte ptr [eax], 1
+        pop eax
+        push dword ptr [esp + 4]
+        call dword ptr [g_nextFxDrawParticles]
+        push ecx
+        mov ecx, g_particlePass
+        mov byte ptr [ecx], 0
+        pop ecx
+        ret 4
+    }
+}
+
+// Same registers as the original (edx = streamer manager; no stack arguments).
+static __declspec(naked) void Render_StreamersDraw()
+{
+    __asm {
+        push eax
+        mov eax, g_particlePass
+        mov byte ptr [eax], 1
+        pop eax
+        call dword ptr [g_nextStreamersDraw]
+        push ecx
+        mov ecx, g_particlePass
+        mov byte ptr [ecx], 0
+        pop ecx
+        ret
+    }
+}
+
+// Draw distance: the game's far scale (0.25 .. 1.0 from its option) replaced by this value; 1.0 is the game's own
+// maximum, above it the far plane and the fog range move further out.
+static float g_drawDistance = 1.0f;
+static float FarScale(float)
+{
+    return g_drawDistance;
+}
+static void ApplyDrawDistance()
+{
+    if (g_game && Field<void*>(g_game, 0xa68))  // re-run the game's setter on the live camera
+        orig::fn_0040f8c0(Field<uint32_t>(g_game, 0xa68), Field<uint32_t>(g_game, 0x4b0));  // edx = camera
+}
+
+// Same registers as the original (ecx = renderer, nothing else read or changed besides flags).
+static __declspec(naked) void Render_BeginScene_Wireframe()
+{
+    __asm {
+        or byte ptr [ecx + 0x1628], 2
+        jmp dword ptr [g_nextBeginScene]
+    }
+}
+
+extern int32_t g_postPrescale;  // src/renderer/render_r7.cpp
+
+void RenderInit()
+{
+    // Post-process blur quality (pause blur, radial blur, colour/afterburn effects): the original shrinks the whole
+    // screen straight to 512x256 (7.5x at 4K), which shimmers. 1 or 2 extra 2x steps before the chain (1024x512,
+    // 2048x1024); the remaster default follows the desktop height (2 from 1800 lines, 1 from 1000).
+    {
+        const int lines = GetSystemMetrics(SM_CYSCREEN);
+        g_postPrescale = static_cast<int32_t>(RemasterRegister(
+            {"render", "post_blur_prescale", L"Screen blur quality", RemasterSetting::Slider, 0, 2, 1, {}, 0, true,
+             nullptr},
+            0.0f, lines >= 1800 ? 2.0f : lines >= 1000 ? 1.0f : 0.0f));
+    }
+    // Vulkan backend switches (src/rhi/vulkan), read when the device starts.
+    using S = RemasterSetting;
+    RemasterRegister({"render", "tessellation", L"Tessellated characters (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
+                      nullptr},
+                     0, 0);  // off by default (2026-10-12: cracks and UV issues; Phong-AEN deferred)
+    RemasterRegister({"render", "anisotropy", L"Anisotropic filtering (Vulkan)", S::Slider, 0, 16, 4, {}, 0, true,
+                      nullptr},
+                     0, 16);
+    RemasterRegister({"render", "tonemap_aces", L"Filmic tone mapping (Vulkan)", S::Toggle, 0, 1, 1, {}, 0, true,
+                      nullptr},
+                     0);
+    // Dithered 8-bit output (src/rhi/vulkan/vk_present.cpp): no banding in sky, fog and snow gradients.
+    RemasterRegister({"render", "dither", L"Dithering (no banding)", S::Toggle, 0, 1, 1, {}, 0, true, nullptr}, 0, 1);
+    // Smooth edges on alpha-tested foliage and fences under temporal AA (src/rhi/vulkan/vk_fixed_function.cpp).
+    RemasterRegister({"render", "alpha_coverage", L"Smooth foliage edges (with AA)", S::Toggle, 0, 1, 1, {}, 0, true,
+                      nullptr},
+                     0, 1);
+    // Terrain detail (src/rhi/vulkan/vk_shader_translate.cpp): the terrain normal map sampled again at this many
+    // times its tiling, so snow and ground keep fine relief up close instead of broad soft blobs. 0 = original.
+    RemasterRegister({"render", "terrain_detail", L"Terrain surface detail (Vulkan)", S::Slider, 0, 16, 2, {}, 0, true,
+                      nullptr},
+                     0.0f, 8.0f);
+    // Texture mip bias while temporal AA runs (src/rhi/vulkan/vk_pipeline.cpp): the AA resolves the extra detail
+    // that a negative bias brings in, so textures stay as sharp as without AA.
+    RemasterRegister({"render", "aa_mip_bias", L"Texture sharpness with AA", S::Slider, -2.0f, 0.0f, 0.25f, {}, 0,
+                      true, nullptr},
+                     0.0f, -1.0f);
+    // No level of detail: every object always draws its finest mesh (Object_SelectLod at distance 0). Off by default
+    // since 2026-10-12: it cost about 20 fps of CPU at 4K (74 -> 94 fps without it, playground cpu_split); lod_scale
+    // keeps the near and middle distance detailed instead.
+    g_lodForceFinest = RemasterRegister({"render", "lod_max", L"Always highest detail", S::Toggle, 0, 1, 1, {}, 0,
+                                         false, [](float v) { g_lodForceFinest = v != 0.0f; }},
+                                        0, 0) != 0.0f;
+    // LOD distance scale: the original thresholds suit 640x480; at 4K an object covers ~4.5x the pixels per axis, so
+    // the finer meshes are kept to twice the distance (4x cost 6-9 fps more of CPU at 4K for no visible difference).
+    g_lodDistanceScale = RemasterRegister({"render", "lod_scale", L"Detail distance (x)", S::Slider, 1.0f, 8.0f, 0.5f,
+                                           {}, 0, false, [](float v) { g_lodDistanceScale = v; }},
+                                          1.0f, 2.0f);
+    // Draw distance (far plane and fog range scale): the original follows the game's option; the remaster pins it
+    // to the game's maximum (1.0) and allows up to 4x.
+    const float dd = RemasterRegister({"render", "draw_distance", L"Draw distance", S::Slider, 1.0f, 4.0f, 0.25f, {}, 0,
+                                       false,
+                                       [](float v) {
+                                           g_drawDistance = v;
+                                           g_cameraFarScaleAdjust = v > 0.0f ? FarScale : nullptr;
+                                           ApplyDrawDistance();
+                                       }},
+                                      0.0f, 1.0f);
+    g_drawDistance = dd;
+    g_cameraFarScaleAdjust = dd > 0.0f ? FarScale : nullptr;
+    Log("render: lod_max %d, draw_distance %.2f", g_lodForceFinest ? 1 : 0, dd);
+    // Soft particles: remaster default on (Vulkan only; the D3D9 backend ignores the hint).
+    rhi::Hints().softParticles =
+        RemasterRegister({"render", "soft_particles", L"Soft particles (VK)", S::Toggle, 0, 1, 1, {}, 0, false,
+                          [](float v) { rhi::Hints().softParticles = v != 0.0f; }},
+                         0, 1) != 0.0f;
+    rhi::Hints().softParticlesRange =
+        RemasterRegister({"render", "soft_particles_range", L"Soft particle fade depth", S::Slider, 0.5f, 16.0f, 0.5f,
+                          {}, 0, false, [](float v) { rhi::Hints().softParticlesRange = v; }},
+                         2.0f);  // tuned on lev_1_m1: 4 faded most of the snow puff at the feet
+    char backend[16];
+    ConfigString("render", "backend", "d3d9", backend, sizeof(backend));
+    if (ConfigInt("render", "rhi", 0) && !_stricmp(backend, "vulkan"))
+    {
+        g_particlePass = &rhi::Hints().particlePass;
+        HookWrap("Fx_DrawParticles", reinterpret_cast<void*>(Render_FxDrawParticles), &g_nextFxDrawParticles);
+        HookWrap("Streamers_Draw", reinterpret_cast<void*>(Render_StreamersDraw), &g_nextStreamersDraw);
+    }
+    Log("render: soft_particles %d (range %.1f)", rhi::Hints().softParticles ? 1 : 0,
+        rhi::Hints().softParticlesRange);
+    if (ConfigInt("render", "wireframe", 0))
+    {
+        HookWrap("Renderer_BeginScene", reinterpret_cast<void*>(Render_BeginScene_Wireframe), &g_nextBeginScene);
+        Log("render: wireframe on");
+    }
+}

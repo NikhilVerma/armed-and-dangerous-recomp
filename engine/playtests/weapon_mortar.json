@@ -1,0 +1,23 @@
+{"scene": "lev_5_m2", "steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [85, -400, -130, 0]},
+ {"loadout": {"guns": ["gurner", "rifle"]}},
+ {"look_at": [85, -340, -121]},
+ {"wait": 0.6},
+ {"expect": {"weapon": "gurner", "clip": 1, "ammo": 6, "hand": "gurner", "hud.crosshair": "ui_gurner_crosshair", "hud.weapon_icon": "ui_player_rlgurner"}},
+ {"ai_force": "no_cover"},
+ {"spawn": [85, -340, -126]},
+ {"wait": 0.3},
+ {"click": "Left"},
+ {"wait": 0.05},
+ {"expect": {"weapons.fired.gurner": 1, "vehicles.rockets.player_fired": 1, "clip": 0, "anim_state": 2}},
+ {"wait": 1.5},
+ {"expect": {"vehicles.rockets.player_ended": 1, "kills": 1}},
+ {"wait": 1.0},
+ {"expect": {"clip": 1, "ammo": 5}},
+ {"quit": true}
+]}

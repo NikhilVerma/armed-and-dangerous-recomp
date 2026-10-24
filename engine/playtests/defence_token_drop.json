@@ -1,0 +1,8 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"base_turret.mounted": true}},
+ {"send": 950}, {"wait": 18.0},
+ {"expect": {"ic.drops": 1, "ic.last_drop": "shootable_token"}},
+ {"quit": true}
+]}

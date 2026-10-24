@@ -1,0 +1,23 @@
+{"steps": [
+ {"note": "0x00403410: one pending slot for queued texts (a second queued text shows the pending one at once), a text shown over another bumps the pause count (two continues), the pending timer waits for no message (0x00466060)"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"expect": {"mission_obj.showing": true, "mission_obj.queued": 0}},
+ {"send": 900},
+ {"wait": 0.2},
+ {"send": 901},
+ {"wait": 0.3},
+ {"expect": {"mission_obj.showing": true, "mission_obj.queued": 1, "mission_obj.objectives_id": "l1m1_sub3"}},
+ {"tap": "Enter"},
+ {"wait": 0.3},
+ {"expect": {"mission_obj.showing": true, "mission_obj.queued": 1}},
+ {"tap": "Enter"},
+ {"wait": 0.3},
+ {"expect": {"mission_obj.showing": false, "mission_obj.queued": 1}},
+ {"wait": 1.2},
+ {"expect": {"mission_obj.showing": true, "mission_obj.queued": 0}},
+ {"tap": "Enter"},
+ {"wait": 0.3},
+ {"expect": {"mission_obj.showing": false}},
+ {"quit": true}
+]}

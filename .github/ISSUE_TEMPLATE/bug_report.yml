@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in the remaster plays, looks or sounds wrong, crashes, or does not build.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The quickest reports to act on name a recorded session and its bookmarks: every
+        launch records a session (local only, nothing is sent anywhere), and **F8** in game takes a bookmark
+        (a screenshot, a save of that moment and an optional note). See docs/play-guide.md.
+
+        Please do not attach game files. Screenshots and the session's text logs are fine.
+  - type: input
+    id: session
+    attributes:
+      label: Session and bookmarks
+      description: The session folder name under %LOCALAPPDATA%\AndRemaster\sessions\ and the bookmark numbers, e.g. "2026-10-19_20-15-03, bookmarks 1-4".
+      placeholder: 2026-10-19_20-15-03, bookmarks 1-4
+  - type: input
+    id: level
+    attributes:
+      label: Level
+      description: The level id (shown by the developer menu's state overlay, F1) or its name.
+      placeholder: lev_2_m1
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: In your own words. If the original game does it differently, say how.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: Steps, or "load bookmark N of the session above".
+  - type: dropdown
+    id: blocker
+    attributes:
+      label: Does it stop you finishing the level?
+      options:
+        - "No"
+        - "Yes"
+        - Crash or freeze
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: From the session folder's game log (warnings, errors, a crash backtrace). Paste only the relevant lines.
+      render: text
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: The commit you built (git rev-parse --short HEAD), your Windows version and GPU.
+      placeholder: "abc1234, Windows 11, RTX 4070"
+    validations:
+      required: true
+  - type: dropdown
+    id: preset
+    attributes:
+      label: Graphics preset
+      options:
+        - Remaster (default)
+        - Original
+        - Custom

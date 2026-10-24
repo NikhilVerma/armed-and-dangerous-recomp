@@ -1,0 +1,804 @@
+// Lockstep state trace of the original game, for comparing the remaster engine with it on the same inputs
+// (tools/oracle.py, docs/remaster-engine.md "Oracle runs"). The remaster writes the same schema (engine/src/oracle.rs).
+//
+// [test] keys_from_play=1     scripted keys (input_hooks.cpp, frame mode) count "play frames": frame 0 is
+//                             play_delay frames after the level's first paused message (the briefing) appears, so a
+//                             scenario's own frame 0 key (ENTER) dismisses it. Before that the clock is negative.
+// [test] play_delay=30        see above
+// [test] play_warp=x,y,z      at play frame -10 (the briefing still up) Roman is put there (Object_SetPosition
+//                             0x00457870, as [test] warp)
+// [test] trace_from=-N        start the trace N frames before play frame 0 (down to the level load: lines before the
+//                             briefing are kept in memory until it appears and fixes the play frames)
+// [test] play_triggers=F:ID,...  at play frame F send trigger ID to the level (Object_SendTrigger 0x00461870, no
+//                             sender), as the remaster's oracle "triggers": for a sequence that needs a trigger the
+//                             scripted input cannot produce (lev_4_m2's peasant_success_trigger 7001)
+// [test] play_hold_health=1  from play frame -10 Roman's health is put back to his maximum every frame (+0x454 =
+//                             +0x458), as the remaster's oracle "hold_health": a scenario about something else is not
+//                             ended by his death (lev_4_m2_tower: the troops at the start, a roll in both games)
+// [test] play_frames=N        terminate the process after play frame N (the trace flushed)
+// [test] trace_every=N        and-trace.jsonl: from play frame trace_from, every N frames one JSON line (every frame
+//                             before play frame 0):
+//   {"f": play frame, "t": game seconds since the first line, "paused": 0/1,
+//    "roman": {"pos": [x, y, z], "heading": degrees (the model's facing, atan2(x, y) of its -Y axis), "health",
+//              "max_health", "weapon": id (descriptors Game+0x2770 + id * 0x150: 0 machine gun, 2 rifle), "clip",
+//              "ammo", "stickies"},
+//    "grunts": [{"id": instance id (+0x396), "pos", "health", "state": AI state +0x460, "target": id | "roman" |
+//               null, "class": vtable, "kf": 1 while the body is keyframed (0x00457790)}],
+//    "vehicles": [{"id", "kind": goliath / saucer / mini_zeppelin / colossus / rocket_tower / rocket_tower_turret /
+//                 rocket_bud (by vtable), "pos", "health", "state"}],
+//    "twiglets": [{"pos", "health", "state": Twiglet_Update's +0x464, "bomb": 0/1}] (World+0xeec; not in "grunts"),
+//    "swarm": {"generators": active twiglet generators, "timer": spawn timer, "made": Game+0x2710, "killed": +0x270c},
+//    "peasants": [{"id", "pos", "captured": 0/1, "link": rope chain place +0x480, "rope": +0x478, "count", "attached"}]
+//    (World+0xef8), "peasant_count": {"carried": Game+0x26f4, "saved": +0x26e8, "casualties": +0x26e4},
+//    "companions": [[x, y, z, health, mode] | null, ...] (Jonesy, Q; mode: the update's mode +0xb5c, MolmerObject_Slot47
+//                  0x00485910: 1 idle, 2 moving, 3 engaging, 6 walking to the tower marker, 7 planting / bomb loop),
+//    "mission": {"state": level state (1 playing, 2/10 won, 3..9 failed), "objective": compass tag Game+0x2658},
+//    "triggers": [ids sent since the last line], "trigger_senders": [their senders' instance ids], "deaths": [instance ids of placed objects that died],
+//    "sounds": [definition names started]}
+// Game axes (Z up). Offsets: docs/subsystems/player.md / grunt-ai.md / mission.md, and the comments below.
+#include <windows.h>
+
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+
+#include "config.h"
+#include "game/game_object.h"
+#include "gen/orig_calls.h"
+#include "hooks.h"
+#include "log.h"
+
+int TestFramesSinceLoad();  // testscenario.cpp
+int TestFramesSincePlay();
+void TestStructSnapInit();  // teststructsnap.cpp: [test] struct_snap (tools/struct_atlas.py)
+void TestStructSnapFrame(int f, float clock);
+
+namespace
+{
+const uint8_t* B(const void* p)
+{
+    return static_cast<const uint8_t*>(p);
+}
+template <class T>
+T At(const void* p, unsigned off)
+{
+    return *reinterpret_cast<const T*>(B(p) + off);
+}
+
+int g_traceEvery, g_playFrames;
+int g_playDelay = 30;
+bool g_fromPlay;
+int g_briefFrame = -1;  // frame since load at which the briefing appeared
+float g_warp[3];
+bool g_warpOn, g_warpDone;
+// [test] play_triggers: (play frame, trigger id), sent once each
+struct PlayTrigger
+{
+    int frame;
+    uint32_t id;
+    bool sent;
+};
+std::vector<PlayTrigger> g_playTriggers;
+bool g_holdHealth;
+int g_traceFrom;
+FILE* g_out;
+bool g_traced;      // a line has been written or kept
+float g_clockFirst;  // game clock at the first line
+// lines made before the briefing fixed the play frames: frame since the load, game clock, the line after "t"
+struct Pending
+{
+    int since;
+    float clock;
+    std::string body;
+};
+std::vector<Pending> g_pending;
+std::vector<uint32_t> g_triggers, g_senders, g_deaths;
+std::vector<std::string> g_sounds;
+
+void* Player()
+{
+    return g_game ? *reinterpret_cast<void* const*>(B(g_game) + 0x748) : nullptr;
+}
+
+void GetPos(void* obj, float* out)
+{
+    using Fn = void(__thiscall*)(void*, float*);
+    reinterpret_cast<Fn>((*reinterpret_cast<void***>(obj))[0x54 / 4])(obj, out);
+}
+
+// The game clock (0x00604a98, Timer_Tick 0x004e47e0) stops counting while paused: Game_SetPaused 0x004031e0 keeps the
+// value at the pause in Game+0x2688 and subtracts the paused span on resume (engine_01.cpp:210-260).
+float GameClock()
+{
+    const int pauses = At<int>(g_game, 0x2684);
+    return pauses ? At<float>(g_game, 0x2688) : *reinterpret_cast<const float*>(0x00604a98);
+}
+
+bool Readable(uint32_t p, unsigned n)
+{
+    return p >= 0x10000 && !IsBadReadPtr(reinterpret_cast<const void*>(p), n);
+}
+
+void Num(std::string& o, float v)
+{
+    char b[32];
+    if (!std::isfinite(v))
+        v = 0;
+    snprintf(b, sizeof(b), "%.2f", v);
+    o += b;
+}
+
+void Vec(std::string& o, const float* v)
+{
+    o += '[';
+    Num(o, v[0]), o += ',', Num(o, v[1]), o += ',', Num(o, v[2]);
+    o += ']';
+}
+
+int Id(const void* obj)
+{
+    return At<uint16_t>(obj, 0x396);  // the 1-based level object table entry (CreateObject a6, game_04.cpp:576)
+}
+
+const uint32_t kTwigletVtable = 0x005af020;  // Twiglet (Twiglet_Slot6 0x0049d7a0)
+
+// The trace's vehicle kinds by class vtable (the remaster's names: engine/src/oracle.rs VehicleKind); null otherwise.
+const char* VehicleKind(uint32_t vtable)
+{
+    switch (vtable)
+    {
+    case 0x005af298: return "goliath";
+    case 0x005a5e98: return "saucer";
+    case 0x005af500: return "mini_zeppelin";
+    case 0x005aa238: return "colossus";
+    case 0x005a87c0: return "rocket_tower";
+    case 0x005a8b88: return "rocket_tower_turret";
+    case 0x005adde8: return "rocket_bud";
+    default: return nullptr;
+    }
+}
+
+// One trace line from "paused" on (the frame and the time are put in front by Emit); takes the events gathered so far.
+std::string Body()
+{
+    void* player = Player();
+    std::string o = "\"paused\":" + std::to_string(At<int>(g_game, 0x2684) ? 1 : 0);
+    if (player)
+    {
+        float pos[4] = {};
+        GetPos(player, pos);
+        float m[20] = {};
+        using GetMat = void(__thiscall*)(void*, float*);
+        reinterpret_cast<GetMat>((*reinterpret_cast<void***>(player))[0x5c / 4])(player, m);
+        // the model faces its -Y axis: minus column 1 of the world matrix (row-major, as 0x00453180 reads it)
+        const float heading = std::atan2(-m[1], -m[5]) * 57.29578f;
+        // the weapon block P+0xc24 (game_09.cpp:723-728): primary slot ids +4.., current slot +0x24; ammo records
+        // +0x60 + id * 0xc: clip +0, spare +4; sticky bombs are weapon 10's spare (0x004a1380)
+        const uint8_t* s = B(player) + 0xc24;
+        const int slot = At<int>(s, 0x24);
+        const int weapon = slot >= 0 && slot < 7 ? At<int>(s, 4 + slot * 4) : -1;
+        const int clip = weapon >= 0 && weapon < 32 ? At<int>(s, 0x60 + weapon * 0xc) : 0;
+        const int spare = weapon >= 0 && weapon < 32 ? At<int>(s, 0x64 + weapon * 0xc) : 0;
+        o += ",\"roman\":{\"pos\":";
+        Vec(o, pos);
+        o += ",\"heading\":";
+        Num(o, heading);
+        o += ",\"health\":";
+        Num(o, At<float>(player, 0x454));
+        o += ",\"max_health\":";
+        Num(o, At<float>(player, 0x458));
+        o += ",\"weapon\":" + std::to_string(weapon);
+        o += ",\"clip\":" + std::to_string(clip) + ",\"ammo\":" + std::to_string(spare);
+        o += ",\"stickies\":" + std::to_string(At<int>(s, 0x60 + 10 * 0xc + 4)) + "}";
+        o += ",\"companions\":[";
+        for (int i = 0; i < 2; ++i)
+        {
+            void* c = At<void*>(player, 0xad0 + 4 * i);  // Jonesy, Q (0x0047afa0, ai_07.cpp:3924)
+            o += i ? "," : "";
+            if (!c)
+            {
+                o += "null";
+                continue;
+            }
+            float cp[4] = {};
+            GetPos(c, cp);
+            o += '[';
+            Num(o, cp[0]), o += ',', Num(o, cp[1]), o += ',', Num(o, cp[2]), o += ',', Num(o, At<float>(c, 0x454));
+            o += ',' + std::to_string(At<int>(c, 0xb5c)) + ']';
+        }
+        o += ']';
+    }
+    // the World's AI list (Game+0xa84 +0xe7c), walked as TestDumpCamera does
+    o += ",\"grunts\":[";
+    const uint32_t world = At<uint32_t>(g_game, 0xa84);
+    if (world)
+    {
+        uint32_t iter[2] = {0, 0};
+        bool first = true;
+        for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), 0xe7c),
+                                            reinterpret_cast<uint32_t>(iter));
+             a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+        {
+            void* g = reinterpret_cast<void*>(a);
+            // twiglets (Twiglet 0x005af020) are on the AI list too: traced as "twiglets" below (their state is +0x464)
+            if (At<uint32_t>(g, 0) == kTwigletVtable)
+                continue;
+            float gp[4] = {};
+            GetPos(g, gp);
+            o += first ? "{" : ",{";
+            first = false;
+            o += "\"id\":" + std::to_string(Id(g)) + ",\"pos\":";
+            Vec(o, gp);
+            o += ",\"health\":";
+            Num(o, At<float>(g, 0x454));
+            o += ",\"state\":" + std::to_string(At<int>(g, 0x460)) + ",\"target\":";
+            const uint32_t t = At<uint32_t>(g, 0x588);
+            if (t && t == reinterpret_cast<uint32_t>(player))
+                o += "\"roman\"";
+            else if (Readable(t, 0x398))
+                o += std::to_string(Id(reinterpret_cast<void*>(t)));
+            else
+                o += "null";
+            o += ",\"class\":" + std::to_string(At<uint32_t>(g, 0));
+            // the body keyframed (Body_isKeyframed 0x00457790: held where the AI puts it, no gravity) or dynamic
+            if (At<uint32_t>(g, 0x1c4))
+            {
+                o += ",\"kf\":" + std::to_string(orig::fn_00457790(reinterpret_cast<uint32_t>(g)) & 0xff);
+                // the body's simulation island active (entity +0x10 -> island +0x29: awake, not deactivated) and its
+                // linear velocity (motion = entity +8, +0x40; docs/subsystems/havok-layouts.md)
+                const uint32_t entity = At<uint32_t>(g, 0x1c4);
+                char ent[16];
+                sprintf(ent, "\"%08x\"", entity);
+                o += std::string(",\"entity\":") + ent;
+                const uint32_t island = Readable(entity, 0x14) ? At<uint32_t>(reinterpret_cast<void*>(entity), 0x10) : 0;
+                if (Readable(island, 0x2a))
+                    o += ",\"awake\":" + std::to_string(At<uint8_t>(reinterpret_cast<void*>(island), 0x29));
+                const uint32_t motion = Readable(entity, 0xc) ? At<uint32_t>(reinterpret_cast<void*>(entity), 8) : 0;
+                if (Readable(motion, 0x4c))
+                {
+                    o += ",\"vel\":";
+                    Vec(o, reinterpret_cast<const float*>(motion + 0x40));
+                }
+            }
+            o += '}';
+        }
+    }
+    o += ']';
+    // the vehicles and big units (docs/subsystems/vehicles.md, defence.md) by class: the bosses and goliaths are on the
+    // AI list too, the rocket towers / buds only on the damageable (+0xe94) and projectile (+0xe90) lists; a goliath
+    // waiting for its script (trigger_ic) is off the AI list (GoliathObject_Slot6 0x00433fe0): the collidable (+0xe9c),
+    // +0xea0 and +0xea4 lists are walked too; each object once
+    o += ",\"vehicles\":[";
+    if (world)
+    {
+        std::vector<uint32_t> seen;
+        for (const unsigned list : {0xe7cu, 0xe94u, 0xe90u, 0xe9cu, 0xea0u, 0xea4u})
+        {
+            uint32_t iter[2] = {0, 0};
+            for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), list),
+                                                reinterpret_cast<uint32_t>(iter));
+                 a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+            {
+                const char* kind = VehicleKind(At<uint32_t>(reinterpret_cast<void*>(a), 0));
+                bool dup = false;
+                for (const uint32_t s : seen)
+                    dup = dup || s == a;
+                if (!kind || dup)
+                    continue;
+                seen.push_back(a);
+                void* v = reinterpret_cast<void*>(a);
+                float vp[4] = {};
+                GetPos(v, vp);
+                o += seen.size() > 1 ? ",{" : "{";
+                o += "\"id\":" + std::to_string(Id(v)) + ",\"kind\":\"" + kind + "\",\"pos\":";
+                Vec(o, vp);
+                o += ",\"health\":";
+                Num(o, At<float>(v, 0x454));
+                o += ",\"state\":" + std::to_string(At<int>(v, 0x460)) + '}';
+            }
+        }
+    }
+    o += ']';
+    // the twiglets (World+0xeec, Twiglet_Slot6 0x0049d7a0): position, health +0x454, state +0x464 (Twiglet_Update
+    // 0x0049dcf0), carrying a bomb (+0x55c); the swarm (TwigletController_Slot47 0x0049d080): active generators
+    // 0x0063a140, the spawn timer 0x0063a14c, twiglets made Game+0x2710, killed Game+0x270c
+    o += ",\"twiglets\":[";
+    if (world)
+    {
+        uint32_t iter[2] = {0, 0};
+        bool first = true;
+        for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), 0xeec),
+                                            reinterpret_cast<uint32_t>(iter));
+             a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+        {
+            void* t = reinterpret_cast<void*>(a);
+            float tp[4] = {};
+            GetPos(t, tp);
+            o += first ? "{\"pos\":" : ",{\"pos\":";
+            first = false;
+            Vec(o, tp);
+            o += ",\"health\":";
+            Num(o, At<float>(t, 0x454));
+            o += ",\"state\":" + std::to_string(At<int>(t, 0x464));
+            o += ",\"bomb\":" + std::to_string(At<uint32_t>(t, 0x55c) ? 1 : 0) + '}';
+        }
+    }
+    o += ']';
+    {
+        const uint32_t active = *reinterpret_cast<const uint32_t*>(0x0063a140);
+        int n = 0;
+        uint32_t iter[2] = {0, 0};
+        if (active)
+            for (uint32_t a = orig::fn_004e7340(active, reinterpret_cast<uint32_t>(iter)); a;
+                 a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+                ++n;
+        o += ",\"swarm\":{\"generators\":" + std::to_string(n) + ",\"timer\":";
+        Num(o, *reinterpret_cast<const float*>(0x0063a14c));
+        o += ",\"made\":" + std::to_string(At<int>(g_game, 0x2710)) + ",\"killed\":" + std::to_string(At<int>(g_game, 0x270c)) + "}";
+    }
+    // the peasants (PeasantObject 0x005a8550, list World+0xef8, PeasantObject_Load 0x004056b0): position, captured
+    // +0x48c (the pick-up 0x00406210), the rope chain's link +0x480 and rope length +0x478 (0x00405d10), count +0x484,
+    // attached to a parent (+0x34: the goliath's cage); the counters Game+0x26f4 carried, +0x26e8 saved, +0x26e4
+    // casualties (0x004063a0, 0x004062a0)
+    o += ",\"peasants\":[";
+    if (world)
+    {
+        uint32_t iter[2] = {0, 0};
+        bool first = true;
+        for (uint32_t a = orig::fn_004e7340(At<uint32_t>(reinterpret_cast<void*>(world), 0xef8),
+                                            reinterpret_cast<uint32_t>(iter));
+             a; a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+        {
+            void* p = reinterpret_cast<void*>(a);
+            float pp[4] = {};
+            GetPos(p, pp);
+            o += first ? "{" : ",{";
+            first = false;
+            o += "\"id\":" + std::to_string(Id(p)) + ",\"pos\":";
+            Vec(o, pp);
+            o += ",\"captured\":" + std::to_string(At<uint8_t>(p, 0x48c));
+            o += ",\"link\":" + std::to_string(At<int>(p, 0x480)) + ",\"rope\":";
+            Num(o, At<float>(p, 0x478));
+            o += ",\"count\":" + std::to_string(At<int>(p, 0x484));
+            o += ",\"attached\":" + std::to_string(At<uint32_t>(p, 0x34) ? 1 : 0);
+            // a tied one is a ragdoll whose object position stays put: the pelvis, the centre of mass of the body named
+            // "center" (0x004586a0; motion +8, +0x70), as the rope pulls it (0x00405d10)
+            if (At<float>(p, 0x478) >= 0.0f)
+            {
+                const uint32_t ent = orig::fn_004586a0(0x005a009c /* "center" */, a);
+                const uint32_t motion = Readable(ent, 0x10) ? At<uint32_t>(reinterpret_cast<void*>(ent), 8) : 0;
+                if (Readable(motion, 0x80))
+                {
+                    o += ",\"center\":";
+                    Vec(o, reinterpret_cast<const float*>(motion + 0x70));
+                }
+            }
+            o += '}';
+        }
+    }
+    o += "],\"peasant_count\":{\"carried\":" + std::to_string(At<int>(g_game, 0x26f4)) + ",\"saved\":" +
+         std::to_string(At<int>(g_game, 0x26e8)) + ",\"casualties\":" + std::to_string(At<int>(g_game, 0x26e4)) + "}";
+    // the alarm controller's gates (fn_00404e50, ai_01.cpp:468-660): sirens World+0xef0, forced Game+0xdcc, Game+0xc80 /
+    // +0xcbc / +0xadc / +0xae0 (all must be clear), the spawn timer 0x0063a1f4, the generators listed 0x0063a1f0 and
+    // its live troops 0x0063a1ec
+    if (world)
+    {
+        auto count = [](uint32_t list) {
+            int n = 0;
+            uint32_t iter[2] = {0, 0};
+            if (list)
+                for (uint32_t a = orig::fn_004e7340(list, reinterpret_cast<uint32_t>(iter)); a;
+                     a = orig::fn_004e73c0(reinterpret_cast<uint32_t>(iter)))
+                    ++n;
+            return n;
+        };
+        o += ",\"alarm\":{\"sirens\":" + std::to_string(count(At<uint32_t>(reinterpret_cast<void*>(world), 0xef0)));
+        o += ",\"forced\":" + std::to_string(At<uint8_t>(g_game, 0xdcc)) + ",\"c80\":";
+        Num(o, At<float>(g_game, 0xc80));
+        o += ",\"cbc\":" + std::to_string(At<uint8_t>(g_game, 0xcbc)) + ",\"adc\":" + std::to_string(At<uint32_t>(g_game, 0xadc));
+        o += ",\"ae0\":";
+        Num(o, At<float>(g_game, 0xae0));
+        o += ",\"timer\":";
+        Num(o, *reinterpret_cast<const float*>(0x0063a1f4));
+        o += ",\"generators\":" + std::to_string(count(*reinterpret_cast<const uint32_t*>(0x0063a1f0)));
+        o += ",\"troops\":" + std::to_string(count(*reinterpret_cast<const uint32_t*>(0x0063a1ec))) + "}";
+    }
+    // the level record Game+0xa64: state +0xc (fn_0044a390, ui_01.cpp:2043; mission.md)
+    const uint32_t level = At<uint32_t>(g_game, 0xa64);
+    o += ",\"mission\":{\"state\":" + std::to_string(Readable(level, 0x10) ? At<int>(reinterpret_cast<void*>(level), 0xc) : -1);
+    o += ",\"objective\":" + std::to_string(At<int>(g_game, 0x2658)) + "}";
+    auto list = [&o](const char* name, const std::vector<uint32_t>& v) {
+        o += ",\"" + std::string(name) + "\":[";
+        for (size_t i = 0; i < v.size(); ++i)
+            o += (i ? "," : "") + std::to_string(v[i]);
+        o += ']';
+    };
+    list("triggers", g_triggers);
+    list("trigger_senders", g_senders);
+    list("deaths", g_deaths);
+    o += ",\"sounds\":[";
+    for (size_t i = 0; i < g_sounds.size(); ++i)
+        o += (i ? ",\"" : "\"") + g_sounds[i] + "\"";
+    o += "]}\n";
+    g_triggers.clear(), g_senders.clear(), g_deaths.clear(), g_sounds.clear();
+    return o;
+}
+
+void ClearEvents()
+{
+    g_triggers.clear(), g_senders.clear(), g_deaths.clear(), g_sounds.clear();
+}
+
+void Emit(int frame, float clock, const std::string& body)
+{
+    if (!g_out)
+        return;
+    if (!g_traced)
+        g_clockFirst = clock, g_traced = true;
+    std::string o = "{\"f\":" + std::to_string(frame) + ",\"t\":";
+    Num(o, clock - g_clockFirst);
+    o += "," + body;
+    fputs(o.c_str(), g_out);
+    fflush(g_out);
+}
+
+// --- event hooks (wrappers in front of recovered code or the original, HookWrap) --------------------------------
+
+void* g_nextSendTrigger;
+void* g_nextDgoDeath;
+void* g_nextFxDie;
+
+void __stdcall OnTrigger(uint32_t id, uint32_t sender)
+{
+    if (!g_traceEvery)
+        return;
+    g_triggers.push_back(id);
+    g_senders.push_back(Readable(sender, 0x398) ? Id(reinterpret_cast<void*>(sender)) : 0);
+}
+
+// Object_SendTrigger 0x00461870: eax = object system, ebx = trigger id; stack: sender; ret 4 (game_04.cpp:596)
+__declspec(naked) void Wrap_SendTrigger()
+{
+    __asm {
+        pushad
+        push dword ptr [esp + 36]  // sender
+        push ebx                   // trigger id
+        call OnTrigger
+        popad
+        jmp dword ptr [g_nextSendTrigger]
+    }
+}
+
+// [test] trace_contacts=<instance id>: and.log gets one "contact" line per contact added on that object's body
+// (CollisionListener_OnContactAdded 0x00413240: event +8 / +0xc collidables, +0x14 the contact point: position +0,
+// normal +0x10 with its w), with the other owner's id (0: none, the landscape) and the combined friction (+0x18 -> +8)
+int g_traceContacts;
+void* g_nextContactAdded;
+
+// the owning game object of a collidable: its entity (+0x1c) pair array (+0x78 data, +0x7c count) key 0
+static void* ContactOwner(uint32_t collidable)
+{
+    if (!Readable(collidable, 0x20))
+        return nullptr;
+    const uint32_t entity = At<uint32_t>(reinterpret_cast<void*>(collidable), 0x1c);
+    if (!Readable(entity, 0x80))
+        return nullptr;
+    const uint32_t data = At<uint32_t>(reinterpret_cast<void*>(entity), 0x78);
+    const int count = At<int>(reinterpret_cast<void*>(entity), 0x7c);
+    for (int i = 0; i < count && i < 16 && Readable(data + i * 8, 8); ++i)
+        if (At<uint32_t>(reinterpret_cast<void*>(data), i * 8) == 0)
+        {
+            const uint32_t o = At<uint32_t>(reinterpret_cast<void*>(data), i * 8 + 4);
+            return Readable(o, 0x398) ? reinterpret_cast<void*>(o) : nullptr;
+        }
+    return nullptr;
+}
+
+void __stdcall OnContactAdded(uint32_t event)
+{
+    if (!g_traceContacts || !Readable(event, 0x1c))
+        return;
+    void* a = ContactOwner(At<uint32_t>(reinterpret_cast<void*>(event), 8));
+    void* b = ContactOwner(At<uint32_t>(reinterpret_cast<void*>(event), 0xc));
+    const bool ia = a && Id(a) == g_traceContacts, ib = b && Id(b) == g_traceContacts;
+    if (!ia && !ib)
+        return;
+    const uint32_t p = At<uint32_t>(reinterpret_cast<void*>(event), 0x14);
+    if (!Readable(p, 0x20))
+        return;
+    const float* f = reinterpret_cast<const float*>(p);
+    Log("contact #%d other #%d (%s) at %.3f %.3f %.3f n %.4f %.4f %.4f w %.4f", g_traceContacts, ia ? (b ? Id(b) : 0) : (a ? Id(a) : 0),
+        ia ? "A" : "B", f[0], f[1], f[2], f[4], f[5], f[6], f[7]);
+}
+
+// CollisionListener_OnContactAdded 0x00413240: ecx unused; stack: event; ret 4
+__declspec(naked) void Wrap_ContactAdded()
+{
+    __asm {
+        pushad
+        push dword ptr [esp + 36]  // event
+        call OnContactAdded
+        popad
+        jmp dword ptr [g_nextContactAdded]
+    }
+}
+
+void __stdcall OnDgoDeath(void* obj)
+{
+    if (g_traceEvery && !(At<uint32_t>(obj, 0x4d0) & 0x10000))  // once: the flag the function sets (game_03.cpp:966)
+        g_deaths.push_back(Id(obj));
+}
+
+// DefaultGameObject_OnDeath 0x00450ee0: ecx = object; stack: unused; ret 4
+__declspec(naked) void Wrap_DgoDeath()
+{
+    __asm {
+        pushad
+        push ecx
+        call OnDgoDeath
+        popad
+        jmp dword ptr [g_nextDgoDeath]
+    }
+}
+
+void __stdcall OnFxDie(void* obj, uint32_t rec)
+{
+    // a chain-reaction record (flag 0x40) only lights the fuse (game_02.cpp:766)
+    if (g_traceEvery && !(rec && (*reinterpret_cast<const uint8_t*>(rec) & 0x40)))
+        g_deaths.push_back(Id(obj));
+}
+
+// FxExplosion_Die 0x0041c570 (kegs, pipes): ecx = explosion; stack: damage record or 0; ret 4
+__declspec(naked) void Wrap_FxDie()
+{
+    __asm {
+        pushad
+        push dword ptr [esp + 36]  // record
+        push ecx
+        call OnFxDie
+        popad
+        jmp dword ptr [g_nextFxDie]
+    }
+}
+
+// [test] trace_calls=Name1,Name2,...: and.log gets one "call" line per call of each named hook (up to 8; the names of
+// the HOOK entries, e.g. GenericAI_SetTarget): frames since the load and play frame, the caller's return address, ecx,
+// eax, edx, ebx and the first three stack arguments, each as an instance id (#N) when it points at a placed object. For
+// finding which code sets a value seen in the trace (the caller is the address after the call instruction).
+constexpr int kCallSlots = 8;
+char g_callNames[kCallSlots][64];
+void* g_callNext[kCallSlots];
+
+// Readable without touching the memory: a call's registers hold any value, and IsBadReadPtr's probe of a bad one
+// raises a first-chance exception the crash logger reports
+bool Mapped(uint32_t p, unsigned n)
+{
+    MEMORY_BASIC_INFORMATION m;
+    if (p < 0x10000 || !VirtualQuery(reinterpret_cast<const void*>(p), &m, sizeof(m)) || m.State != MEM_COMMIT)
+        return false;
+    const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                           PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+    return (m.Protect & readable) && !(m.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+           p + n <= reinterpret_cast<uint32_t>(m.BaseAddress) + m.RegionSize;
+}
+
+const char* Arg(char* buf, uint32_t v)
+{
+    if (Mapped(v, 0x398) && Mapped(*reinterpret_cast<const uint32_t*>(v), 4) && Id(reinterpret_cast<void*>(v)))
+        sprintf(buf, "%08x#%d", v, Id(reinterpret_cast<void*>(v)));
+    else
+        sprintf(buf, "%08x", v);
+    // a pointer to text: its first characters ("name)
+    if (Mapped(v, 24))
+    {
+        const char* t = reinterpret_cast<const char*>(v);
+        int n = 0;
+        while (n < 23 && t[n] >= 0x20 && t[n] < 0x7f)
+            ++n;
+        if (n >= 3 && (t[n] == 0 || n == 23))
+        {
+            const size_t at = strlen(buf);
+            snprintf(buf + at, 64 - at, "\"%.*s", n, t);
+        }
+    }
+    return buf;
+}
+
+// regs: the pushad block (edi, esi, ebp, esp, ebx, edx, ecx, eax), then the return address and the stack arguments
+void __stdcall OnCall(int slot, const uint32_t* regs)
+{
+    char c[64], a[64], d[64], b[64], s0[64], s1[64], s2[64];
+    Log("call %s since %d play %d from %08x ecx %s eax %s edx %s ebx %s args %s %s %s", g_callNames[slot],
+        TestFramesSinceLoad(), TestFramesSincePlay(), regs[8], Arg(c, regs[6]), Arg(a, regs[7]), Arg(d, regs[5]),
+        Arg(b, regs[4]), Arg(s0, regs[9]), Arg(s1, regs[10]), Arg(s2, regs[11]));
+}
+
+#define CALL_SLOT(n)                                 \
+    __declspec(naked) void Wrap_Call##n()            \
+    {                                                \
+        __asm { pushad }                             \
+        __asm { push esp }                           \
+        __asm { push n }                             \
+        __asm { call OnCall }                        \
+        __asm { popad }                              \
+        __asm { jmp dword ptr [g_callNext + n * 4] } \
+    }
+CALL_SLOT(0)
+CALL_SLOT(1)
+CALL_SLOT(2)
+CALL_SLOT(3)
+CALL_SLOT(4)
+CALL_SLOT(5)
+CALL_SLOT(6)
+CALL_SLOT(7)
+#undef CALL_SLOT
+void (*const g_callWraps[kCallSlots])() = {Wrap_Call0, Wrap_Call1, Wrap_Call2, Wrap_Call3,
+                                            Wrap_Call4, Wrap_Call5, Wrap_Call6, Wrap_Call7};
+}  // namespace
+
+extern void (*g_testSoundStarted)(const char* name, float volume);
+static void (*g_prevSoundStarted)(const char* name, float volume);
+
+static void OnSound(const char* name, float volume)
+{
+    if (g_traceEvery && name)
+    {
+        std::string s;
+        for (int i = 0; i < 32 && name[i] >= 0x20 && name[i] < 0x7f && name[i] != '"' && name[i] != '\\'; ++i)
+            s += name[i];
+        g_sounds.push_back(s);
+    }
+    if (g_prevSoundStarted)
+        g_prevSoundStarted(name, volume);
+}
+
+// Play frames (see the top): -1 and below before frame 0, or a very negative value before the briefing.
+int TestFramesSincePlay()
+{
+    const int since = TestFramesSinceLoad();
+    if (since < 0 || g_briefFrame < 0)
+        return -1000000;
+    return since - (g_briefFrame + g_playDelay);
+}
+
+bool TestKeysFromPlay()
+{
+    return g_fromPlay;
+}
+
+void TestOracleInit()
+{
+    g_traceEvery = ConfigInt("test", "trace_every", 0);
+    g_fromPlay = ConfigInt("test", "keys_from_play", 0) != 0;
+    g_playDelay = ConfigInt("test", "play_delay", 30);
+    g_playFrames = ConfigInt("test", "play_frames", 0);
+    g_traceFrom = ConfigInt("test", "trace_from", 0);
+    char buf[128];
+    ConfigString("test", "play_warp", "", buf, sizeof(buf));
+    g_warpOn = sscanf(buf, "%f,%f,%f", &g_warp[0], &g_warp[1], &g_warp[2]) == 3;
+    char trig[512];
+    g_holdHealth = ConfigInt("test", "play_hold_health", 0) != 0;
+    ConfigString("test", "play_triggers", "", trig, sizeof(trig));
+    for (char* item = strtok(trig, ", "); item; item = strtok(nullptr, ", "))
+    {
+        int frame = 0;
+        unsigned id = 0;
+        if (sscanf(item, "%d:%u", &frame, &id) == 2)
+            g_playTriggers.push_back({frame, id, false});
+    }
+    char calls[512];
+    ConfigString("test", "trace_calls", "", calls, sizeof(calls));
+    int slot = 0;
+    for (char* name = strtok(calls, ", "); name && slot < kCallSlots; name = strtok(nullptr, ", "))
+    {
+        strncpy(g_callNames[slot], name, sizeof(g_callNames[slot]) - 1);
+        if (HookWrap(name, reinterpret_cast<void*>(g_callWraps[slot]), &g_callNext[slot]))
+            ++slot;
+    }
+    TestStructSnapInit();
+    g_traceContacts = ConfigInt("test", "trace_contacts", 0);
+    if (g_traceContacts)
+        HookWrap("CollisionListener_OnContactAdded", reinterpret_cast<void*>(Wrap_ContactAdded), &g_nextContactAdded);
+    if (!g_traceEvery && !g_fromPlay)
+        return;
+    if (g_traceEvery)
+    {
+        HookWrap("Object_SendTrigger", reinterpret_cast<void*>(Wrap_SendTrigger), &g_nextSendTrigger);
+        HookWrap("DefaultGameObject_OnDeath", reinterpret_cast<void*>(Wrap_DgoDeath), &g_nextDgoDeath);
+        HookWrap("FxExplosion_Die", reinterpret_cast<void*>(Wrap_FxDie), &g_nextFxDie);
+        g_prevSoundStarted = g_testSoundStarted;
+        g_testSoundStarted = OnSound;
+    }
+    Log("test: oracle trace every %d frames, keys from play %d (delay %d)%s", g_traceEvery, g_fromPlay, g_playDelay,
+        g_warpOn ? ", warp" : "");
+}
+
+// Main thread, once per presented frame (testscenario.cpp, before the exit check).
+void TestOracleOnFrame()
+{
+    if ((!g_traceEvery && !g_fromPlay) || !g_game)
+        return;
+    const int since = TestFramesSinceLoad();
+    if (since < 0)
+        return;
+    // the briefing: the first paused message after the load (Game+0x2684 pause count, raised by 0x00403410); none
+    // within 600 frames: the clock starts anyway
+    if (g_briefFrame < 0 && (At<int>(g_game, 0x2684) > 0 || since >= 600))
+    {
+        g_briefFrame = since;
+        Log("test: briefing at %d frames after the load (paused %d)", since, At<int>(g_game, 0x2684));
+    }
+    const int f = TestFramesSincePlay();
+    if (g_warpOn && !g_warpDone && f >= -10)
+    {
+        if (void* player = Player())
+        {
+            g_warpDone = true;
+            orig::fn_00457870(0, reinterpret_cast<uint32_t>(g_warp), reinterpret_cast<uint32_t>(player), 0, 0, 0);
+            Log("test: play warp at %d to %.1f %.1f %.1f", f, g_warp[0], g_warp[1], g_warp[2]);
+        }
+    }
+    if (g_holdHealth && g_briefFrame >= 0 && f >= -10)
+    {
+        if (void* player = Player())
+            *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(player) + 0x454) = At<float>(player, 0x458);
+    }
+    for (PlayTrigger& t : g_playTriggers)
+    {
+        const uint32_t world = At<uint32_t>(g_game, 0xa84);
+        if (!t.sent && g_briefFrame >= 0 && f >= t.frame && world)
+        {
+            t.sent = true;
+            orig::fn_00461870(world, t.id, 0);
+            Log("test: play trigger %u at %d", t.id, f);
+        }
+    }
+    if (!g_traceEvery)
+    {
+        // keys only (tools/coverage_level.py: play-frame keys, no trace): play_frames still ends the run
+        if (g_playFrames && g_briefFrame >= 0 && f >= g_playFrames)
+        {
+            Log("test: play frames done (%d)", f);
+            HooksWriteCoverage();
+            TerminateProcess(GetCurrentProcess(), 0);
+        }
+        return;
+    }
+    if (g_briefFrame < 0)
+    {
+        // the play frames are not known yet: keep every frame's line (trace_from < 0), else drop the events
+        if (g_traceFrom < 0)
+            g_pending.push_back({since, GameClock(), Body()});
+        else
+            ClearEvents();
+        return;
+    }
+    if (!g_out && f >= g_traceFrom)
+    {
+        g_out = fopen("and-trace.jsonl", "w");
+        for (const Pending& p : g_pending)
+        {
+            const int pf = p.since - (g_briefFrame + g_playDelay);
+            if (pf >= g_traceFrom)
+                Emit(pf, p.clock, p.body);
+        }
+        g_pending.clear();
+    }
+    if (!g_out)
+        ClearEvents();
+    else if (f < 0 || f % g_traceEvery == 0)
+        Emit(f, GameClock(), Body());
+    if (g_out)
+        TestStructSnapFrame(f, GameClock());
+    if (g_playFrames && f >= g_playFrames)
+    {
+        Log("test: play frames done (%d)", f);
+        if (g_out)
+            fclose(g_out), g_out = nullptr;
+        HooksWriteCoverage();  // [test] hook_coverage runs (TerminateProcess skips atexit)
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
+}

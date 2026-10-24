@@ -3,7 +3,7 @@
 Status: 2026-10-03. Files: `<level>_big09_fx.big` (25). Magic `0x00EFFEC5`. Module:
 `tools/formats/big_kinds/fx.py`. Roundtrip: `bigtool.py roundtrip "orig/pc/GameData/**/*_fx.big"` gives 25 ok.
 
-Loader: **0x0041c7e0 Fx_LoadChunk** (recovered in `src/loader/auto_00410ec0.cpp`). It reads the hash block size
+Loader: **0x0041c7e0 Fx_LoadChunk** (recovered in `archive/src/loader/auto_00410ec0.cpp`). It reads the hash block size
 `t`, then reads the rest of the payload (`size - 4` bytes) into one allocation "Fx Data" (fx +0x0c/+0x18), sets
 fx +0x10 = data + t (start of the script area), and fixes up the table in place (0x004f1220, compare
 0x0041c7b0). It then binds the particle texture banks `n_fx_bank_1` / `n_fx_bank_2`; those are textures in the

@@ -1,0 +1,19 @@
+{
+ "scene": "lev_4_m3",
+ "steps": [
+  {"until": "message"},
+  {"wait": 0.5},
+  {"tap": "Enter"},
+  {"wait": 1.0},
+  {"note": "the 15 bullseye houses carry their pinned Fx_bullseye decal (0x0040cb10); the invisible wall 660 waits for 2345 without a collider; the defaultgameobject trees (p_l4_trees) hold their deactivate trigger"},
+  {"expect": {"decals.pinned": 15, "objects.660.collider": false, "objects.104.template": "l4_tree_3branch_a", "objects.104.collider": true}},
+  {"send": 2345},
+  {"wait": 0.5},
+  {"expect": {"objects.660.collider": true, "objects.104.removed": true, "objects.119.removed": true, "triggers.2345": 1}},
+  {"note": "a bullseye house destroyed: its decal fades with it (0x004547b0 -> 0x00416620)"},
+  {"destroy": 222},
+  {"wait": 1.5},
+  {"expect": {"decals.faded": [1, 1000]}},
+  {"quit": true}
+ ]
+}

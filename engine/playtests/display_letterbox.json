@@ -1,0 +1,8 @@
+{"steps": [
+ {"wait": 2.0},
+ {"expect": {"cam_mode": "path", "display.bars": true, "display.viewport_y": 42, "display.viewport_h": 288, "display.aspect": [1.718, 1.723], "display.hud_text_scale": [0.99, 1.01]}},
+ {"shot": "cutscene_letterbox"},
+ {"options": {"resolution": [1280, 720]}}, {"wait": 1.0},
+ {"expect": {"cam_mode": "path", "display.viewport_y": 81, "display.viewport_h": 558, "display.aspect": [1.718, 1.723]}},
+ {"quit": true}
+]}

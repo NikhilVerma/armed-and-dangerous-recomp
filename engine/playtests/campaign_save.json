@@ -1,0 +1,36 @@
+{"load": "states/after_pub.json", "steps": [
+ {"clear_saves": true}, {"wait": 1.0},
+ {"send": 123}, {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"tap": "Enter"}, {"wait": 0.3}, {"tap": "Enter"}, {"wait": 0.7}, {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"stats.phase": 4}},
+ {"tap": "Enter"}, {"wait": 0.5}, {"until": "loaded"},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_1_m1_b", "mission": "Playing"}},
+
+ {"hurt": 100}, {"wait": 1.0},
+ {"tap": "Escape"}, {"wait": 0.5},
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.page": "Pause", "menu.selected": "ui_pausemenu_savegame"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "SaveSlots", "menu.slot": 1}},
+ {"tap": "Enter"}, {"wait": 5.0},
+ {"expect": {"menu.page": "Pause", "saves.slots": ["saved", "empty", "empty", "empty", "empty", "empty"]}},
+ {"note": "saved"},
+
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_pausemenu_quitgame"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"tap": "ArrowUp"}, {"wait": 0.3},
+ {"tap": "Enter"},
+ {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"menu.page": "Main", "campaign.level": "lev_1_m1", "level_generation": 2}},
+
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "ui_mainmenu_loadgame"}},
+ {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"menu.page": "LoadSlots", "menu.slot": 1}},
+ {"tap": "Enter"},
+ {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_1_m1_b", "level_generation": 3, "mission": "Playing", "menu.shown": null, "health": {"as": "saved", "margin": 1}, "loadout.in_hand": "machinegun"}},
+ {"quit": true}
+]}

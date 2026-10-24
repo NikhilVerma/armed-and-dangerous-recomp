@@ -1,0 +1,11 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"ai_force": "no_cover"},
+ {"land": [130, 141, 180]},
+ {"spawn": [75, 141, 20]},
+ {"note": "firing at Roman inside the 45-degree window: the aim weights follow him off the centre (0x00428fc0), the body does not turn (0x0042df70 bit 14 clear)"},
+ {"wait": 4.0},
+ {"expect": {"ai.near.targets_player": true, "ai.near.dist": [40, 60], "ai.near.turning": false, "ai.near.aim_off": [0.02, 0.45]}},
+ {"quit": true}
+]}

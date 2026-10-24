@@ -1,0 +1,8 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"barks_ready": true},
+ {"spawn": [190, -150, 14]},
+ {"wait": 12.0},
+ {"expect": {"ai.taunts": [1, 5]}},
+ {"quit": true}
+]}

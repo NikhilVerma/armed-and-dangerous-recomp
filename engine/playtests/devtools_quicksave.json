@@ -1,0 +1,13 @@
+{"load": "states/after_pub.json", "steps": [
+ {"clear_saves": true}, {"wait": 1.0},
+ {"expect": {"health": [399, 401]}},
+ {"note": "saved"},
+ {"tap": "F5"}, {"wait": 1.0},
+ {"expect": {"saves.newest": 0}},
+ {"hurt": 100}, {"wait": 0.5},
+ {"expect": {"health": [250, 330]}},
+ {"tap": "F9"},
+ {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"level_generation": 1, "health": {"as": "saved", "margin": 1}, "mission": "Playing", "campaign.level": "lev_1_m1"}},
+ {"quit": true}
+]}

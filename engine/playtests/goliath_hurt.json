@@ -1,0 +1,18 @@
+{"scene": "lev_3_m4_bd", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"base_turret.mounted": true, "goliath.phase": "Scripted", "goliath.walked": [0, 1]}},
+ {"send": 912}, {"send": 900},
+ {"wait": 14.0},
+ {"expect": {"goliath.phase": "Scripted", "goliath.walked": [20, 2000]}},
+ {"damage": [258, 10]}, {"wait": 0.2},
+ {"expect": {"goliath.phase": "Scripted", "goliath.health": 2990}},
+ {"damage": [258, 60]}, {"wait": 0.2},
+ {"expect": {"goliath.phase": "Hurt", "goliath.health": 2930}},
+ {"note": "hurt"},
+ {"wait": 0.5},
+ {"expect": {"goliath.walked": {"as": "hurt", "margin": 0.5}}},
+ {"wait": 4.0},
+ {"expect": {"goliath.phase": "Scripted", "goliath.walked": [195, 2000]}},
+ {"quit": true}
+]}

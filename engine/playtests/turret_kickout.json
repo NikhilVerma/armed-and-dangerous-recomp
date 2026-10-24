@@ -1,0 +1,19 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [16, 384, 20, 180]},
+ {"wait": 0.5},
+ {"warp": [71, 235, 20, 180]},
+ {"wait": 4.0},
+ {"expect": {"turret.ai": true, "gunner.phase": "On", "turrets.32.health": 10000}},
+ {"loadout": {"health": 5000}},
+ {"damage": [32, 3000]}, {"wait": 0.3},
+ {"expect": {"turret.ai": true, "turrets.32.health": 7000, "turrets.32.stayout": 0}},
+ {"damage": [32, 2500]}, {"wait": 0.3},
+ {"expect": {"turret.ai": false, "gunner.phase": "", "turrets.32.health": 4500, "turrets.32.stayout": [9, 10]}},
+ {"wait": 0.5},
+ {"expect": {"corpses.ragdolls": [1, 10]}},
+ {"warp": [71, 150, 16, 0]}, {"wait": 0.5},
+ {"damage": [32, 1000]}, {"wait": 0.3},
+ {"expect": {"turrets.32.health": 4500}},
+ {"quit": true}
+]}

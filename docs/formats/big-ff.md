@@ -3,7 +3,7 @@
 Status: 2026-10-03. Files: `<level>_big11_ff.big` (25). Magic `0x00FFDBAC`. Module:
 `tools/formats/big_kinds/ff.py`. Roundtrip: `bigtool.py roundtrip "orig/pc/GameData/**/*_ff.big"` gives 25 ok.
 
-Loader: **0x004e4d90 Rumble_Load** (recovered in `src/loader/auto_0048afb0.cpp`). It reads the sample count and
+Loader: **0x004e4d90 Rumble_Load** (recovered in `archive/src/loader/auto_0048afb0.cpp`). It reads the sample count and
 the hash block size, builds the hash table (compare callback 0x004e4d60), fixes it up with 0x004f1220, reads
 `count * 0x840` bytes of samples into one allocation ("Rumble Samples") and then fills each sample's two wave
 buffers with 0x004e52b0 Rumble_GenerateWave.

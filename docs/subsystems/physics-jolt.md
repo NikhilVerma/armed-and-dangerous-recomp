@@ -22,16 +22,16 @@ Bullet and PhysX were the alternatives, but Jolt has the cleaner API and determi
 - It is compiled into the static library `and_physics` with `/arch:SSE2`. SSE4/AVX/LZCNT/TZCNT/F16C/FMA are off so
   that it runs on any x86 CPU the game runs on. `CROSS_PLATFORM_DETERMINISTIC` is on and the CRT is static.
 - The hook DLL itself stays `/arch:IA32` (x87, for fidelity), so Jolt headers never reach it. The only interface is
-  the plain C API in `hook/physics/jolt_bridge.h`, with handles as `uint32_t` and vectors as `float[3]` and
+  the plain C API in `archive/hook/physics/jolt_bridge.h`, with handles as `uint32_t` and vectors as `float[3]` and
   quaternions as `float[4]` in (x, y, z, w) order.
-- `hook/physics/jolt_bridge.cpp` is the only file that includes Jolt.
-- Headless test with no game: `pwsh tools/build.ps1 -Target jolt_bridge_test`, then run
+- `archive/hook/physics/jolt_bridge.cpp` is the only file that includes Jolt.
+- Headless test with no game: `pwsh archive/tools/build.ps1 -Target jolt_bridge_test`, then run
   `build/hook-release/jolt_bridge_test.exe`. It drops a box onto a mesh floor under the game's gravity and expects
   PASS. Result 2026-10-06: `PASS: box at (0, 0, 0.980) speed 0.0000`.
 
 ## Hook points (recovered glue, faithful when unset)
 
-`src/physics/physics_hooks.h`; all four are null by default, which is the original behaviour:
+`archive/src/physics/physics_hooks.h`; all four are null by default, which is the original behaviour:
 
 | Pointer | Called from |
 | --- | --- |
@@ -44,7 +44,7 @@ Bullet and PhysX were the alternatives, but Jolt has the cleaner API and determi
 
 Select a stage with `[physics] engine=` in `and.ini`. The default is `havok`, and tests always run with it.
 
-1. **`jolt_shadow`** (skeleton done in `hook/enhance/physics_jolt.cpp`). Havok still simulates. Every Havok entity
+1. **`jolt_shadow`** (skeleton done in `archive/hook/enhance/physics_jolt.cpp`). Havok still simulates. Every Havok entity
    gets a Jolt mirror body. Before each substep, Jolt is seeded with Havok's position, rotation and velocities;
    after it, Jolt steps the same dt, and the per-body position and velocity differences are logged once a second.
    This "one-step agreement" check avoids chaotic drift: a large error points to a wrong shape, mass, gravity or
@@ -104,7 +104,7 @@ Select a stage with `[physics] engine=` in `and.ini`. The default is `havok`, an
   - Collision filtering is not mirrored yet, so in Jolt everything moving collides with everything.
 - Headless bridge test (2026-10-06): `PASS: box at (0, 0, 0.980) speed 0.0000; free fall speed at 0.5 s 32.174`.
 
-## First in-game runs (2026-10-06, `python tools/jolt_shadow_run.py --scenario play`)
+## First in-game runs (2026-10-06, `python archive/tools/jolt_shadow_run.py --scenario play`)
 
 Only the three PhysicsManager hooks are on, so everything else is original code. The runs are deterministic: the logs
 are identical from run to run.

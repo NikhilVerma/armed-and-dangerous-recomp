@@ -1,0 +1,12 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"coverslots.trees": 61, "coverslots.held": 0}},
+ {"loadout": {"health": 5000}},
+ {"land": [190, 141, 270]},
+ {"spawn": [75, 141, 20]}, {"wait": 1.4},
+ {"cover": true}, {"wait": 0.2},
+ {"expect": {"coverslots.held": 1, "ai.minds.ToSlot": 1}},
+ {"wait": 3.0},
+ {"expect": {"coverslots.took": 1, "coverslots.reached": 1}},
+ {"quit": true}
+]}

@@ -1,0 +1,20 @@
+{"load": "states/after_pub.json", "steps": [
+ {"note": "the grunts take no target (ai_force grunts_hold): their bullets would shoot the thrown bomb down in flight (the bombs are in the bullets' list, 0x00481320), which this test is not about"},
+ {"ai_force": "grunts_hold"},
+ {"cheat": "SHIELDME"},
+ {"wait": 1.0},
+ {"warp": [-271, 680, 80, 180]},
+ {"spawn": [-275, 620, 80]},
+ {"wait": 1.0},
+ {"expect": {"special": "stickybomb", "sticky_live": 0}},
+ {"click": "Right"},
+ {"wait": 0.5},
+ {"expect": {"sticky_live": 1, "sticky_homing": 1}},
+ {"note": "the target dies in the bomb's flight: the bomb keeps homing on his body (0x0047e580 keeps +0x544 while it is in the world)"},
+ {"kill": 1000},
+ {"wait": 0.1},
+ {"expect": {"sticky_live": 1, "sticky_stuck": 0, "sticky_homing": 1}},
+ {"wait": 1.5},
+ {"expect": {"sticky_stuck": 1, "sticky_on_character": 1}},
+ {"quit": true}
+]}

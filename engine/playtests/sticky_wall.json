@@ -1,0 +1,1 @@
+{"load": "states/after_pub.json", "steps": [{"wait": 1.0}, {"warp": [-380, 88, 60, 270]}, {"wait": 1.0}, {"mouse": [0, -60]}, {"wait": 0.3}, {"click": "Right"}, {"wait": 4.0}, {"quit": true}]}

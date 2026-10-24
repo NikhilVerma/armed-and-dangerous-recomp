@@ -1,7 +1,7 @@
 # `.big` kind `prop`: property sets
 
 Status: 2026-10-03. Module: `tools/formats/big_kinds/prop.py`. Files: `<level>_big06_prop.big`, magic
-0x00BEADED, loader **0x0045b7d0 ObjectSystem_LoadProperties** (recovered: `src/loader/auto_00410ec0.cpp`).
+0x00BEADED, loader **0x0045b7d0 ObjectSystem_LoadProperties** (recovered: `archive/src/loader/auto_00410ec0.cpp`).
 Roundtrip: `.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip "orig/pc/GameData/**/*_prop.big"`
 gives 25 ok / 25.
 

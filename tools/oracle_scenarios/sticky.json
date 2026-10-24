@@ -1,0 +1,14 @@
+{
+ "about": "three sticky bomb throws at the start point (MOUSE2): count, explosions",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,40:MOUSE2*5,130:MOUSE2*5,220:MOUSE2*5",
+ "frames": 360,
+ "trace_every": 2,
+ "suite": true,
+ "known": {
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (original: the run cycle's fs_* notes at 2, 6, 18, 20, 36 after the briefing stop; remaster 12, 16, 32: charanim.rs notes of the run / stop blend)",
+  "grunt.mind": "B6: a far grunt reacts to the blast / landing in the original (target roman), not in the remaster",
+  "grunt.target": "B6: a far grunt reacts to the blast / landing in the original (target roman), not in the remaster",
+  "grunt.pos": "B6 (follows: grunt 201 moves on Roman in the original)"
+ }
+}

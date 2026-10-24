@@ -1,0 +1,11 @@
+{
+ "about": "the first walk: dismiss the briefing, W for 2.5 s from the start point (before the treasure token)",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,30:17*150",
+ "frames": 240,
+ "trace_every": 2,
+ "suite": true,
+ "known": {
+  "events.sounds": "B10: footstep notes after a start / stop come at other frames (original: the run cycle's fs_* notes at 2, 6, 18, 20, 36 after the briefing stop; remaster 12, 16, 32: charanim.rs notes of the run / stop blend)"
+ }
+}

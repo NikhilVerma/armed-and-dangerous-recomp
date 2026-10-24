@@ -1,0 +1,15 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [-255, -120, 8, 180]},
+ {"wait": 0.5},
+ {"spawn": [-235, -195, 8]},
+ {"wait": 2.0},
+ {"cover": true},
+ {"wait": 6.0},
+ {"expect": {"cover.slots.37": true, "cover.in_slot": [1, 5]}},
+ {"warp": [-262, -235, 8, 0]},
+ {"wait": 12.0},
+ {"shot": "behind"},
+ {"expect": {"cover.slots.37": false}},
+ {"quit": true}
+]}

@@ -1,0 +1,10 @@
+{"scene": "lev_3_m1", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"loadout": {"health": 400}},
+ {"expect": {"ai.jumpers": 14}},
+ {"note": "start"},
+ {"send": 1400},
+ {"wait": 8.0},
+ {"expect": {"ai.jumpers": {"as": "start", "rise": [2, 12]}}},
+ {"quit": true}
+]}

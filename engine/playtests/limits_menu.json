@@ -1,0 +1,23 @@
+{"title": true, "preset": "remaster", "steps": [
+ {"note": "Options > Engine (enginepage.rs): the engine-limit and input settings; a checkbox and a stepper store changes to the preset"},
+ {"wait": 3.0},
+ {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+ {"expect": {"menu.selected": "ui_mainmenu_options"}},
+ {"tap": "Enter"}, {"wait": 1.2},
+ {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+ {"expect": {"menu.page": "Options", "menu.selected": "Engine"}},
+ {"tap": "Enter"}, {"wait": 1.2},
+ {"expect": {"menu.page": "Engine", "menu.selected": "Windows Pointer"}},
+ {"shot": "engine_page"}, {"wait": 0.3},
+ {"tap": "Enter"}, {"wait": 0.4},
+ {"expect": {"window.graphics.hardware_cursor": false}},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"menu.selected": "Decal Pool"}},
+ {"tap": "ArrowLeft"}, {"wait": 0.4},
+ {"expect": {"window.graphics.decal_pool": 512, "window.graphics.hardware_cursor": false}},
+ {"tap": "Escape"}, {"wait": 1.2},
+ {"expect": {"menu.page": "Options"}},
+ {"quit": true}
+]}

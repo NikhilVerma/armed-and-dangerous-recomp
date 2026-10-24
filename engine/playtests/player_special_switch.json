@@ -1,0 +1,13 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"loadout": {"stickies": 5, "topsy": 2}},
+ {"wait": 0.3},
+ {"expect": {"special": "stickybomb", "special_pending": false, "shots": 0}},
+ {"tap": "Tab"},
+ {"wait": 0.2},
+ {"expect": {"special": "topsyturvy", "special_pending": false, "stickies": 5, "shots": 0}},
+ {"tap": "Tab"},
+ {"wait": 0.2},
+ {"expect": {"special": "stickybomb", "special_pending": false, "shots": 0}},
+ {"quit": true}
+]}

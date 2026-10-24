@@ -1,0 +1,19 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"warp_companion": [0, 175, -60, 14]},
+ {"warp_companion": [1, 175, -78, 14]},
+ {"wait": 2.0},
+ {"expect": {"q_fight": "none", "jonesy_fight": "none", "q_fight_ends": 0, "jonesy_fight_ends": 0, "q_fights": 0}},
+ {"warp": [220.68, -39.44, 13.76, 90]},
+ {"wait": 3.0},
+ {"spawn": [280, -69, 14]},
+ {"wait": 4.0},
+ {"note": "Q has begun a fight with the grunt (the pair may already have shot it: a fight begun counts, whether or not it is still on)"},
+ {"expect": {"q_fights": [1, 2]}},
+ {"kill": 1000},
+ {"wait": 12.0},
+ {"expect": {"q_fight": "none", "jonesy_fight": "none", "q_fight_ends": [1, 2], "jonesy_fight_ends": [0, 2], "q_dist": [0, 50], "jonesy_dist": [0, 50]}},
+ {"quit": true}
+]}

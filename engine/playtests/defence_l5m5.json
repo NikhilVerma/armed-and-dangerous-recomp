@@ -1,0 +1,12 @@
+{"scene": "lev_5_m5", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 8.0},
+ {"expect": {"base_turret.mounted": true, "base_turret.intro": false, "ic.started": [5, 100], "goliath.phase": "Scripted"}},
+ {"hurt": -100000}, {"send": 901}, {"send": 66},
+ {"wait": 45.0},
+ {"shot": "shrubs"},
+ {"expect": {"shrubpatrol.guarding": [1, 2], "ic.started": [8, 100], "goliath.walked": [50, 2000], "army.released": [1, 1000]}},
+ {"send": 456}, {"wait": 9.0},
+ {"expect": {"mission": "Won"}},
+ {"quit": true}
+]}

@@ -1,0 +1,79 @@
+address,name,disposition,reason
+0x0041c110,FxOwner_Update,replaced,"FxEarObject (bb_ear) toggles: mission.rs Action::Fx starts the ear's fx on its trigger; lev_1_m1's three ears set no delay_initial / delay_repeat / looping_fx, so the delay and cool-down timers stay 0 and every message starts the fx at once"
+0x0041c050,FxOwner_OnMessage,replaced,"as FxOwner_Update: mission.rs Action::Fx (no looping_fx ear on lev_1_m1, so no toggle-off and no pending flag)"
+0x0041c780,FxBank_PointerToOffset,replaced,save-game serialisation of fx records / system classes: savegame.rs has its own format
+0x0041c790,FxBank_OffsetToPointer,replaced,save-game serialisation of fx records / system classes: savegame.rs has its own format
+0x0041d360,Fx_SetLightScaleLinear,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041d440,Fx_SetLightScaleExp,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041d560,Fx_SetLightScaleLog,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041d640,Fx_SetFogLinear,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041d700,Fx_SetFogExp,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041d830,Fx_SetFogLog,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041ddc0,Fx_SetFaceDirection,deferred,feature: fx-opcodes; opcode 0x75 (face the velocity): not in lev_1_m1's fx bank
+0x0041e990,Fx_StartDirParticle,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041f470,FxSystem_SpawnInPool,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0046e4c0,ParticleEmitter_SpawnInBox,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041fdb0,Fx_SetShaderFlag,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0041fe00,Fx_SetBackground,deferred,feature: fx-opcodes; opcode 0x62: not in lev_1_m1's fx bank
+0x00420260,Fx_SetOrientDir,not needed,unused by the shipped data: fx opcodes 0x67..0x69 / 0x6b..0x6d / 0x6e..0x6f / 0x66 / 0x3e / 0x1f / 0x2d appear in no fx of the 24 levels (fx.json survey); fxvm logs an unported opcode if one is met
+0x0040f750,fn_0040f750,replaced,"objects locked to the camera (lists +0xecc full matrix / +0xed0 position): fxvm object::follow, the camera_fx's objects following the camera entity (position_only)"
+0x00410150,fn_00410150,replaced,camera +0x17c == 1 (a camera path plays): campath.rs owns the camera path state (camera port)
+0x00415eb0,Polygon_ClipPlane,replaced,decals.rs clip() (Sutherland-Hodgman per plane; cited in its header)
+0x00416010,Polygon_ClipPlanes,replaced,decals.rs add_clipped() over the six box planes
+0x00416050,DecalManager_Construct,replaced,decals.rs Decals resource (made at start-up; a level start is a fresh process)
+0x004160c0,DecalManager_Destruct,replaced,Rust ownership (the resource drops with the app)
+0x004160d0,DecalManager_Clear,replaced,a level start is a fresh process (gamemenu.rs Restart): nothing to clear
+0x00416130,DecalManager_Reset,replaced,as DecalManager_Clear; the pool is a VecDeque of entities
+0x004165a0,Decals_TakeFree,replaced,no executed caller (0x0048cb30 not reached); decals.rs spawns directly
+0x004166b0,DecalBase_Construct,replaced,decal / shadow base object: Bevy entities with a Decal component
+0x00416720,DecalBase_Destruct,replaced,Bevy despawn
+0x00416700,DecalBase_DeletingDestructor,replaced,Bevy despawn
+0x00417010,Decal_Construct,replaced,decals.rs spawn (mesh + Decal component)
+0x004170c0,Decal_DeletingDestruct,replaced,Bevy despawn
+0x004170e0,Decal_Destruct,replaced,Bevy despawn
+0x00418510,Decal_MoveToList,replaced,the free / active lists are decals.rs Decals::live (VecDeque)
+0x00418640,fn_00418640,not needed,dead in the original: the decal manager's forced (pressure) fade never runs (decals-bodies.md Measured)
+0x00416740,Decal_Render,replaced,decals.rs draws each decal as a mesh (texture x fade); also the shadow draw (GameShadow_Draw): Bevy shadow maps
+0x00416730,RenderStates_Apply,replaced,"render-state block apply (Game+0x40): Bevy materials (alpha modes, depth bias)"
+0x004184e0,fn_004184e0,replaced,shadow vtable slot (render states + world matrix): Bevy shadow maps
+0x00416190,Shadows_AllocatePool,replaced,"the game's projected silhouette shadows: Bevy cascaded shadow maps of the sun (level.rs, options.rs ShadowLight; casters by shadow_enable)"
+0x00416290,Shadows_InvalidateTargets,replaced,device-lost handling: not applicable (wgpu)
+0x00416530,Shadows_Attach,replaced,Bevy shadow maps (no per-object shadow textures)
+0x00417990,Shadow_Construct,replaced,Bevy shadow maps
+0x00417b20,Shadow_DeletingDestruct,replaced,Bevy shadow maps
+0x00417b40,Shadow_Destruct,replaced,Bevy shadow maps
+0x00417b90,Shadow_SetOwner,replaced,Bevy shadow maps
+0x00417c00,Shadow_SetupLightCamera,replaced,Bevy shadow maps (the cascade's light camera)
+0x00417e90,Shadow_DrawCaster,replaced,Bevy shadow maps (NotShadowCaster marks non-casters)
+0x00417f20,Shadow_RenderTexture,replaced,Bevy shadow maps
+0x00418190,GameShadow_Update,replaced,Bevy shadow maps
+0x004181e0,GameShadow_RebuildReceivers,replaced,Bevy shadow maps (receivers are every lit material)
+0x00418380,GameShadow_Draw,replaced,Bevy shadow maps
+0x0042eb60,Character_SetFade,ported,"engine/src/camfade.rs ObjectAlpha (the alpha over the character's whole hierarchy: body, the weapon in his hand, a pack), set by corpses.rs's fade (Corpse_CountDown 0x0042eba0 -> vt+0x100)"
+0x0046d810,ParticlePool_ResetIndexBuffer,replaced,fxvm particles: one Bevy mesh per pool rebuilt each frame (indices included)
+0x0046d8c0,ParticlePool_Destroy,replaced,Rust ownership (the pool Vecs and meshes live with the FxVm resource)
+0x0046d900,ParticlePool_SetTexture,replaced,fxvm particles::setup_pools gives each pool mesh its bank texture material
+0x0046d950,Particle_AllocZeroed,replaced,"a zeroed particle allocation (caller 0x00446460, not an fx path): Rust allocation"
+0x0043a8d0,FxBodyfall_Spawn,ported,"engine/src/bodyfall.rs (a launched character's landing: fx_bodyfall with the ground's variant, its scream stopped); fx.rs / ai.rs launch the grunt a blast kills"
+0x00410170,CameraPathObject_Load,replaced,campath.rs (camera port): the camera_path object's anim is read from the export
+0x004102a0,fn_004102a0,replaced,CameraFXObject slot: level.rs starts camera_fx objects' fx attached to the camera
+0x00410340,fn_00410340,replaced,CameraFXObject sort-depth slot (+10000: drawn last): fxvm draws camera-locked fx with a depth bias over the scene (script.rs create_object)
+0x00410360,fn_00410360,replaced,save-game serialisation of fx records / system classes: savegame.rs has its own format
+0x00410380,fn_00410380,replaced,save-game serialisation of fx records / system classes: savegame.rs has its own format
+0x004103a0,CameraSystem_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x004103b0,CameraSystem_GetTypeId,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x004103c0,fn_004103c0,replaced,a UI widget draw slot: hud.rs / gamemenu.rs draw the UI
+0x00418560,DecalSystem_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x00418570,DecalSystem_GetTypeId,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x004185d0,Decal_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x004185e0,Decal_GetTypeId,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x004185f0,fn_004185f0,replaced,shadow vtable slot (needs-render byte): Bevy shadow maps
+0x00418600,ReturnZero,not needed,no behaviour: shared return-0 / constant virtual slots; the ported callers use the constant
+0x00418d40,fn_00418d40,replaced,environment map refresh timer (EnvMapFreq; 0 in every shipped marker: the cube is rendered once): the engine bakes each level's cube once (graphics/env_map.rs; tools/bake_env_maps.py)
+0x00419250,fn_00419250,deferred,"feature: fx-opcodes; the draw-order key +0x638 of an fx object made a background by opcode 0x62 (Fx_SetBackground 0x0041fe00: +0x638 = its argument, the object listed in the scene pass's list +0x1c0): the list is kept sorted by it (its compare callback 0x00487ee0 calls this twice: rel calls at 0x00487ee4 / 0x00487eef); the sky pass draws it in that order"
+0x00419260,FxObject_InFrustum,replaced,Bevy frustum culling (background fx are never culled: none on lev_1_m1)
+0x00419280,fn_00419280,not needed,no behaviour: shared return-0 / constant virtual slots; the ported callers use the constant
+0x00495970,Streamer_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x00495980,Streamer_GetTypeId,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x00495990,StreamerSystem_GetClass,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"
+0x004959a0,StreamerSystem_GetTypeId,not needed,"plumbing: RTTI class descriptor / type id accessor; the engine identifies classes by Bevy components, no class registry"

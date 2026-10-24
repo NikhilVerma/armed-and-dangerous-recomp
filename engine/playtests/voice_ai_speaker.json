@@ -1,0 +1,14 @@
+{"scene": "lev_3_m3", "steps": [
+ {"note": "a sound_ear's ai_sound is spoken by the object of its ai_tag (0x00497750 / 0x00497900): ear 91 (trigger 803) -> captain 122 (tag 45) says ca250018_help"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 0.5},
+ {"land": [60, 540, 160]},
+ {"wait": 0.5},
+ {"audio": {"stop_all_but_music": true}},
+ {"send": 803},
+ {"wait": 0.3},
+ {"expect": {"audio.started.ca250018_help": 1}},
+ {"quit": true}
+]}

@@ -1,0 +1,18 @@
+{"load": "states/after_pub.json", "steps": [
+ {"cheat": "SHIELDME"},
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"kill": 1000}, {"wait": 0.1}, {"kill": 1000}, {"wait": 0.1}, {"kill": 1000},
+ {"wait": 1.8},
+ {"expect": {"anim_mode": 0, "anim_state": 0}},
+ {"note": "0x00475ff0: the throw (state 5) holds while trotter_throw plays, a fire request then takes the state over"},
+ {"click": "Right"},
+ {"wait": 0.15},
+ {"expect": {"anim_state": 5, "anim_entry": "trotter_throw"}},
+ {"click": "Left"},
+ {"wait": 0.05},
+ {"expect": {"anim_state": 1, "anim_entry": "trotter_fire_sg"}},
+ {"wait": 0.6},
+ {"expect": {"anim_state": 0, "anim_entry": "trotter_aim"}},
+ {"quit": true}
+]}

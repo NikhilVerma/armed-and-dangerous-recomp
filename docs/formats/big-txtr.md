@@ -3,7 +3,7 @@
 Status: 2026-10-03. Module: `tools/formats/big_kinds/txtr.py` (uses `common.py`, docs/formats/big-common.md).
 Roundtrip: `.venv\Scripts\python.exe tools\formats\bigtool.py roundtrip "orig/pc/GameData/**/*_txtr.big"` ->
 25 ok. File `lev_NN_big02_txtr.big`, magic `0x0B00B1E5`, loader **0x00488400 RenderSystem_LoadTextures**
-(`src/loader/auto_0045bbe0.cpp`), called from the dispatcher at 0x0044a060. 7287 textures over 25 files.
+(`archive/src/loader/auto_0045bbe0.cpp`), called from the dispatcher at 0x0044a060. 7287 textures over 25 files.
 
 ## Payload layout
 
@@ -121,7 +121,7 @@ So an override folder can be matched by `<texture name>.dds`, compared case-inse
 
 ### Where to hook a replacement
 
-- Simplest and earliest: in RenderSystem_LoadTextures (recovered, `src/loader/auto_0045bbe0.cpp`), after
+- Simplest and earliest: in RenderSystem_LoadTextures (recovered, `archive/src/loader/auto_0045bbe0.cpp`), after
   record+0/+4 are set and before the virtual 73 call: if `override/<name>.dds` exists, build an image chain
   from it (u32 levels, then per level the 16-byte header + pixels, exactly as `txtr.chain_bytes()` does) in a
   heap block that lives as long as the level, and set record+4 to it. Everything downstream (size, format,
@@ -131,7 +131,7 @@ So an override folder can be matched by `<texture name>.dds`, compared case-inse
   textures registered by other paths that also use flag 8.
 - Keep in mind: `n_fx_bank_*` textures get a forced LOD 0; the renderer LOD bias (0x0050a510) drops top levels
   of other textures, so a high-resolution replacement may not show its top level unless the LOD rules are
-  also changed (enhancement work, `hook/enhance/`, off by default).
+  also changed (enhancement work, `archive/hook/enhance/`, off by default).
 
 ## Open questions
 

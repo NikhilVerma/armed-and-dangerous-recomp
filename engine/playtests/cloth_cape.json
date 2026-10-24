@@ -1,0 +1,11 @@
+{"steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"expect": {"cape.count": 1, "cape.anchor_error": [0, 0.01], "cape.stretch": [0, 0.01], "cape.swing": [0.01, 4.0]}},
+ {"warp_companion": [1, -216, 1098, 126]},
+ {"look_at": [-216, 1098, 130]},
+ {"wait": 0.5},
+ {"expect": {"cape.count": 1, "cape.anchor_error": [0, 0.01], "cape.stretch": [0, 0.01], "cape.swing": [0.01, 4.0]}},
+ {"shot": "q_running"}, {"wait": 0.3},
+ {"quit": true}
+]}

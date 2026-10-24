@@ -1,0 +1,157 @@
+address,name,disposition,reason
+0x00401010,fn_00401010,replaced,options apply: options.rs applies each option
+0x004067e0,fn_004067e0,ported,"engine/src/weapons/targeting.rs: the passes' eye, the player's position + 4 (View::eye)"
+0x00407c20,fn_00407c20,ported,"engine/src/weapons/glove.rs use_glove: the six targets through targeting::search (autoaim_bof_factor_*, bof_range, line of sight, the landscape height rule)"
+0x00408050,fn_00408050,ported,engine/src/weapons/targeting.rs View::contains: the bounding-sphere test against the narrowed view
+0x00408190,fn_00408190,ported,"engine/src/weapons/targeting.rs candidates / search: the live characters nearest the eye first, 21 looked at"
+0x004082a0,fn_004082a0,replaced,engine/src/weapons/targeting.rs: the candidate list is built each pass (Rust Vec); no references to release
+0x00410bd0,fn_00410bd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00410ca0,fn_00410ca0,replaced,cheat flags at level start: cheats.rs applies effects on activation (0x2000 object pass 0x00418690 not ported)
+0x00415910,fn_00415910,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00415d50,fn_00415d50,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
+0x00447600,UI_GetLoadingText,ported,"engine/src/splash.rs loading_text (the loading screen's text when the ad image is missing; LoadingScreen_Draw 0x00449ac0)"
+0x00447d20,fn_00447d20,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x00447e20,fn_00447e20,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x00447f50,UI_ShowAssignKeyPrompt,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x004481b0,fn_004481b0,ported,"engine/src/bindings.rs (KeyBindings::assign, capture) and gamemenu.rs (the Controls page's binding entries, Act::Rebind)"
+0x004626e0,fn_004626e0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00462770,fn_00462770,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004629b0,Hud_CreateLevelUi,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004637d0,fn_004637d0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463ad0,ObjectList_FindByName,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463c50,fn_00463c50,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463c90,fn_00463c90,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463d60,fn_00463d60,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463df0,fn_00463df0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463e80,fn_00463e80,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00463f30,fn_00463f30,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004643b0,fn_004643b0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004643f0,fn_004643f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004648a0,fn_004648a0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004648b0,fn_004648b0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464990,fn_00464990,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464a00,fn_00464a00,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464ae0,fn_00464ae0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464b10,fn_00464b10,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00464e10,fn_00464e10,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465130,fn_00465130,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465160,fn_00465160,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004651a0,fn_004651a0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465350,fn_00465350,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465470,UiText_ExtendBounds,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465850,UiText_SetName,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004658a0,UiText_SetWideText,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465970,UiText_Format,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004659b0,UiText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004659d0,UiText_SetColour,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004659e0,UiText_SetPosition,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00465be0,fn_00465be0,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465c90,fn_00465c90,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465ce0,fn_00465ce0,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465d30,fn_00465d30,ported,"engine/src/hud.rs (the peasant counters ui_captured_count / ui_safe_count / ui_return_count and the ui_peasant icon, spawned and shown while peasant_max_saved > 0: peasant.rs fills HudState::peasants)"
+0x00465d50,fn_00465d50,deferred,"feature: hud-meters; the flag base's init: its counter handle is replaced (hud.rs reads defence.rs's counter), but the fx_red_flag it starts on the UI object's ref_flag bone (fxo_red_flag, a 2 x 1 quad of fxa_red_flag, climbing the pole with the meter's anim 4 = count / max, 0x00465e30) is not drawn: how an fx object attached to a UI object is placed and drawn is not traced and there is no capture of a defence level's HUD (open)"
+0x00465de0,fn_00465de0,replaced,"engine/src/hud.rs reads the counter of grunt_wall_counter_tag each frame (defence.rs HudState::over_wall): no handle on the counter list Game+0x26fc to take or release (ui_grunt_over_wall_count / ui_flag_base spawned and shown by it)"
+0x00465e30,fn_00465e30,ported,"cited: hud.rs (the base flag meter / grunts-over-the-wall count, defence.rs)"
+0x00465f30,fn_00465f30,replaced,"engine/src/hud.rs reads the counter of grunt_wall_counter_tag each frame (defence.rs HudState::over_wall): no handle on the counter list Game+0x26fc to take or release (ui_grunt_over_wall_count / ui_flag_base spawned and shown by it)"
+0x00465f70,fn_00465f70,ported,"cited: hud.rs (the base flag meter / grunts-over-the-wall count, defence.rs)"
+0x00466010,fn_00466010,replaced,"engine/src/hud.rs reads the counter of grunt_wall_counter_tag each frame (defence.rs HudState::over_wall): no handle on the counter list Game+0x26fc to take or release (ui_grunt_over_wall_count / ui_flag_base spawned and shown by it)"
+0x00466430,fn_00466430,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00466520,fn_00466520,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00466530,fn_00466530,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00466580,fn_00466580,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467170,fn_00467170,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004671b0,fn_004671b0,ported,"engine/src/hud.rs bof_hint (the first time the glove is out, weapons/glove.rs, the message ui_bof_hint with Fire's key pauses the game once: BofHintShown); playtests weapon_glove / weapon_glove_miss dismiss it"
+0x00467220,fn_00467220,ported,"engine/src/hud.rs (ui_tickerbomb shown while HudState::tickers_left: ticker bombs held, Game+0xd90, and ticker sites left, World+0xeb4; mission.rs fills it)"
+0x00467270,fn_00467270,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x004676f0,fn_004676f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467740,fn_00467740,deferred,"feature: untraced; a HUD element's update that hides it once its anim has played out (anim 4's +0x1c bit 2); it runs every play frame on every level (coverage: 183311 calls, one element) but which element of pui_main it drives is not identified (hud.md open question 7)"
+0x004677c0,fn_004677c0,ported,"engine/src/mission.rs (the timed text: ui_tickerbomb_patience shown 2.0 s from the Use that raises it, Mission::patience; the other timed prompts, ui_tickerbomb_none and ui_pub_fail, are raised every frame their condition holds, so only their 2 s tail after the player leaves is not modelled: a tuning item)"
+0x004679f0,fn_004679f0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467d90,fn_00467d90,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467f00,fn_00467f00,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00467fd0,fn_00467fd0,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046b0a0,Ui_PixelToScreen,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046bbe0,Ui_ArrowInit,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046bdd0,ListBox_Init,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046be90,ListBox_Destroy,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bec0,fn_0046bec0,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bed0,ListBox_Layout,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bf30,ListBox_HitEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046bfd0,ListBox_HitArrows,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c020,ListBox_HitTest,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c070,ListBox_Render,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c1d0,ListBox_Clear,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c2b0,ListBox_SortA,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c2c0,ListBox_SortB,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c2d0,ListBox_Sort,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c310,ListBox_AddEntryDefault,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c320,ListBox_AddEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c4d0,ListBox_SetHighlight,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c530,ListBox_SelectEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c560,ListBox_Select,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c5f0,ListBox_SetTop,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c740,ListBox_GetEntry,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c760,ListBox_GetEntryTextA,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c7e0,ListBox_GetEntryTextW,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c840,ListBox_GetSelectedTextA,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c850,ListBox_GetSelectedTextW,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c860,ListBox_HandleInput,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046c980,ListBox_SetRows,replaced,the scrolling list box widget: gamemenu.rs / extras.rs draw the Replay Mission and Cutscenes lists
+0x0046cbc0,CheckBox_Init,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046ce40,fn_0046ce40,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046cf70,Stepper_SetSteps,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046d400,FitText_Init,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046d580,FitText_SetScale,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x0046d630,Spline_Coefficients,replaced,"UI object framework (inits, kind bits, placement, UiText setters): Bevy entities from layout.json, hud.rs spawn / gamemenu.rs Spawner"
+0x00470c90,DisplayMode_Pack,replaced,display mode pack / unpack: window size in options.json
+0x00470cc0,DisplayMode_Unpack,replaced,display mode pack / unpack: window size in options.json
+0x0048ff90,UI_Init,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490760,Ui_DestroyScreens,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004909f0,fn_004909f0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490a20,fn_00490a20,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490a30,fn_00490a30,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490a80,fn_00490a80,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00490b40,fn_00490b40,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491020,fn_00491020,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491110,fn_00491110,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004916e0,UiScreen_Construct,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491750,fn_00491750,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004918b0,fn_004918b0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004919c0,fn_004919c0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491ae0,fn_00491ae0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00491b60,fn_00491b60,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004927a0,fn_004927a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004928f0,fn_004928f0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x004929a0,fn_004929a0,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00493150,fn_00493150,replaced,movie screen constructor: movie.rs MoviePlayer takes a PlayMovies request (the screens PlayMovie / PlayMovieNoSkip / AttractMode are its skippable flag and view)
+0x00493190,fn_00493190,replaced,movie screen hide stops its movie: a new PlayMovies or StopMovies stops it (movie.rs requests); cutscenes.rs stops the page movies when their page closes
+0x004931b0,fn_004931b0,replaced,play one movie of the list: movie.rs start_next / open (movies/<name>/); the seen mark 0x004a07a0 for the movie select list is not ported (no movie select page)
+0x00493240,fn_00493240,replaced,stop the open movie: movie.rs close
+0x00493270,fn_00493270,replaced,"next name of the play list: ported in movie.rs (PlayMovies::list splits at , and ;)"
+0x004932e0,fn_004932e0,replaced,set the play list: PlayMovies::list
+0x00493320,fn_00493320,replaced,movie screen show / hide: cutscenes.rs pauses the game during a full-window movie; the post-process targets it releases are renderer plumbing
+0x004933b0,fn_004933b0,not needed,no effect in the remaster: pauses a movie when another screen takes the focus; no remaster screen opens over a movie and the movie clock is real time
+0x004933e0,fn_004933e0,replaced,movie screen update (end / skip -> next movie; none left -> pop): ported in movie.rs advance / skip
+0x00493520,fn_00493520,ported,"engine/src/splash.rs (TimedScreen: the LegalText splash, b_legal 4.0 s, then the intro movies; cutscenes.rs boot)"
+0x00493590,fn_00493590,ported,"engine/src/splash.rs (TimedScreen: the LegalText splash, b_legal 4.0 s, then the intro movies; cutscenes.rs boot)"
+0x00493770,fn_00493770,ported,"engine/src/splash.rs exit_screen (gamemenu.rs Page::Exit: the menu fades to it and the game quits)"
+0x00494000,fn_00494000,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00494030,fn_00494030,replaced,"screen manager: GameMenu page stack, navigate / animate, MenuRow"
+0x00494820,fn_00494820,replaced,poster render target / widget release: statscreen.rs draws the poster as a quad
+0x00495e50,fn_00495e50,replaced,text table: Texts
+0x004a2f70,fn_004a2f70,replaced,the slot widget's init / thumbnail release: the remaster's slots (saveslots.rs) keep no thumbnail (open)
+0x004a2fd0,fn_004a2fd0,replaced,the slot widget's init / thumbnail release: the remaster's slots (saveslots.rs) keep no thumbnail (open)
+0x004a2fe0,fn_004a2fe0,replaced,the slot widget's init / thumbnail release: the remaster's slots (saveslots.rs) keep no thumbnail (open)
+0x004907c0,fn_004907c0,replaced,"the level-loading screen (the level name it loads, its show 0x00492f80, its update 0x00492fd0 with the existence check 0x00418730 / 0x00418790 and the ui_corruptcontent fallback to lev_shell): Restart the level starts the game again into the level (gamemenu.rs relaunch); the next level after the Stats screen returns to the title (statscreen.rs)"
+0x00492f80,fn_00492f80,replaced,the level-loading screen's show (copies the level name): Restart the level relaunches the process into the level (gamemenu.rs relaunch)
+0x00492fd0,fn_00492fd0,replaced,"the level-loading screen's update (loads the named level on its 6th frame, starts it on the 11th; ui_corruptcontent and lev_shell when it is missing): the remaster loads lev_1_m1 at start (level.rs) and relaunches to restart"
+0x00418730,fn_00418730,replaced,narrows the loading screen's level name and checks the level exists (0x00418790): the remaster loads its exported level (level.rs) and relaunches to restart
+0x00418790,fn_00418790,replaced,"resolves a level name to its file and checks it (the loading screen, 0x00418730): the remaster loads its exported level (level.rs)"
+0x00464430,fn_00464430,ported,ported: saveslots.rs (the blinking prompt drawn over the slot; the on-top list is the texts' z)
+0x0046b0d0,Ui_DrawFrame,ported,"ported: saveslots.rs / gamemenu.rs save_slot (the slot panel, -96..96 x 0..-184, 0x800a2532 / 0xe00a2532)"
+0x004a3020,fn_004a3020,ported,"ported: saveslots.rs view / savegame.rs slots (name, empty / damaged, level, difficulty, local file date, tokens; the default slot)"
+0x004a36c0,fn_004a36c0,ported,ported: saveslots.rs (the free-space check before saving to an empty slot: the remaster does not check)
+0x004a36f0,fn_004a36f0,ported,ported: gamemenu.rs navigate Act::Slot (save / overwrite prompt / load / delete prompt)
+0x004a37e0,fn_004a37e0,ported,ported: gamemenu.rs save_slot (the panel is the hit box: MenuRow::panel)
+0x004a3b60,fn_004a3b60,ported,"ported: gamemenu.rs slot_page / navigate go (title, default slot: saveslots::default_slot)"
+0x00406740,fn_00406740,ported,"engine/src/weapons/targeting.rs, hud.rs lock_markers: the multi-lock pass with the vindaloo (hud +0x152) and the four ui_multi_lock markers on its lock-ons"

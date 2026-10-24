@@ -1,0 +1,77 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "spawn": [
+    {
+      "template": "grunt",
+      "at": [
+        -216.5,
+        900.0,
+        127.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -208.5,
+        900.0,
+        127.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -200.5,
+        900.0,
+        127.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -216.5,
+        890.0,
+        127.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -208.5,
+        890.0,
+        127.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -200.5,
+        890.0,
+        127.0
+      ],
+      "yaw": 90,
+      "frame": 380
+    }
+  ],
+  "shots": [
+    700
+  ],
+  "settings": {
+    "render.skip_ui": 1,
+    "limits.log": 1,
+    "test.invulnerable": 1
+  },
+  "variants": {
+    "pathing": {}
+  }
+}

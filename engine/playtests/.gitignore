@@ -1,0 +1,5 @@
+# playtest output (python tools/playtest.py writes it next to the script)
+*.out
+*.png
+*.jsonl
+*.camera.json

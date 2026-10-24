@@ -1,0 +1,17 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"expect": {"objects.258.removed": true, "objects.174.template": "v_house_2f_a"}},
+ {"loadout": {"mg": 140, "mg_clip": 60, "use_mg": true, "stickies": 7, "topsy": 1, "rifle_clip": 4, "health": 220}},
+ {"destroy": 174},
+ {"wait": 0.5},
+ {"destroy": 174},
+ {"wait": 0.5},
+ {"destroy": 131},
+ {"send": 556},
+ {"wait": 0.5},
+ {"expect": {"objects.174.template": "v_house_2f_a_db", "objects.131.template": "boom_island_d", "objects.248.template": "v_prison_gate_d", "triggers.301": 1}},
+ {"expect": {"weapon": "machinegun", "clip": 60, "ammo": 140, "stickies": 7, "topsy_left": 1, "health": 220}},
+ {"save": "save_roundtrip"},
+ {"wait": 0.3},
+ {"quit": true}
+]}

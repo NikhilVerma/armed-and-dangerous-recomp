@@ -1,12 +1,12 @@
 # Recovering a function: the procedure
 
-How to turn one original function into compilable C++ in `src/` that replaces it in the running game.
+How to turn one original function into compilable C++ in `archive/src/` that replaces it in the running game.
 Every rule here comes from a bug that actually happened.
 
 ## 1. Gather
 
 ```
-.venv\Scripts\python.exe tools\recover.py 0x004fe3a0 --asm
+.venv\Scripts\python.exe archive\tools\recover.py 0x004fe3a0 --asm
 ```
 
 It prints the function's real calling convention (from `symbols/abi.csv`), whether the comparison scenarios
@@ -19,7 +19,7 @@ call argument against the disassembly.
 ## 2. Write
 
 One function becomes: an implementation with a readable C++ signature, a small `_Abi` adapter, a generated
-entry stub, and a `HOOK()` registration. Copy this shape (from `src/renderer/buffers.cpp`):
+entry stub, and a `HOOK()` registration. Copy this shape (from `archive/src/renderer/buffers.cpp`):
 
 ```cpp
 #include "gen/entry_stubs.h"   // ABI_ENTRY_XXXXXXXX macros (generated)
@@ -77,7 +77,7 @@ input you do not use is still a parameter (comment it out by name).
 ## 3. Check
 
 ```
-pwsh tools\check_compile.ps1 src\renderer\yourfile.cpp
+pwsh archive\tools\check_compile.ps1 archive\src\renderer\yourfile.cpp
 ```
 
 compiles one file (no output, safe to run in parallel). Fix every error and warning.

@@ -12,11 +12,14 @@ import csv
 import os
 import re
 import struct
+import sys
 
 import pefile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "orig", "pc", "GameData", "game.unpacked.exe")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gamefiles import game_exe  # noqa: E402
+EXE = str(game_exe(os.path.join(ROOT, "orig", "pc", "GameData")))  # the tables live in .data / .rdata
 OUT = os.path.join(ROOT, "symbols", "types", "data_members.csv")
 BASE = 0x400000
 

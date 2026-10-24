@@ -1,0 +1,7 @@
+{"scene": "lev_1_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"cheat": "SHIELDME"},
+ {"wait": 20.0},
+ {"expect": {"ladders.carried": [1, 100], "ladders.carry_up": [7, 14]}},
+ {"quit": true}
+]}

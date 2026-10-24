@@ -1,0 +1,15 @@
+{"load": "states/l1_before_gate2.json", "steps": [
+ {"wait": 0.5},
+ {"fight": true},
+ {"goto": [270, -940, 16]},
+ {"hold_use": 2.6},
+ {"wait": 3.0},
+ {"goto": [250, -840, 16]},
+ {"wait": 5.0},
+ {"tap": "Enter"},
+ {"wait": 0.2},
+ {"goto": [322, -974, 12]},
+ {"wait": 2.0},
+ {"expect": {"mission": "Won", "dead": false}},
+ {"quit": true}
+]}

@@ -1,0 +1,11 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"loadout": {"health": 5000}},
+ {"warp": [-255, -120, 8, 180]},
+ {"wait": 0.5},
+ {"spawn": [-255, -170, 8], "template": "captain"},
+ {"wait": 9.0},
+ {"note": "p_captain: fire_num_rounds 15..20 per clip in bursts of fire_num_bursts 1..5 shots (0x00427600 / 0x00428980): bursts end inside the clip"},
+ {"expect": {"ai.captains": 1, "ai.shots": [4, 200], "ai.bursts": [1, 100]}},
+ {"quit": true}
+]}

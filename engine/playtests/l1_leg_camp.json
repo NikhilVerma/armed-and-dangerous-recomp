@@ -1,0 +1,9 @@
+{"load": "states/l1_before_camp.json", "steps": [
+ {"wait": 0.5},
+ {"fight": true},
+ {"goto": [0, -520, 10]},
+ {"goto": [120, -716, 10]},
+ {"save": "l1_before_gate2"},
+ {"expect": {"dead": false, "mission": "Playing"}},
+ {"quit": true}
+]}

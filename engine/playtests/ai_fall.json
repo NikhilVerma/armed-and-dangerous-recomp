@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [-255, -120, 8, 0]},
+ {"wait": 0.5},
+ {"spawn": [-300, -260, 250]},
+ {"wait": 1.5},
+ {"expect": {"fall.falls": 1, "fall.falling": 1}},
+ {"wait": 3.0},
+ {"expect": {"fall.landings": 1, "fall.deaths": 0, "fall.falling": 0}},
+ {"spawn": [-200, -260, 3000]},
+ {"wait": 1.0},
+ {"expect": {"fall.falls": 2, "fall.falling": 1}},
+ {"wait": 5.5},
+ {"expect": {"fall.deaths": 1, "fall.landings": 1}},
+ {"quit": true}
+]}

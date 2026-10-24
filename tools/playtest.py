@@ -1,0 +1,100 @@
+"""Run one remaster playtest headless (silent, off-screen, no mouse grab) and print only what matters.
+
+    python tools/playtest.py SCRIPT.json [--exe target-agent2] [--timeout 300] [--grep REGEX] [--size 640x372]
+
+Prints EVENT / EXPECT / PLAYTEST lines (plus --grep matches, e.g. AIDBG), the wall time and the exit code; the full
+log goes to SCRIPT.out. Exit code 1 when an expect failed or the game crashed or timed out.
+
+Fast scripts start from a saved state: a script with {"save": "NAME"} writes states/NAME.json next to itself, and a
+script with "load": "states/NAME.json" starts there (intro skipped). A missing state is written first by the script
+state_NAME.json next to the loading one (engine/playtests/state_after_pub.json). See docs/remaster-engine.md
+"Playtests".
+"""
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import platform_paths  # noqa: E402
+
+ANSI = re.compile(r'\x1b\[[0-9;]*m')
+
+ap = argparse.ArgumentParser()
+ap.add_argument('script')
+ap.add_argument('--exe', default='target-agent2', help='cargo target dir under engine/ (never "target": the player\'s copy)')
+ap.add_argument('--timeout', type=float, default=None, help="wall seconds (default: the script's own \"timeout\", else 300)")
+ap.add_argument('--grep', default=None)
+ap.add_argument('--size', default='640x372')
+ap.add_argument('--env', action='append', default=[], help='NAME=VALUE, e.g. AIDBG=1')
+ap.add_argument('--arg', action='append', default=[], help='an extra engine argument (repeat; e.g. --arg=--movies --arg=DIR)')
+ap.add_argument('--scene', default=None, help='scene folder (default the engine\'s ../work/remaster/lev_1_m1); '
+                'e.g. a test export, or the main checkout\'s from a worktree without work/')
+a = ap.parse_args()
+if a.timeout is None:
+    # a long script (a whole level played to the end) names its own limit
+    try:
+        a.timeout = float(json.load(open(a.script, encoding='utf-8')).get('timeout', 300))
+    except (OSError, ValueError):
+        a.timeout = 300
+
+engine = os.path.join(ROOT, 'engine')
+exe = str(platform_paths.engine_exe(a.exe))
+script = os.path.abspath(a.script)
+
+# The saved state the script starts from ("load", resolved against the script's folder) is written by a playtest of
+# its own, state_<NAME>.json next to it (engine/playtests/state_after_pub.json writes states/after_pub.json). On a
+# fresh clone or in a new worktree the state does not exist yet: write it first.
+try:
+    load = json.load(open(script, encoding='utf-8')).get('load')
+except (OSError, ValueError):
+    load = None
+if load:
+    state = os.path.join(os.path.dirname(script), load)
+    maker = os.path.join(os.path.dirname(script), 'state_' + os.path.splitext(os.path.basename(load))[0] + '.json')
+    if not os.path.exists(state) and os.path.exists(maker) and os.path.abspath(maker) != script:
+        print(f'state {os.path.relpath(state, ROOT)} missing: running {os.path.relpath(maker, ROOT)} first')
+        cmd = [sys.executable, os.path.abspath(__file__), maker, '--exe', a.exe, '--size', a.size]
+        if a.scene:
+            cmd += ['--scene', a.scene]
+        subprocess.run(cmd)
+out = os.path.splitext(script)[0] + '.out'
+env = dict(os.environ)
+for kv in a.env:
+    k, v = kv.split('=', 1)
+    env[k] = v
+keep = re.compile(r'EVENT |EXPECT |PLAYTEST |panicked|ERROR' + (f'|{a.grep}' if a.grep else ''))
+t0 = time.time()
+code = 0
+with open(out, 'w', encoding='utf-8', errors='replace') as f:
+    try:
+        # the script's own "scene" (a level folder under work/remaster, e.g. "lev_2_m1", or a path) unless --scene
+        level = a.scene
+        if not level:
+            try:
+                level = json.load(open(script, encoding='utf-8')).get('scene')
+            except (OSError, ValueError):
+                level = None
+            if level and not os.path.isabs(level):
+                level = os.path.join(ROOT, 'work', 'remaster', level)
+        scene = ['--scene', os.path.abspath(level)] if level else []
+        p = subprocess.run([exe, '--background', '--size', a.size, '--play', script] + scene + a.arg, cwd=engine, env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=a.timeout,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        text = p.stdout.decode('utf-8', 'replace')
+        code = p.returncode
+    except subprocess.TimeoutExpired as e:
+        text = (e.stdout or b'').decode('utf-8', 'replace')
+        code = 'timeout'
+    text = ANSI.sub('', text)
+    f.write(text)
+for line in text.splitlines():
+    if keep.search(line):
+        # drop the timestamp / level / module prefix
+        print(re.sub(r'^\S+\s+\w+\s+[\w:]+: ', '', line).strip())
+print(f'exit {code} in {time.time() - t0:.0f} s (full log {os.path.relpath(out, ROOT)})')
+sys.exit(0 if code == 0 else 1)

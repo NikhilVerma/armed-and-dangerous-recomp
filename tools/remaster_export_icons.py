@@ -1,0 +1,95 @@
+"""Packs the input prompt icons the remaster engine uses into one atlas.
+
+Source: Kenney "Input Prompts" 1.5 (CC0, www.kenney.nl), unpacked under work/kenney_input_prompts/pack (not in
+git; without it the atlas built from it and committed in tools/data/input_prompts/ is copied). Output: <out>/icons.png (RGBA, 128 px cells) and <out>/icons.json ({"cell": 128, "width", "height",
+"icons": {name: [x, y, w, h]}}), read by engine/src/hud.rs for `<icon=name>` tags in texts.
+
+Usage: python tools/remaster_export_icons.py [--pack DIR] [--out DIR]
+"""
+
+import argparse
+import json
+import math
+import shutil
+from pathlib import Path
+
+from PIL import Image
+
+# (folder, icon) pairs: the buttons input.rs names for prompts
+ICONS = {
+    "PlayStation Series": [
+        "playstation_button_color_cross", "playstation_button_color_circle", "playstation_button_color_square",
+        "playstation_button_color_triangle", "playstation_trigger_l1", "playstation_trigger_l2",
+        "playstation_trigger_r1", "playstation_trigger_r2", "playstation5_button_options",
+        "playstation5_button_create", "playstation_dpad_up", "playstation_dpad_down", "playstation_dpad_left",
+        "playstation_dpad_right", "playstation_stick_l", "playstation_stick_r", "playstation_button_l3",
+        "playstation_button_r3",
+    ],
+    "Xbox Series": [
+        "xbox_button_color_a", "xbox_button_color_b", "xbox_button_color_x", "xbox_button_color_y", "xbox_lb",
+        "xbox_lt", "xbox_rb", "xbox_rt", "xbox_button_menu", "xbox_button_view", "xbox_dpad_up", "xbox_dpad_down",
+        "xbox_dpad_left", "xbox_dpad_right", "xbox_stick_l", "xbox_stick_r", "xbox_ls", "xbox_rs",
+    ],
+    "Keyboard & Mouse": [
+        "keyboard_x", "keyboard_f", "keyboard_space", "keyboard_enter", "keyboard_escape", "keyboard_r",
+        "keyboard_q", "keyboard_tab", "keyboard_z", "keyboard_e", "keyboard_1", "keyboard_3", "keyboard_w",
+        "keyboard_a", "keyboard_s", "keyboard_d", "mouse_left", "mouse_right", "mouse_move", "keyboard_delete",
+        # every key the Controls page can bind (engine/src/bindings.rs KEYS)
+        "keyboard_0", "keyboard_2", "keyboard_4", "keyboard_5", "keyboard_6", "keyboard_7", "keyboard_8",
+        "keyboard_9", "keyboard_alt", "keyboard_apostrophe", "keyboard_arrow_down", "keyboard_arrow_left",
+        "keyboard_arrow_right", "keyboard_arrow_up", "keyboard_b", "keyboard_backspace", "keyboard_bracket_close",
+        "keyboard_bracket_open", "keyboard_c", "keyboard_capslock", "keyboard_comma", "keyboard_ctrl",
+        "keyboard_end", "keyboard_equals", "keyboard_f1", "keyboard_f10", "keyboard_f11", "keyboard_f12",
+        "keyboard_f2", "keyboard_f3", "keyboard_f4", "keyboard_f5", "keyboard_f6", "keyboard_f7", "keyboard_f8",
+        "keyboard_f9", "keyboard_g", "keyboard_h", "keyboard_home", "keyboard_i", "keyboard_insert", "keyboard_j",
+        "keyboard_k", "keyboard_l", "keyboard_m", "keyboard_minus", "keyboard_n", "keyboard_numpad_enter",
+        "keyboard_numpad_plus", "keyboard_o", "keyboard_p", "keyboard_page_down", "keyboard_page_up",
+        "keyboard_period", "keyboard_semicolon", "keyboard_shift", "keyboard_slash_back", "keyboard_slash_forward",
+        "keyboard_t", "keyboard_tilde", "keyboard_u", "keyboard_v", "keyboard_y",
+    ],
+}
+
+
+def main():
+    root = Path(__file__).resolve().parent.parent
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--pack", default=root / "work/kenney_input_prompts/pack")
+    ap.add_argument("--out", default=root / "work/remaster/lev_1_m1/ui")
+    a = ap.parse_args()
+    pack, out = Path(a.pack), Path(a.out)
+    if not pack.is_dir():
+        # the atlas this tool builds, committed (Kenney's pack is CC0): a fresh clone needs no download
+        built = root / "tools" / "data" / "input_prompts"
+        out.mkdir(parents=True, exist_ok=True)
+        for name in ("icons.png", "icons.json"):
+            shutil.copyfile(built / name, out / name)
+        print(f"no pack at {pack}: copied the committed atlas {built.relative_to(root)} -> {out / 'icons.png'}")
+        return
+    found = []
+    for folder, names in ICONS.items():
+        for n in names:
+            p = pack / folder / "Double" / f"{n}.png"
+            if p.exists():
+                found.append((n, p))
+            else:
+                print(f"missing: {folder}/{n}")
+    cell = 128
+    cols = 8
+    rows = math.ceil(len(found) / cols)
+    atlas = Image.new("RGBA", (cols * cell, rows * cell), (0, 0, 0, 0))
+    rects = {}
+    for i, (n, p) in enumerate(found):
+        im = Image.open(p).convert("RGBA")
+        if im.size != (cell, cell):
+            im = im.resize((cell, cell), Image.LANCZOS)
+        x, y = (i % cols) * cell, (i // cols) * cell
+        atlas.paste(im, (x, y))
+        rects[n] = [x, y, cell, cell]
+    out.mkdir(parents=True, exist_ok=True)
+    atlas.save(out / "icons.png")
+    (out / "icons.json").write_text(json.dumps({"cell": cell, "width": atlas.width, "height": atlas.height, "icons": rects}, indent=1))
+    print(f"{len(found)} icons -> {out / 'icons.png'} ({atlas.width}x{atlas.height})")
+
+
+if __name__ == "__main__":
+    main()

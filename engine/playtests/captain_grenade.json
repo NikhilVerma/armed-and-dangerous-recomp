@@ -1,0 +1,12 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [-255, -120, 8, 180]},
+ {"wait": 0.5},
+ {"ai_force": "throw"},
+ {"spawn": [-255, -190, 8], "template": "captain"},
+ {"note": "start"},
+ {"wait": 8.0},
+ {"expect": {"ai.captains": 1, "ai.throws": [1, 20], "grenade.thrown": [1, 20], "grenade.ended": [1, 20], "grenade.near_roman": [1, 20]}},
+ {"expect": {"health": {"as": "start", "at_most": true}}},
+ {"quit": true}
+]}

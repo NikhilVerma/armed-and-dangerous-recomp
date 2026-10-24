@@ -1,0 +1,30 @@
+name: Feature request
+description: Something the original game does that the remaster lacks, or an improvement beyond the original.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The remaster first reproduces the original (the original game is the specification), then improves on it.
+        Deferred original features are listed in docs/port/features.csv; please check there first.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Missing original behaviour (the original does it, the remaster does not)
+        - Improvement beyond the original (remaster feature)
+        - Tooling / modding
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: For original behaviour, where it shows (level, situation); addresses or docs/subsystems notes help.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

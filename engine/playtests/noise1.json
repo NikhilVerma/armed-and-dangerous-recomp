@@ -1,0 +1,10 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"warp": [300, -200, 16, 0]},
+ {"wait": 2.5},
+ {"expect": {"ai.targets_player": 0}},
+ {"noise": [-10, -480, 12]},
+ {"wait": 1.6},
+ {"expect": {"ai.targets_player": [1, 20]}},
+ {"quit": true}
+]}

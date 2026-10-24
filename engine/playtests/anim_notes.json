@@ -1,0 +1,20 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 2.0},
+ {"expect": {"anim_mode": 0, "notes_step": 0}},
+ {"down": "KeyW"},
+ {"wait": 4.0},
+ {"expect": {"anim_mode": 9, "notes_step": [12, 16]}},
+ {"up": "KeyW"},
+ {"wait": 1.5},
+ {"expect": {"anim_mode": 0}},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 1.0},
+ {"pad": "LeftStickY=0.3"},
+ {"wait": 2.0},
+ {"expect": {"anim_mode": 13, "anim_l0": "trotter_walk_aim_b", "anim_speed": [0.6, 1.7]}},
+ {"pad": "LeftStickY=0"},
+ {"wait": 1.0},
+ {"quit": true}
+]}

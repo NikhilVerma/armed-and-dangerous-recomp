@@ -1,0 +1,86 @@
+{
+ "load": "states/after_pub.json",
+ "steps": [
+  {
+   "wait": 1.0
+  },
+  {
+   "warp": [
+    -210,
+    380,
+    25,
+    0
+   ]
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "mouse": [
+    -9,
+    -10
+   ]
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "d0"
+  },
+  {
+   "click": "Right"
+  },
+  {
+   "wait": 8.0
+  },
+  {
+   "expect": {
+    "decals.on_objects": [
+     1,
+     1000
+    ],
+    "objects.85.husk": true
+   }
+  },
+  {
+   "shot": "d2"
+  },
+  {
+   "warp": [
+    -235,
+    365,
+    25,
+    0
+   ]
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "shot": "d3"
+  },
+  {
+   "destroy": 85
+  },
+  {
+   "wait": 2.0
+  },
+  {
+   "expect": {
+    "decals.faded": [
+     1,
+     1000
+    ]
+   }
+  },
+  {
+   "shot": "d4"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "quit": true
+  }
+ ]
+}

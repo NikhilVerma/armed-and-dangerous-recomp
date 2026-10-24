@@ -153,6 +153,9 @@ def decode_mesh(b, m, bone_names):
         info["_pos"] = _read3(b, descs[0], streams, n, floats(b, sb + 0x10, 3), floats(b, sb + 0x20, 3))
         if descs[9][2] and streams[descs[9][0]][0]:
             info["_uv"] = _read2(b, descs[9], streams, n, floats(b, sb + 0x30, 2), floats(b, sb + 0x38, 2))
+        # the second uv set (slot 10; scale +0x40, offset +0x48): the terrain's blend mask, lightmaps
+        if descs[10][2] and streams[descs[10][0]][0]:
+            info["_uv1"] = _read2(b, descs[10], streams, n, floats(b, sb + 0x40, 2), floats(b, sb + 0x48, 2))
     return info
 
 

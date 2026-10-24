@@ -1,0 +1,14 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"health": 400}},
+ {"warp": [190.68, -69.44, 73.76, 0]},
+ {"wait": 2.0},
+ {"expect": {"health": 400, "on_ground": true, "dead": false}},
+ {"warp": [190.68, -69.44, 113.76, 0]},
+ {"wait": 2.0},
+ {"expect": {"health": [200, 260], "on_ground": true, "dead": false}},
+ {"warp": [190.68, -69.44, 413.76, 0]},
+ {"wait": 3.0},
+ {"expect": {"health": 0, "dead": true}},
+ {"quit": true}
+]}

@@ -1,0 +1,12 @@
+{
+ "about": "the intro from the load (Roman walks with the camera path, trace_from -900) to 60 frames after the briefing: where the briefing stops him",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3",
+ "frames": 60,
+ "trace_every": 2,
+ "trace_from": -900,
+ "suite": false,
+ "expected": {
+  "events.sounds": "the original first traced line carries every sound started during the load (ambient loops, penguins); the remaster traces from its first frame"
+ }
+}

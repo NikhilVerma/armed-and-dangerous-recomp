@@ -1,6 +1,6 @@
 # Quality-of-life features: reconnaissance (2026-10-04)
 
-Static reconnaissance only (no game run). Evidence is from `work/decomp/<addr>.c`, `tools/recover.py --asm`
+Static reconnaissance only (no game run). Evidence is from `work/decomp/<addr>.c`, `archive/tools/recover.py --asm`
 and raw reads of `game.unpacked.exe` (vtables, constants). **Guess** marks anything not proven. Feature list:
 `docs/goals/remaster-basics.md` item 6.
 
@@ -53,6 +53,8 @@ Control object: primary key per action at control+0x1c+4*a, secondary at control
 both and takes the max), 0x118 bytes in total, saved in options.opt as "&m_control->m_inputActions".
 **Remapping exists in the original UI**: controls pages (menu ids 0x2c/0x2d, 0x00447d60, 12 rows per page from
 table 0x00588dd8), "PMS_INPUT_ASSIGNKEY" prompt (0x00447f50), "ui_yesno_resetcontrols" (0x004714c0 case 0x2e).
+The remaster (2026-10-18, engine/src/bindings.rs; menus.md "Controls page"): the same rule and capture for keys,
+mouse buttons and pad buttons, saved in options.json `bindings`.
 
 **Invert Y**: no option and no "invert" string in the executable. In the original, inversion = binding
 LookUp to MOUSE_DOWN and LookDown to MOUSE_UP in the controls menu (guess: works, follows from the code-per-
@@ -61,7 +63,7 @@ direction design; not tested).
 **Recommended hooks**
 - Per-axis sensitivity / invert: hook 0x004f83c0 (or post-process input+0x2c/+0x30 right after it in a hook of
   0x004f8760): multiply X/Y separately, negate Y. Faithful default = unchanged.
-- Raw-input alternative (high-DPI, no DI): replace the mouse GetDeviceState result in `hook/src/input_hooks.cpp`
+- Raw-input alternative (high-DPI, no DI): replace the mouse GetDeviceState result in `archive/hook/src/input_hooks.cpp`
   (already hooks GetDeviceState) with accumulated WM_INPUT deltas.
 - XInput: synthesise joystick axes/buttons, either by faking the 0x34-byte joystick state in the GetDeviceState
   hook for input+0x160 (needs a device to exist; guess: none without a DI joystick) or by hooking 0x004f8600 and
@@ -71,12 +73,12 @@ direction design; not tested).
 
 m_brightness (game+0x4b4, default 1.5, menu "ui_gfxmenu_brightness" range 1.0..2.0 via temp 0x005fea28) is sent
 by 0x00401ce0 as `renderer->vt[+0x40](b, b, b)` = **Renderer_SetGamma 0x005091c0** (recovered:
-`src/renderer/auto_00507c10.cpp`). It clamps to 0..2, returns early unless renderer caps byte +0x15fd bit 2 is
+`archive/src/renderer/auto_00507c10.cpp`). It clamps to 0..2, returns early unless renderer caps byte +0x15fd bit 2 is
 set (guess: the FULLSCREENGAMMA cap), builds ramp[i] = pow(i/255, 1/gamma) * 65535 and calls
 `IDirect3DDevice9::SetGammaRamp(0, 0, ramp)`. That call has no effect in windowed mode (D3D9 documentation) and
 changes the whole desktop ramp in full screen.
 
-**Recommended**: in `hook/enhance/`, wrap Renderer_SetGamma: record the three gammas, skip the device ramp, and
+**Recommended**: in `archive/hook/enhance/`, wrap Renderer_SetGamma: record the three gammas, skip the device ramp, and
 apply `c' = pow(c, 1/gamma)` in a final present pass (Vulkan backend post pass, or a full-screen quad in the
 D3D9 facade before Present). Keep the original path when the switch is off.
 
@@ -155,3 +157,95 @@ substep only (guess: otherwise presses repeat); (4) audio update once per frame.
 - **Recommended**: size option = scale the style table size field (+0xc) at start-up, or hook 0x00465720's
   result. Background = hook 0x00495e80: draw a translucent screen quad behind the text bounds before the
   renderer +0x1c8 call (bounds from 0x00495fa0, guess: the text measure function).
+
+## Menu cursor, clicks and window capture (2026-10-09)
+
+The player reported that the menu cursor moved slower than Windows and felt accelerated, that mouse and keyboard
+fought over menu focus, and that clicking a menu item sometimes did nothing. Findings (archive/src/ui/ui_03.cpp,
+archive/src/game/ui_pass.cpp):
+
+- **Position.** The menu cursor is not built from DirectInput deltas. 0x00491380 reads `GetCursorPos` every frame
+  and normalises it to the client area (manager g+0xab4: +0x320/+0x324 pixels from the centre, +0x328/+0x32c
+  0..1).
+- **Drawing.** The game draws its own sprite (`ui_mouse_cursor`, hud+0x54) at that position, last in the UI pass.
+  The sprite is a frame or more behind the hidden Windows pointer (game latency, vsync and AA): that is the "slow,
+  accelerated" feel.
+- **Clicks and hover.** UiScreen_Update 0x004929e0 hit tests the 0..1 position against the items' 640x480 layout
+  rectangles (0x00463930, 0x00464990). With `[ui] anchor=1` the menus are drawn pillarboxed at 4:3, so on a wide
+  screen the hit test was off by up to (1 - k) / 2 of the width: clicks landed beside the item and hover
+  focused another one.
+- **Hover rule.** Hover moves focus only on frames where the cursor moved or a button is held (0x004929e0 line
+  1789), so a still mouse does not override the keyboard.
+- **Capture.** The mouse is opened non-exclusive (level 6); 0x004f82d0 clips the pointer only in exclusive mode. In a
+  window or borderless the hidden pointer is free to leave, and a click on another monitor takes the focus.
+
+Fixes, with the original behaviour when off:
+
+| Setting | Remaster default | Change |
+| --- | --- | --- |
+| `[input] hardware_cursor` | 1 | Menus show the Windows pointer, and the sprite is skipped through the new hook point `g_uiCursorSprite` (ui_pass.cpp). |
+| `[input] clip_cursor` | 1 | The pointer is clipped to the client area while the window is in front, and released on WM_KILLFOCUS, WM_ACTIVATE and WM_ACTIVATEAPP (window subclass). |
+| `[ui] anchor` | (existing) | The cursor x is mapped into the centred 4:3 layout through the new hook point `g_uiCursorToLayout` (0x00491380), before the hit test. |
+
+Gameplay mouse look reads DirectInput deltas and is linear, with no acceleration and no frame-rate dependence: one
+count turns sens * s / 300. Speed is adjusted with `[qol] mouse_x` / `mouse_y` (0.25..3).
+
+## Game controllers: DualShock 4, DualSense, Xbox (2026-10-09)
+
+`[input] gamepad` (remaster on) in archive/hook/enhance/gamepad.cpp, on SDL3 3.4.16. SDL3 is zlib-licensed, statically
+linked and fetched by archive/hook/CMakeLists.txt.
+- **Backends.** DS4 and DualSense use SDL's HIDAPI drivers (USB and Bluetooth). Xbox pads use XInput or WGI.
+  - SDL's DirectInput backend is compiled out (`SDL_PRESEED OFF`, `HAVE_DINPUT_H` empty): this DLL is
+    dinput8.dll, and the game's DirectInput hooks must not see SDL's devices.
+  - The DLL imports no dinput8.dll.
+- **State.** The game's own controller path is reused (0x004f8600 layout, section 1). After the game's poll (hook
+  point `g_padPoll`, InputPC_Update), the SDL pad is written into pc+0x190..: four axes in DirectInput units
+  (±32255) and their floats at +0x1f8, the D-pad as a POV at +0x1a0, and 12 buttons at +0x1a4.
+  - Buttons by position: South, East, West, North, L1, R1, L2, R2 (triggers past 30%), Back, Start, L3, R3.
+  - Input only counts while the game window is in front.
+- **Bindings.** A third binding column, hook point `g_padBinding`, gives each action up to two controller codes. It
+  is queried with the original two bindings in 0x00414730 / 0x00414810 / 0x004148f0 / 0x00414a30 / 0x00414aa0.
+  The keyboard and mouse bindings are unchanged. Defaults (action names from 0x004155a0):
+
+  | Control | Action |
+  | --- | --- |
+  | Left stick | Move |
+  | Right stick | Turn and look |
+  | R2 | Fire |
+  | L2 | Special weapon |
+  | R1 / L1 | Next / previous weapon |
+  | D-pad right / left | Next / previous special weapon |
+  | D-pad up / down | Send / recall teammates |
+  | Cross | Jump, menu select |
+  | Circle | Menu back |
+  | Square | Reload |
+  | Triangle | Use |
+  | R3 | Toggle zoom |
+  | L3 | Fast movement |
+  | Options | Pause |
+  | Share / Create | Special event |
+  | D-pad or left stick | Menus |
+
+- **Tests.** `[test] pad_keys=600:START,625:DOWN*4` drives an SDL virtual gamepad in presented frames. Verified on
+  lev_1_m1 (work/visual/pad_test.png, pad_menu.png, pad_fire2.png):
+  - The left stick walks forward and the right stick turns.
+  - Options opens the pause menu, and the D-pad and the stick move its focus.
+  - R2 fires (rifle 8 -> 6, the same as the mouse).
+  - Pitfall: a virtual trigger rests at -32768. 0 reads as half pressed, the fire action is never "released", and
+    stays consumed.
+- On the player's PC SDL found the DualSense ("DualSense Wireless Controller connected (type 6)").
+- **Prompt names.** While the controller was used more recently than the keyboard and mouse:
+  - Prompts (0x00465280, hook point `g_promptKey`) show the action's controller button.
+  - The game's controller name ids are its Xbox-era order ("PMS_INPUT_X_BUTTON" = button 0 ... "START" = 11,
+    0x00414c90). They are re-labelled for the pad in hand through `g_textOverride` (Text_Lookup, now hooked even
+    with the Remaster menu off): Cross / Circle / Square / Triangle / L1 / R1 / L2 / R2 / Share (Create on DualSense)
+    / Options / L3 / R3, or A / B / X / Y / LB / RB / LT / RT / View / Menu / LS / RS. The D-pad and stick directions
+    get plain names.
+  - Not yet seen on screen: no prompt was in view in the test runs.
+- **Not yet:**
+  - Button icons (glyph images) in prompts and the controls menu. The game's text renderer draws bitmap fonts only,
+    so icons need an inline-icon draw: Kenney "Input Prompts" (CC0) or PromptFont (OFL), rendered to an atlas.
+  - Rebinding the controller column in game: it is fixed defaults for now.
+  - Rumble (the game's Rumble_Update drives DirectInput force feedback).
+  - D-pad "pressed" fires on release for POV codes (original quirk 0x004f8b20, section 1). The menus are unaffected
+    (they move on the press).

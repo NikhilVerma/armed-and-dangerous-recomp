@@ -1,0 +1,47 @@
+[package]
+name = "remaster"
+version = "0.1.0"
+edition = "2024"
+description = "Remaster engine: shared runtime for remastered old games (first game: Armed and Dangerous)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "and_remaster"
+path = "src/main.rs"
+
+[dependencies]
+# experimental_pbr_pcss: soft (percentage-closer) shadows; bluenoise_texture: the noise the temporal shadow filter and
+# SSAO sample (graphics.rs, the Remaster preset)
+bevy = { version = "0.20.0", features = ["dds", "wav", "experimental_pbr_pcss", "bluenoise_texture"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# movies (movie.rs): the exported frames are baseline JPEGs; pure Rust, already in the tree through `image`
+zune-jpeg = "0.5"
+zune-core = "0.5"
+# Jolt Physics 5.6 through joltc, built from the vendored sources with CMake (no prebuilt download).
+oxijolt = { version = "1.1.0", default-features = false }
+bevy_egui = "0.43.1"
+# the audio output (audiooutput.rs): the device and mixer bevy_audio plays through, reopened when the system's
+# default output device changes; the same version and features as bevy_audio's
+rodio = { version = "0.22", default-features = false, features = ["playback", "tracing"] }
+# the typeface's outlines for the text's distance field (sdffont.rs); already in the tree through bevy_text
+swash = "0.2.10"
+# Input actions, contexts and gamepad bindings (Bevy 0.20 support is on master; pinned until a release).
+bevy_enhanced_input = { git = "https://github.com/simgine/bevy_enhanced_input", rev = "cb50e459add7445bbf704a1c9cff37fba4c05dd1" }
+# the platform's folders (platform/mod.rs: the session recordings' root): %LOCALAPPDATA% on Windows,
+# ~/Library/Application Support on macOS, the XDG data dir on Linux
+dirs = "6"
+
+# the local time zone's offset (platform/localtime.rs: save slot dates, session folder names)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Dependencies are optimised even in dev builds (Bevy is unusably slow at opt-level 0).
+[profile.dev]
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 16

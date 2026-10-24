@@ -1,0 +1,6 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 4.0},
+ {"shot": "view"},
+ {"wait": 0.5},
+ {"quit": true}
+]}

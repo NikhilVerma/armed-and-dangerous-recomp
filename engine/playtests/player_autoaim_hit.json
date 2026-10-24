@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"options": {"auto_aim": true}},
+ {"warp": [-255, -120, 8, 180]},
+ {"loadout": {"guns": ["rifle", "machinegun"]}},
+ {"look_at": [-255, -175, 14]},
+ {"wait": 0.6},
+ {"spawn": [-255, -175, 8]},
+ {"wait": 0.3},
+ {"expect": {"weapon": "rifle", "weapons.targets": 1, "head_shots": 0, "hits": 0}},
+ {"click": "Left"},
+ {"wait": 0.3},
+ {"expect": {"shots": 1, "hits": 1}},
+ {"quit": true}
+]}

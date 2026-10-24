@@ -1,0 +1,21 @@
+{"scene": "lev_5_m2", "steps": [
+ {"note": "Hud_ProjectMarkers 0x00406840: with the vindaloo, lock-on markers 2 and 3 only with the upgrade (Game+0xdd0)"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [85, -400, -130, 0]},
+ {"loadout": {"guns": ["vindaloo", "rifle"], "upgrade": false}},
+ {"look_at": [85, -330, -120]},
+ {"wait": 0.6},
+ {"spawn": [72, -330, -126]},
+ {"spawn": [85, -330, -126]},
+ {"spawn": [98, -330, -126]},
+ {"wait": 0.3},
+ {"expect": {"weapons.targets": 3, "hud.locks_shown": 2}},
+ {"loadout": {"upgrade": true}},
+ {"wait": 0.3},
+ {"expect": {"weapons.upgraded": true, "weapons.targets": 3, "hud.locks_shown": 3}},
+ {"quit": true}
+]}

@@ -6,7 +6,7 @@ One file per level (`<level>_big04_land.big`): the landscape mesh and its spatia
 
 ## How the game reads it
 
-The dispatcher 0x00449e80 calls 0x00448470 `Landscape_Load` (recovered in `src/loader/auto_00410ec0.cpp`) with
+The dispatcher 0x00449e80 calls 0x00448470 `Landscape_Load` (recovered in `archive/src/loader/auto_00410ec0.cpp`) with
 the chunk size. It does not use the shared hash-table container (`big-common.md`).
 
 1. It reads a `u32` (the grid header offset), then reads the remaining `size - 4` bytes into one allocation

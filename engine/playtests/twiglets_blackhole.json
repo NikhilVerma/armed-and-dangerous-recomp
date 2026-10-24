@@ -1,0 +1,20 @@
+{"scene": "lev_4_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"loadout": {"health": 5000, "blackhole": 1, "special": "blackhole"}},
+ {"ai_force": "companions_hold"},
+ {"spawn": [-600, -7, 300], "template": "monk"},
+ {"warp_companion": [0, 1418, 62, 23]}, {"warp_companion": [1, 1418, 80, 23]},
+ {"wait": 4.0},
+ {"monk_spell": "twiglets"},
+ {"wait": 5.0},
+ {"expect": {"twiglets.made": [1, 30], "twiglets.carried": 0}},
+ {"note": "the monk's twiglets run one a second apart (0x0049f380 with the count made before each)"},
+ {"click": "Right"},
+ {"wait": 4.5},
+ {"note": "the hole sucks: the twiglets within 200 are carried off (damage flag 0x800: run away, state 0x5b, then pulled in, 0x5a)"},
+ {"expect": {"weapons.sucking": true, "twiglets.carried": [1, 30]}},
+ {"wait": 13.0},
+ {"note": "pulled in and swallowed within 2 of the hole, or gone with it at its end (14 s)"},
+ {"expect": {"weapons.holes": 0, "twiglets.fleeing": 0, "twiglets.pulled": 0}},
+ {"quit": true}
+]}

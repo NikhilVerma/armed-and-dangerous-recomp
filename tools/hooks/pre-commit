@@ -22,6 +22,21 @@ for f in $(git diff --cached --name-only --diff-filter=ACMR); do
     fi
 done
 
+# Port dispositions (docs/port/README.md): a `not needed` that hides deferred work fails the commit.
+if git diff --cached --name-only | grep -Eq '^(docs/port/.*\.csv|tools/port_queue\.py)$'; then
+    if ! python tools/port_queue.py --lint > /tmp/port_lint.$$ 2>&1; then
+        grep '^error' /tmp/port_lint.$$
+        echo "pre-commit: docs/port dispositions fail the lint (python tools/port_queue.py --lint)"
+        fail=1
+    fi
+    rm -f /tmp/port_lint.$$
+fi
+
+# Line endings: a modified file keeps its endings (tools/hooks/eol_check.py)
+if ! python tools/hooks/eol_check.py; then
+    fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "pre-commit: commit rejected"
     exit 1

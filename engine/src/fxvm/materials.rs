@@ -1,0 +1,158 @@
+//! The fx materials: particles (bank texture x vertex colour, particle.wesl) and the layered fx meshes (the snow
+//! domes' three texture stages, fxlayer.wesl). Fx meshes with one stage use Bevy's StandardMaterial (object.rs).
+
+use bevy::prelude::*;
+use serde_json::Value;
+
+/// Layered fx meshes (the snow domes): the original's three-stage set-up (fxlayer.wesl), additive.
+#[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
+pub struct FxLayerMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub t0: Handle<Image>,
+    #[texture(2)]
+    #[sampler(3)]
+    pub t1: Handle<Image>,
+    #[texture(4)]
+    #[sampler(5)]
+    pub t2: Handle<Image>,
+    #[uniform(6)]
+    pub params: FxLayerParams,
+    /// the record's opacity (+0x48): the texture factor (0x004897d0's constant alpha) is the object's alpha x this
+    /// (the snow domes fxo_snow / fxo_snow_2: 0.8); `params.colour.w` holds the product
+    pub opacity: f32,
+}
+
+#[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
+pub struct FxLayerParams {
+    /// the uv transforms of layers 1 (t0) and 2 (t1), as rows (u' = x.x u + x.y v + x.z; v' likewise with y): the
+    /// 0x40 scrolls, 0x41..0x44 scales and 0x45 rotations (TexAnim_SetStages 0x004196f0, a matrix per stage)
+    pub uv1_x: Vec4,
+    pub uv1_y: Vec4,
+    pub uv2_x: Vec4,
+    pub uv2_y: Vec4,
+    pub colour: Vec4,
+    /// t0 / t1 / t2 stored premultiplied (1) or not (0)
+    pub flags: Vec4,
+}
+
+impl FxLayerParams {
+    pub fn new(colour: Vec4, flags: Vec4) -> Self {
+        let mut p = FxLayerParams { colour, flags, ..default() };
+        p.set_uv(0, bevy::math::Affine2::IDENTITY);
+        p.set_uv(1, bevy::math::Affine2::IDENTITY);
+        p
+    }
+    /// Layer `stage` (0 or 1)'s uv transform.
+    pub fn set_uv(&mut self, stage: usize, m: bevy::math::Affine2) {
+        let x = Vec4::new(m.matrix2.x_axis.x, m.matrix2.y_axis.x, m.translation.x, 0.0);
+        let y = Vec4::new(m.matrix2.x_axis.y, m.matrix2.y_axis.y, m.translation.y, 0.0);
+        if stage == 0 {
+            (self.uv1_x, self.uv1_y) = (x, y);
+        } else {
+            (self.uv2_x, self.uv2_y) = (x, y);
+        }
+    }
+}
+
+impl Material for FxLayerMaterial {
+    fn fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("fxlayer.wesl")).with_source("embedded"))
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
+/// Additive fx meshes with one stage (fxadd.wesl): the texture times the material colour, added as the original adds
+/// in gamma space (matched over a scene of brightness `scene.x`).
+#[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
+pub struct FxAddMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub base: Handle<Image>,
+    #[uniform(2)]
+    pub params: FxAddParams,
+    /// the record's opacity (+0x48): the constant alpha the draw state 0x004897d0 gives an additive record (state
+    /// 0x120, SRCALPHA / ONE) is the object's alpha x this (with 0x40000 the stage's alpha is the texture's x that
+    /// constant: fxo_glow_red 0.1, fxo_trail_bullet 0.15); `params.colour.w` holds the product
+    pub opacity: f32,
+}
+
+#[derive(bevy::render::render_resource::ShaderType, Debug, Clone, Default)]
+pub struct FxAddParams {
+    /// rgb: the material colour (gamma space), a: the object's alpha
+    pub colour: Vec4,
+    /// the uv transform's rows (u' = x.x u + x.y v + x.z; v' likewise with y)
+    pub uv_x: Vec4,
+    pub uv_y: Vec4,
+    /// x: the scene brightness the addition is matched over; y: the texture stored premultiplied (1)
+    pub scene: Vec4,
+}
+
+impl FxAddParams {
+    pub fn new(colour: Vec3, scene: f32, premultiplied: bool) -> Self {
+        let mut p = FxAddParams { colour: colour.extend(1.0), scene: Vec4::new(scene, premultiplied as u8 as f32, 0.0, 0.0), ..default() };
+        p.set_uv(bevy::math::Affine2::IDENTITY);
+        p
+    }
+    pub fn set_uv(&mut self, m: bevy::math::Affine2) {
+        self.uv_x = Vec4::new(m.matrix2.x_axis.x, m.matrix2.y_axis.x, m.translation.x, 0.0);
+        self.uv_y = Vec4::new(m.matrix2.x_axis.y, m.matrix2.y_axis.y, m.translation.y, 0.0);
+    }
+}
+
+impl Material for FxAddMaterial {
+    fn fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("fxadd.wesl")).with_source("embedded"))
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
+/// The particle material: bank texture x vertex colour, additive or alpha-blended (particle.wesl).
+#[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
+pub struct ParticleMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub bank: Handle<Image>,
+    pub additive: bool,
+    /// x: the gamma of the original's blend (alpha-blended pools: 2.2, the original blends in gamma space, emulated
+    /// in particle.wesl; additive: 1, alpha as it is); y: the soft-particle depth (graphics.rs); z: the scene
+    /// brightness a white alpha-blended source is matched over (particles.rs WHITE_OVER)
+    #[uniform(2)]
+    pub params: Vec4,
+    /// the pool's quad corners, written each frame (particles.rs draw_particles)
+    #[storage(3, read_only, visibility(vertex))]
+    pub corners: Handle<bevy::render::storage::ShaderBuffer>,
+}
+
+impl Material for ParticleMaterial {
+    fn vertex_shader() -> bevy::shader::ShaderRef {
+        Self::fragment_shader()
+    }
+    fn fragment_shader() -> bevy::shader::ShaderRef {
+        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("particle.wesl")).with_source("embedded"))
+    }
+    fn alpha_mode(&self) -> AlphaMode {
+        if self.additive { AlphaMode::Add } else { AlphaMode::Blend }
+    }
+}
+
+/// The export's per-texture `premultiplied` flag (scene.json textures: DXT2 in the bank), read once.
+pub(super) fn premultiplied(dir: &std::path::Path, name: &str) -> bool {
+    static FLAGS: std::sync::OnceLock<std::collections::HashMap<String, bool>> = std::sync::OnceLock::new();
+    FLAGS
+        .get_or_init(|| {
+            let text = std::fs::read_to_string(dir.join("scene.json")).unwrap_or_default();
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            v.get("textures")
+                .and_then(|t| t.as_object())
+                .map(|t| t.iter().map(|(k, x)| (k.to_lowercase(), x.get("premultiplied").and_then(|p| p.as_bool()).unwrap_or(false))).collect())
+                .unwrap_or_default()
+        })
+        .get(&name.to_lowercase())
+        .copied()
+        .unwrap_or(false)
+}

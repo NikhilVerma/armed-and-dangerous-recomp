@@ -1,0 +1,13 @@
+{"scene": "lev_4_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"warp_companion": [0, 1418, 62, 23]},
+ {"send": 7001},
+ {"wait": 0.2},
+ {"expect": {"tower.phase": "walking", "mission": "Playing"}},
+ {"until": "message"}, {"wait": 0.2}, {"tap": "Enter"},
+ {"hurt_companion": [0, 1000]},
+ {"wait": 1.0},
+ {"expect": {"mission": "Failed", "mission_obj.failure_text": "Jonesy just died! Without him you'll nev"}},
+ {"quit": true}
+]}

@@ -1,0 +1,11 @@
+{"scene": "lev_2_m1", "note": "a squad's own scan takes Roman's companions too (0x0042be80 -> AI_FindTarget's list +0x604): Jonesy put beside squad 162 while Roman is 1100 units off halts it (squad.rs find_target)", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"cheat": "SHIELDME"},
+ {"expect": {"squad.count": 2, "squad.phase": "Waiting", "squad.halts": 0}},
+ {"send": 1600},
+ {"wait": 1.0},
+ {"warp_companion": [0, -224, -1012, -107]},
+ {"wait": 3.0},
+ {"expect": {"squad.halts": [1, 3]}},
+ {"quit": true}
+]}

@@ -1,0 +1,16 @@
+{"scene": "lev_2_m4", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"},
+ {"wait": 6.0},
+ {"expect": {"base_turret.mounted": true, "base_turret.intro": false}},
+ {"send": 2}, {"wait": 6.0},
+ {"expect": {"army.platoons": [1, 1000]}},
+ {"send": 950}, {"send": 970},
+ {"wait": 18.0},
+ {"shot": "drops"},
+ {"expect": {"ic.started": [2, 100], "ic.drops": [2, 100]}},
+ {"send": 404}, {"wait": 1.0},
+ {"expect": {"ic.gates": 1}},
+ {"loadout": {"health": 400}}, {"send": 456}, {"wait": 9.0},
+ {"expect": {"mission": "Won"}},
+ {"quit": true}
+]}

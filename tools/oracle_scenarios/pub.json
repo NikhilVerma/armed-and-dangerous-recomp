@@ -1,0 +1,13 @@
+{
+ "about": "the pub: warp to the door, Use, take the awards, leave (trigger 900 and the next objective)",
+ "level": "lev_1_m1",
+ "keys": "0:ENTER*3,60:45*20,140:ENTER,200:ENTER,260:ENTER,320:ENTER,380:ENTER,440:ESC,540:MOUSE1",
+ "warp": [
+  194,
+  -80,
+  13
+ ],
+ "frames": 640,
+ "trace_every": 2,
+ "suite": false
+}

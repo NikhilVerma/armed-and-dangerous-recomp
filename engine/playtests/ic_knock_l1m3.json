@@ -1,0 +1,14 @@
+{"scene": "lev_1_m3", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"expect": {"hidden.waiting": [2, 100], "hidden.knocked": 0}},
+ {"destroy": 27},
+ {"wait": 0.5},
+ {"send": 808},
+ {"wait": 1.0},
+ {"expect": {"hidden.knocked": 1, "hidden.started": [1, 100]}},
+ {"destroy": 83},
+ {"wait": 1.0},
+ {"expect": {"hidden.knocked": 2, "launches": 0}},
+ {"quit": true}
+]}

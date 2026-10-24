@@ -1,7 +1,7 @@
 # Front end, pause menu and options
 
 Status: 2026-10-04, static reconnaissance only (no runs). Every function named here is S0. Sources: Ghidra exports
-in `work/decomp/`, `tools/recover.py --asm`, raw image reads (`tools/reginputs.py` IMG), `work/options/*.opt`,
+in `work/decomp/`, `archive/tools/recover.py --asm`, raw image reads (`archive/tools/reginputs.py` IMG), `work/options/*.opt`,
 and dumps of `lev_1_m1_big12_ui.big` / `lev_1_m1_big01_text.big` made with `tools/formats/bigtool.py`.
 Text marked **guess** is not proven.
 
@@ -200,6 +200,109 @@ gives the string "Text lookup failure".
 
 Functions worth recovering first: `0x00491b70`, `0x004921a0`, `0x004710d0`, `0x004714c0`, `0x004916e0`,
 `0x004919c0`, `0x00465850`, `0x0046cb60`, `0x0046cce0`, `0x0046cd50`, `0x00495f00`, `0x004629b0` (large).
+
+## 4. The remaster engine's menus (engine/src/gamemenu.rs, statscreen.rs, pubscreen.rs; 2026-10-14)
+
+Pages (enum `Page`): main, options, extras, graphics, audio, controls, cheats, credits, yes/no, pause, mission
+failed, pub (pubscreen.rs), stats (statscreen.rs). Rows are texts at the bank's points (layout.json; the captures
+for the main menu and extras); the selected row white with the pulse (0x00463fa0) and the highlight fade (+0x4e0,
+0.2 per frame: 12 / s) of UiText_Draw 0x00464750. The directions follow the items' nav links (+0x47c, 0x00464a10;
+gamemenu.rs `neighbour`): up / down the previous / next row, not past the first or the last (layout.json links the
+ends to nothing: no wrap); left / right the nearest row beside it on its line (the two-column pages' links), a
+stepper taking left / right itself. Disabled rows are skipped (`RowGate`, 2026-10-22).
+
+- **Input** (UiScreen_Update 0x004929e0 through 0x00491140): keyboard, mouse / trackpad and pad; key repeat after
+  0.25 s, then every 0.1 s (0x00491090, input.rs); Select and Back repeat the same way while held (MenuSelect /
+  MenuCancel, keys 0x1b / 0x1c; re-armed on a page change: 0x00491110). The mouse selects the row under it when it moves (with the move
+  sound) and a click activates it; a row's hit box is its text bounds plus 32 units in x and 4 in y (UiText_SetBounds
+  0x004655b0), joined with a stepper's gauge and value or a checkbox's box; of several, the nearest row (the
+  archive/hook/enhance rule); a stepper's box ends 32 past its value text (Stepper_Layout 0x0046d050). A press on a stepper's
+  track (x 80..272, y -6..6) sets its value and, held, drags it (Stepper_HandleInput 0x0046d290). Sounds: ui_move,
+  one of ui_select_1..3 at random for a chosen row (0x00491850), ui_cancel for Back / Cancel / No / Resume
+  (code 5) and the Back input, ui_select when a game starts (0x00491830: a difficulty, a replay level). Pad:
+  D-pad / left stick navigate, Cross / A selects, Circle / B and Options go back.
+- **Screen fades** (0x00490cb0 / 0x00490e90 / 0x00491670): a page change fades the old page to black over 0.5 s
+  (alpha t^3), switches, and fades the new one in over 0.25 s; no input meanwhile. Instant when both the old and the
+  new screen (or none) have flag 4 (pause menu, mission failed), and (remaster) every change into or out of play.
+- **Steppers** (ui_progressbar, Stepper_Setup 0x0046cce0, gauge 0x0046d130): label centred on the item's point and
+  fitted to 144 units, gauge from +77 to +275 (frame 0xff204000, 18 high), fill from +80 up to 192 wide (0xff40c040,
+  12 high), a tick above and below the fill at each position, the value from +288. Ranges (0x004710d0,
+  0x00491b70): brightness 1.0..2.0 in 11 positions, draw distance 0.25..1.0 in 16, mouse scale 0..1 in 21, the three
+  volumes 0..1 in 21; resolution the remaster's window sizes. The remaster's fixed options (texture quality, texture
+  LOD, model LOD: no meaning in the new renderer) are drawn greyed at their best value.
+- **Checkboxes** (CheckBox_Layout 0x0046cc80): label centred, fitted to 192, the box at -128..-112.
+- **Cheats** (pui_cheats): the code box (ui_cheatbox) shows the typed code, then the result (Cheats_Check
+  0x004107c0 writes the box's text); the grid of known cheats (ui_cheatdesc, 0x00410be0 / 0x00410c20 / 0x00410b20):
+  three columns 160 units apart, rows 40 apart from ref_info - 24, shown when known, active or with List Cheats on,
+  greyed unless active; a click on a name enters its code (Cheats_Check state 1). The remaster's earlier "List
+  Cheats" text of codes is gone (the grid is the original's list).
+- **Controls page** (2026-10-18, bindings.rs): the key binding entries of the device in use (keyboard and mouse:
+  Move Forward .. Look Down, Fire, Fire Special, Zoom, Reload, Jump, Next Weapon / Special, Send / Recall Mates,
+  Activate, rows 26 apart in two columns; the pad: its button actions, with the sticks' Move / Look fixed), each
+  showing "%s or %s" (pms_input_aorb), one input or "Unassigned" (0x00447e70). Choosing one (Enter, a click or tap, the
+  pad's A) shows "Press Key To Assign" (UI_ShowAssignKeyPrompt 0x00447f50); once every input is up the next press of
+  that device is bound by the original's rule (0x004481b0 / 0x00447fc0: taken off every other action; an action's own
+  key unbinds it; an empty slot takes it, else the oldest goes), Escape (the pad's Options) cancels, and the press is
+  consumed (0x00414680). Keys keep two slots, pad buttons three. Saved in options.json `bindings`; Reset Controls
+  restores the defaults (0x004144a0). The menus keep their fixed keys and Pause stays on Escape / Options, so no
+  binding can lock the player out. Prompts name the binding last pressed for the action (input.rs `key`).
+  "Invert mouse" has a checkbox (the original's code 13 is a plain toggle text). Test engine/playtests/controls_rebind.json.
+- **Pause / yes-no / failed / stats:** as before (statscreen.rs: 0x00494440 / 0x00494050 / 0x004948d0). The rows that
+  load the saved game (main menu Resume Game, pause Quick Load, failed Restart from last save) are greyed and skipped
+  without one (0x004a2c10 / 0x004a2e90, as orig_ui_menu-800.png and orig_ui_play-720.png show). Save Game is
+  enabled where a menu save may be made (the remaster anywhere; with checkpoint_saves never, as the original only
+  while its quick save is offered: code 7, Game+0x568 bit 3). Auto-Aim is greyed in a level above normal difficulty
+  (code 79).
+- **Difficulty** (2026-10-22; pui_difficulty, `Page::Difficulty`): New Game (case 1) opens it on Normal (guess: the
+  layout lists ui_diff_2 first); Easy .. Insane 24 apart, Over The Top and Insane greyed until bought with tokens
+  (case 71: 0x004a0720 category 4, extras.rs `Unlocks::difficulty`); choosing one sets the difficulty (0x00401f60)
+  and starts the game with ui_select; Cancel / Back return to the main menu. The profile choice before it
+  ("SaveGame") is not ported.
+- **Saving** (2026-10-22; pui_saving, `Page::Saving`, 0x004a3a80): after a save from the save screen, "Saving game.
+  Please wait..." over the game for 3 s, then the pause menu.
+- **Save / load screens** (2026-10-15, feedback 26; gamemenu.rs slot pages, saveslots.rs, savegame.rs): pause Save
+  Game opens the SaveGame screen, main menu Resume Game the LoadGame screen (pui_savegame: six slots in a 3 x 2 grid,
+  0x004a3260; each slot's panel, name, level, difficulty, local file date, tokens, 0x004a3020 / 0x004a33d0; the
+  blinking prompt of table 0x005fb920 with the device's Select button; overwrite / delete prompts, 0x004a36f0; the
+  nav links of layout.json in four directions; the panel is the mouse's hit box). Saving shows the Saving screen,
+  then the pause menu (0x004a3a80). Files saves/game1..6.json; Quick Load and Restart from last save load the newest save (quick save or
+  slot). Remaster additions: Delete (Delete / Backspace / pad West) on any saved slot, the load screen's Continue
+  (newest save). The thumbnail (thumbnail.rs, 0x0044f3a0): the game camera's view at 128 x 76 kept as gameN.png
+  beside the save, drawn 70 below the slot's top (0x004a33d0). Not ported: where the screen title is drawn (guess:
+  above the slots). Tests engine/playtests/save_thumbnail.json and Test
+  engine/playtests/save_slots.json.
+- **Main menu:** the version text "v1.00" bottom right (0x004927f0, screen flag 0x800).
+- **Extras** (2026-10-16; gamemenu.rs `unlock_pages`, extras.rs; campaign.md "Front end"): Play Cutscene and Replay
+  Mission are enabled by the token unlockables ui_extrasmenu_cutscene / ui_extrasmenu_replay or the AMATINEE /
+  MISSIONS cheats (UiScreen_InitItem cases 11 / 41), else greyed as before. Play Cutscene lists the story movies seen
+  (category 0; titles "<name>.vid") and plays one (code 12); Replay Mission lists the levels reached (category 1, at
+  the mission start) and the bonus levels bought (category 3), and plays one in replay mode (codes 6 / 42; back to
+  the title after its Stats). The three pages are built when they open. Not ported: the profile choice before the
+  list ("ChooseGame"), the lists' scrolling (the remaster shows them whole; layout a guess: no capture of these
+  pages). Test engine/playtests/campaign_extras.json.
+- **Pub screen** (pubscreen.rs): the pointer moves the highlight onto an offered weapon's slot or the exit button
+  (ui_pub_cursor's exit point 493, 416), a click takes the weapon or leaves (the pub shows the mouse cursor:
+  0x004930c0); the exit prompt names Back on the device in use. Credits: a click leaves too. State log `pub`; test
+  engine/playtests/pub.json (keyboard and pad).
+- State log `menu` (playtests): page, shown page, selected row, fading, the selected stepper's value, cheats shown.
+  Tests: engine/playtests/menus.json (every shell page), gfxopts.json, flow.json (pause, yes / no with its fade, the
+  pad, mission failed), stats.json.
+
+Replaced by the engine (no port needed): the screen objects and their manager (UI_Init 0x0048ff90, UiScreen_Construct
+0x004916e0, the request queue 0x00490ba0 / 0x00490c20 / 0x00490d80 / 0x00491020 / 0x004929a0, show / focus
+0x004918b0 / 0x004928f0, selection 0x004919c0 / 0x00491b20 / 0x00491b60, enabling 0x004927a0, the id split
+0x00491ae0) are the `GameMenu` page stack and `MenuRow`s; the widget classes' inits and kind bits (CheckBox_Init,
+FitText_*, Stepper_SetSteps, 0x0046ce40, ...) are `Spawner`'s rows and parts; the list boxes (0x0046bdd0..0x0046c980)
+belong to the level / movie / director select pages (the remaster's Replay Mission and Play Cutscene pages are rows
+built from the unlocks, unscrolled: extras.rs; no director page); the save-slot widgets' init and thumbnail
+release (0x004a2f70..0x004a2fe0) are the PNG files' (saveslots.rs draw_thumbs); DisplayMode_Pack / Unpack (0x00470c90 / 0x00470cc0) by the window size in
+options.json; Text_Lookup (0x00495f00, 0x00495e50) by `Texts`. The movie screens (0x00493150..0x004933e0) are movie.rs /
+cutscenes.rs (docs/subsystems/movie.md). The front end's plain screens are splash.rs's (2026-10-18): the timed splash screen 0x00493520 / 0x00493590
+(LegalText: b_legal at its 512 x 256 over black for 4.0 s before the intro movies, Back / Select / a click skip it),
+the loading screen (LoadingScreen_Draw 0x00449ac0: the ad image, the bar, the text of UI_GetLoadingText 0x00447600
+without an image; from the frame a level change is asked for to the end of the settling) and the exit screen
+0x00493770 (the menu fades to it and the game quits); the legal and exit screens hold the music (flag 0x2000,
+0x004928f0 -> 0x0044f510). Tests legal_splash, loading_screen, exit_screen.
 
 ## Open questions
 

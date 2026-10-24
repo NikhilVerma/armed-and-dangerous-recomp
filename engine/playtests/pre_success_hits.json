@@ -1,0 +1,20 @@
+{"scene": "lev_4_m2", "steps": [
+ {"note": "lev_4_m2's pre-success (4000): Roman's hit handler ignores every hit from then on (0x0044e620 in 0x0047afa0); not a turret level, so no retreat"},
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 3.5},
+ {"tap": "Enter"},
+ {"wait": 1.0},
+ {"expect": {"mission": "Playing", "health": [99, 1000]}},
+ {"blast": 30},
+ {"wait": 0.3},
+ {"expect": {"health": [365, 375]}},
+ {"send": 4000},
+ {"wait": 0.3},
+ {"expect": {"mission_obj.finished": true}},
+ {"blast": 1000},
+ {"wait": 0.3},
+ {"expect": {"mission": "Playing", "dead": false, "health": [365, 375]}},
+ {"quit": true}
+]}

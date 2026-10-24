@@ -1,0 +1,64 @@
+{
+ "load": "states/after_pub.json",
+ "steps": [
+  {
+   "wait": 1.0
+  },
+  {
+   "warp": [
+    16,
+    384,
+    20,
+    0
+   ]
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "fx": {
+    "name": "fx_debri_arch_1",
+    "at": [
+     16,
+     429,
+     70
+    ],
+    "clear": true
+   }
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "expect": {
+    "fx.by_template.fxo_debri_arch_1": 1,
+    "fx.hits": 0,
+    "fx.blasts": 0
+   }
+  },
+  {
+   "wait": 3.0
+  },
+  {
+   "expect": {
+    "fx.hits": [
+     1,
+     1000
+    ],
+    "fx.blasts": 1,
+    "fx.started.fx_imp_rock_large_snow": 1
+   }
+  },
+  {
+   "wait": 3.0
+  },
+  {
+   "expect": {
+    "fx.by_template.fxo_debri_arch_1": null
+   }
+  },
+  {
+   "quit": true
+  }
+ ]
+}

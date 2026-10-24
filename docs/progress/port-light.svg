@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="454" viewBox="0 0 620 454" role="img" aria-label="Engine port: game logic by subsystem: 2,361 game-logic functions: 1,427 ported, 836 replaced or not needed, 26 deferred, 72 not started" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Engine port: game logic by subsystem: 2,361 game-logic functions: 1,427 ported, 836 replaced or not needed, 26 deferred, 72 not started</title>
+<rect width="620" height="454" rx="6" fill="#fcfcfb"/>
+<text x="16" y="26" font-size="15" font-weight="600" fill="#0b0b0b">Engine port: game logic by subsystem</text>
+<text x="16" y="46" font-size="12" fill="#52514e">2,361 game-logic functions: 1,427 ported, 836 replaced or not needed,</text>
+<text x="16" y="62" font-size="12" fill="#52514e">26 deferred, 72 not started</text>
+<text x="102" y="97" font-size="12" text-anchor="end" fill="#0b0b0b">ai</text>
+<rect x="110" y="82" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,82 H361.3 Q361.3,82 361.3,82 V104 Q361.3,104 361.3,104 H114.0 Q110.0,104 110.0,100 V86 Q110.0,82 114.0,82 Z" fill="#2a78d6"><title>ai: ported 322 of 534</title></path>
+<path d="M363.3,82 H520.1 Q520.1,82 520.1,82 V104 Q520.1,104 520.1,104 H363.3 Q363.3,104 363.3,104 V82 Q363.3,82 363.3,82 Z" fill="#1baf7a"><title>ai: explained 202 of 534</title></path>
+<path d="M522.1,82 H527.2 Q527.2,82 527.2,82 V104 Q527.2,104 527.2,104 H522.1 Q522.1,104 522.1,104 V82 Q522.1,82 522.1,82 Z" fill="#eda100"><title>ai: deferred 9 of 534</title></path>
+<path d="M529.2,82 H529.6 Q530.0,82 530.0,82.3932584269663 V103.6067415730337 Q530.0,104 529.6,104 H529.2 Q529.2,104 529.2,104 V82 Q529.2,82 529.2,82 Z" fill="#e4e3df"><title>ai: not started 1 of 534</title></path>
+<text x="538" y="97" font-size="12" fill="#52514e">534</text>
+<text x="102" y="127" font-size="12" text-anchor="end" fill="#0b0b0b">game</text>
+<rect x="110" y="112" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,112 H426.6 Q426.6,112 426.6,112 V134 Q426.6,134 426.6,134 H114.0 Q110.0,134 110.0,130 V116 Q110.0,112 114.0,112 Z" fill="#2a78d6"><title>game: ported 553 of 729</title></path>
+<path d="M428.6,112 H523.4 Q523.4,112 523.4,112 V134 Q523.4,134 523.4,134 H428.6 Q428.6,134 428.6,134 V112 Q428.6,112 428.6,112 Z" fill="#1baf7a"><title>game: explained 168 of 729</title></path>
+<path d="M525.4,112 H527.7 Q530.0,112 530.0,114.3045267489712 V131.6954732510288 Q530.0,134 527.7,134 H525.4 Q525.4,134 525.4,134 V112 Q525.4,112 525.4,112 Z" fill="#eda100"><title>game: deferred 8 of 729</title></path>
+<text x="538" y="127" font-size="12" fill="#52514e">729</text>
+<text x="102" y="157" font-size="12" text-anchor="end" fill="#0b0b0b">ui</text>
+<rect x="110" y="142" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,142 H322.7 Q322.7,142 322.7,142 V164 Q322.7,164 322.7,164 H114.0 Q110.0,164 110.0,160 V146 Q110.0,142 114.0,142 Z" fill="#2a78d6"><title>ui: ported 161 of 315</title></path>
+<path d="M324.7,142 H473.3 Q473.3,142 473.3,142 V164 Q473.3,164 473.3,164 H324.7 Q324.7,164 324.7,164 V142 Q324.7,142 324.7,142 Z" fill="#1baf7a"><title>ui: explained 113 of 315</title></path>
+<path d="M475.3,142 H476.0 Q476.0,142 476.0,142 V164 Q476.0,164 476.0,164 H475.3 Q475.3,164 475.3,164 V142 Q475.3,142 475.3,142 Z" fill="#eda100"><title>ui: deferred 2 of 315</title></path>
+<path d="M478.0,142 H526.0 Q530.0,142 530.0,146 V160 Q530.0,164 526.0,164 H478.0 Q478.0,164 478.0,164 V142 Q478.0,142 478.0,142 Z" fill="#e4e3df"><title>ui: not started 39 of 315</title></path>
+<text x="538" y="157" font-size="12" fill="#52514e">315</text>
+<text x="102" y="187" font-size="12" text-anchor="end" fill="#0b0b0b">audio</text>
+<rect x="110" y="172" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,172 H316.9 Q316.9,172 316.9,172 V194 Q316.9,194 316.9,194 H114.0 Q110.0,194 110.0,190 V176 Q110.0,172 114.0,172 Z" fill="#2a78d6"><title>audio: ported 98 of 197</title></path>
+<path d="M318.9,172 H519.5 Q519.5,172 519.5,172 V194 Q519.5,194 519.5,194 H318.9 Q318.9,194 318.9,194 V172 Q318.9,172 318.9,172 Z" fill="#1baf7a"><title>audio: explained 95 of 197</title></path>
+<path d="M521.5,172 H526.0 Q530.0,172 530.0,176 V190 Q530.0,194 526.0,194 H521.5 Q521.5,194 521.5,194 V172 Q521.5,172 521.5,172 Z" fill="#eda100"><title>audio: deferred 4 of 197</title></path>
+<text x="538" y="187" font-size="12" fill="#52514e">197</text>
+<text x="102" y="217" font-size="12" text-anchor="end" fill="#0b0b0b">anim</text>
+<rect x="110" y="202" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,202 H289.2 Q289.2,202 289.2,202 V224 Q289.2,224 289.2,224 H114.0 Q110.0,224 110.0,220 V206 Q110.0,202 114.0,202 Z" fill="#2a78d6"><title>anim: ported 44 of 102</title></path>
+<path d="M291.2,202 H453.9 Q453.9,202 453.9,202 V224 Q453.9,224 453.9,224 H291.2 Q291.2,224 291.2,224 V202 Q291.2,202 291.2,202 Z" fill="#1baf7a"><title>anim: explained 40 of 102</title></path>
+<path d="M455.9,202 H526.0 Q530.0,202 530.0,206 V220 Q530.0,224 526.0,224 H455.9 Q455.9,224 455.9,224 V202 Q455.9,202 455.9,202 Z" fill="#e4e3df"><title>anim: not started 18 of 102</title></path>
+<text x="538" y="217" font-size="12" fill="#52514e">102</text>
+<text x="102" y="247" font-size="12" text-anchor="end" fill="#0b0b0b">camera</text>
+<rect x="110" y="232" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,232 H360.0 Q360.0,232 360.0,232 V254 Q360.0,254 360.0,254 H114.0 Q110.0,254 110.0,250 V236 Q110.0,232 114.0,232 Z" fill="#2a78d6"><title>camera: ported 27 of 45</title></path>
+<path d="M362.0,232 H518.7 Q518.7,232 518.7,232 V254 Q518.7,254 518.7,254 H362.0 Q362.0,254 362.0,254 V232 Q362.0,232 362.0,232 Z" fill="#1baf7a"><title>camera: explained 17 of 45</title></path>
+<path d="M520.7,232 H526.0 Q530.0,232 530.0,236 V250 Q530.0,254 526.0,254 H520.7 Q520.7,254 520.7,254 V232 Q520.7,232 520.7,232 Z" fill="#e4e3df"><title>camera: not started 1 of 45</title></path>
+<text x="538" y="247" font-size="12" fill="#52514e">45</text>
+<text x="102" y="277" font-size="12" text-anchor="end" fill="#0b0b0b">input</text>
+<rect x="110" y="262" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,262 H219.2 Q219.2,262 219.2,262 V284 Q219.2,284 219.2,284 H114.0 Q110.0,284 110.0,280 V266 Q110.0,262 114.0,262 Z" fill="#2a78d6"><title>input: ported 18 of 68</title></path>
+<path d="M221.2,262 H447.7 Q447.7,262 447.7,262 V284 Q447.7,284 447.7,284 H221.2 Q221.2,284 221.2,284 V262 Q221.2,262 221.2,262 Z" fill="#1baf7a"><title>input: explained 37 of 68</title></path>
+<path d="M449.7,262 H526.0 Q530.0,262 530.0,266 V280 Q530.0,284 526.0,284 H449.7 Q449.7,284 449.7,284 V262 Q449.7,262 449.7,262 Z" fill="#e4e3df"><title>input: not started 13 of 68</title></path>
+<text x="538" y="277" font-size="12" fill="#52514e">68</text>
+<text x="102" y="307" font-size="12" text-anchor="end" fill="#0b0b0b">save</text>
+<rect x="110" y="292" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,292 H199.8 Q199.8,292 199.8,292 V314 Q199.8,314 199.8,314 H114.0 Q110.0,314 110.0,310 V296 Q110.0,292 114.0,292 Z" fill="#2a78d6"><title>save: ported 26 of 119</title></path>
+<path d="M201.8,292 H526.0 Q530.0,292 530.0,296 V310 Q530.0,314 526.0,314 H201.8 Q201.8,314 201.8,314 V292 Q201.8,292 201.8,292 Z" fill="#1baf7a"><title>save: explained 93 of 119</title></path>
+<text x="538" y="307" font-size="12" fill="#52514e">119</text>
+<text x="102" y="337" font-size="12" text-anchor="end" fill="#0b0b0b">render-fx</text>
+<rect x="110" y="322" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,322 H403.6 Q403.6,322 403.6,322 V344 Q403.6,344 403.6,344 H114.0 Q110.0,344 110.0,340 V326 Q110.0,322 114.0,322 Z" fill="#2a78d6"><title>render-fx: ported 164 of 233</title></path>
+<path d="M405.6,322 H522.6 Q522.6,322 522.6,322 V344 Q522.6,344 522.6,344 H405.6 Q405.6,344 405.6,344 V322 Q405.6,322 405.6,322 Z" fill="#1baf7a"><title>render-fx: explained 66 of 233</title></path>
+<path d="M524.6,322 H527.3 Q530.0,322 530.0,324.7038626609442 V341.2961373390558 Q530.0,344 527.3,344 H524.6 Q524.6,344 524.6,344 V322 Q524.6,322 524.6,322 Z" fill="#eda100"><title>render-fx: deferred 3 of 233</title></path>
+<text x="538" y="337" font-size="12" fill="#52514e">233</text>
+<text x="102" y="367" font-size="12" text-anchor="end" fill="#0b0b0b">movie</text>
+<rect x="110" y="352" width="420" height="22" rx="4" fill="#e4e3df"/>
+<path d="M114.0,352 H417.5 Q417.5,352 417.5,352 V374 Q417.5,374 417.5,374 H114.0 Q110.0,374 110.0,370 V356 Q110.0,352 114.0,352 Z" fill="#2a78d6"><title>movie: ported 14 of 19</title></path>
+<path d="M419.5,352 H526.0 Q530.0,352 530.0,356 V370 Q530.0,374 526.0,374 H419.5 Q419.5,374 419.5,374 V352 Q419.5,352 419.5,352 Z" fill="#1baf7a"><title>movie: explained 5 of 19</title></path>
+<text x="538" y="367" font-size="12" fill="#52514e">19</text>
+<rect x="16" y="392" width="10" height="10" rx="2" fill="#2a78d6"/><text x="32" y="401" font-size="12" fill="#0b0b0b">ported <tspan fill="#52514e">1,427</tspan></text>
+<rect x="221" y="392" width="10" height="10" rx="2" fill="#1baf7a"/><text x="237" y="401" font-size="12" fill="#0b0b0b">explained <tspan fill="#52514e">836</tspan></text>
+<rect x="426" y="392" width="10" height="10" rx="2" fill="#eda100"/><text x="442" y="401" font-size="12" fill="#0b0b0b">deferred <tspan fill="#52514e">26</tspan></text>
+<rect x="16" y="410" width="10" height="10" rx="2" fill="#e4e3df"/><text x="32" y="419" font-size="12" fill="#0b0b0b">not started <tspan fill="#52514e">72</tspan></text>
+</svg>

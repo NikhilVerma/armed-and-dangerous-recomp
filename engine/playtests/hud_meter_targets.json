@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"note": "0x00466e70 per meter: Q's meter pulses by itself at or below 20 % of his max_health; the enemy meter takes the aimed damage taker's health (none without one; the element itself is not drawn on these levels)"},
+ {"cheat": "SHIELDME"},
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 0.5},
+ {"expect": {"hud.health_meters.health_enemy.value": null, "hud.health_meters.health_q.shown": true, "hud.health_meters.health_q.value": [0.99, 1.01], "hud.health_meters.health_q.alpha": [0.64, 0.66], "hud.health_meters.player_health.alpha": [0.64, 0.66]}},
+ {"hurt_companion": [1, 450]},
+ {"wait": 0.3},
+ {"expect": {"hud.health_meters.health_q.value": [0.09, 0.11], "hud.health_meters.health_q.alpha": [0.0, 0.5], "hud.health_meters.player_health.alpha": [0.64, 0.66]}},
+ {"spawn": [230.68, -69.44, 13.76]},
+ {"spawn": [150.68, -69.44, 13.76]},
+ {"wait": 0.3},
+ {"expect": {"hud.health_meters.health_enemy.value": [0.99, 1.01]}},
+ {"quit": true}
+]}

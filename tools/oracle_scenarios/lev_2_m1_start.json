@@ -1,0 +1,17 @@
+{
+ "about": "lev_2_m1: the level start: the briefing (or the 600-frame fallback) dismissed, Roman's spawn, camera, the first enemies and triggers for 10 s (traced from 60 frames before play frame 0, so events before a later briefing in one game are seen), a 2 s walk forward from 2 s; a second ENTER at 40: with movies off the original's first pause is the start movie's, the briefing follows it",
+ "level": "lev_2_m1",
+ "keys": "0:ENTER*3,40:ENTER*3,120:17*120",
+ "frames": 600,
+ "trace_every": 2,
+ "trace_from": -60,
+ "suite": false,
+ "known": {
+  "events.sounds": "B17 rest (the sound causes fixed by agent-sound): what is left comes from other families or chance: load-time sounds outside one game's traced window (B10 / E1 start message timing: the base levels' loops, the first ambient one-shot at load vs frame 2), random picks (ambient one-shots, thunder, sheep bleats), the grunts' gait (walk vs run footstep notes, charanim.rs), the grunts' _ic anim-event lines and boulder rolls (not in the remaster yet), vehicle loops (B14, vehicles not traced)"
+ },
+ "expected": {
+  "paused": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",
+  "timing": "E1: movies off in both, but the original's start movie still pauses and takes the first ENTER (its briefing follows it); the remaster's missing movie ends at once",
+  "vehicle.pos": "E1: the original's start movie pauses it until frame 42, the remaster's runs from 0, so saucer 285's path is 42 frames further on; compared at the same game time the two agree within 0.2 units (V1 fixed, 2026-10-16: vehicles/mover.rs chases the path)"
+ }
+}

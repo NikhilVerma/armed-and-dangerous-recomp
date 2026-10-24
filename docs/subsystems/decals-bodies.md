@@ -1,6 +1,6 @@
 # Decals and corpses: limits, timers, hook points
 
-Status: 2026-10-04, static reconnaissance only (no runtime check yet). Source: `work/decomp/`, `tools/recover.py
+Status: 2026-10-04, static reconnaissance only (no runtime check yet). Source: `work/decomp/`, `archive/tools/recover.py
 --asm`, constants read from `game.unpacked.exe`. Goal: docs/goals/remaster-basics.md item 3 (persistent decals
 and bodies). Anything marked **guess** has not been confirmed.
 
@@ -52,6 +52,41 @@ Decal object fields: +0x08 colour (alpha in the top byte, written while fading, 
   and 0x0040cb10 (the "Fx_bullseye" target marker, which sets age to **-1.0** so it never ages and always draws).
 - Surfaces opt in through the object property `decal_receive` (default 1) -> object+0x3ec bit 0x8 (0x00451360).
   0x00416e90 clears bits 0x18 on objects whose model has animated parts (**guess** on what the test means).
+
+### Receivers: placed objects (2026-10-14, static reading of archive/src/renderer/render_r0.cpp, ported to engine/src/decals.rs)
+
+- **0x00417260** Decal_Build makes a projector {decal, flags 0x40000008, 6 planes, planes, point}: the box of
+  +-size along the placement's three (unnormalised) axes. With no target entity it gathers the world grid cells
+  against the six planes (0x0048eab0) and walks them (0x0048eb60) with the landscape cell callback 0x00449010 and,
+  unless the `single` byte is set, the object callback **0x00416f50**. The fx op 0x6a passes target 0 and single 0
+  (render_r2b.cpp:1020), so fx decals land on objects; the bullseye marker (game_01.cpp:1861) passes its own target.
+- **0x00416f50** Decals_ProjectOnEntity takes an object when (1) its +0x3ec shares a bit with 0x40000008: bit 8 is
+  `decal_receive` (default on, Object_LoadBaseProps 0x00451360, game_03.cpp:1294); (2) it is not excluded:
+  **0x00416e90** caches in +0x3ec bits 30/31 whether the current LOD has a mesh with +8 non-zero (excluded; that
+  field's meaning is a **guess**: skinned / deforming meshes); (3) **0x00418610** finds no animating object in it or
+  its parents (0x004531e0); (4) its bounding sphere (vt+0x90) is not wholly behind any of the six planes.
+- **0x00416bf0** DecalGeometry_AddEntity takes the planes to model space (M^T p, M = vt+0x7c, the world matrix),
+  clips every submesh of the object's current-LOD **render** model (not its collision model) whose material lacks
+  bit 0x10 of byte +0x34 (the blended materials, render_r4.cpp:534) with **0x00416930**, and moves the new
+  vertices back to world space. Landscape and objects share one budget: **128 vertices / 384 indices** per decal
+  (constructor 0x00417010); running out ends the build. Up to **4** receivers are recorded (+0x2c, count +0x24);
+  later objects still add geometry but are not recorded.
+- No normal test anywhere: a box at a wall's foot also covers the ground and both faces of thin parts.
+- A receiver's removal (0x004547b0 -> 0x00416620) fades its recorded decals over 0.1 s (0x00418580).
+- Which bullets make decals is data: in lev_1_m1's fx bank only 30 fx carry op 0x6a. Roman's rifle and machine gun
+  (fx_end_material fx_imp_flemming) leave a decal only on snow (fx_imp_flemming_snow, 0.5); on stone / wood houses
+  they leave none. Sticky bombs (fx_imp_sticky_<material>, 10.0), stig_mgun (fx_imp_stig_<material>, 1.5) and
+  explosions (fx_exp_generic, fx_explosion_powder_keg, ...) do.
+
+Remaster (engine/src/decals.rs): receivers are the placed, visible, non-background objects with decal_receive != 0,
+no skeleton and no rigid anim (the windows and husks too); their render triangles are moved to game space once at
+load and bucketed by 32-unit x/y cells (lev_1_m1: 237 objects, 125,781 triangles). A decal clips the landscape cells
+first, then the object triangles in the cells its box covers (the original interleaves cell by cell: order differs
+when the budget runs out). A destroyed object stops receiving, its husk becomes a new receiver, and its decals fade
+in 0.1 s. Test: work/remaster/play/decals_obj.json (from states/after_pub: a sticky bomb at house 85's door gives a
+decal with 1 receiver; `destroy 85` fades it). Not compared with an original capture yet.
+
+The **pressure fade** (0x00416440) is not ported: it never runs in the original (see "Measured" below).
 
 ### Removal (all paths)
 
@@ -105,6 +140,29 @@ Character classes share vtable slots +0xd4 = **0x004319e0** (die), +0x17c = **0x
   object and calls die (+0xd4) when it reaches 0. It is not a corpse timer.
 - No global corpse count was found. The only global cap is the 4-ragdoll limit. Whether troop generators
   (`alarm_generator_max_troops`, 0x0044c170) count dead objects is **not checked**.
+
+### Body fall and the character fade (2026-10-18, agent-presentation)
+
+- A grunt a blast kills is launched (Character_Die 0x004319e0 on an area record: the record's direction (n.x, n.y,
+  0.7) by its impact force x 0.15, state 0x195; fx.rs sets `Grunt::blast_fling` under GoRagdoll 0x00431310's rule: an
+  owner and an impact over 10050; ai.rs die ragdolls him with it; one implementation since the 2026-10-18 merge). His
+  landing (0x0042e1c0 for 0x195 / 0x197 / 0x19b) starts FxBodyfall_Spawn 0x0043a8d0's fx_bodyfall with the ground's
+  variant and stops his scream: bodyfall.rs `Launched` (the ragdoll's pelvis descending within 3 units of the
+  landscape). The speed is impact force x 0.15 / 80 (his 80 kg). Test bodyfall_fx.
+- Character_SetFade 0x0042eb60 (the set-alpha slot +0x100 Corpse_CountDown calls) sets the character's, its
+  attachments' and its held object's alpha: camfade.rs `ObjectAlpha` covers the whole hierarchy. Test character_fade
+  (every mesh of a fading corpse, his gun included, draws with the alpha).
+
+### Measured and ported (2026-10-17, agent-corpses)
+
+- Oracle (work/oracle/courtyard and the `corpses` scenario, lev_1_m1): a ragdolled grunt (state 400 at death) leaves
+  the AI list 5.00 s later; an animated death (state 0x191, entered directly or after the launch state 0x195) 0.5 s after
+  its death anim's length (rests 0.47..0.53 s for grunt_die_1 0.9, grunt_bow_die_3 0.97 / grunt_blown_up_die 0.97,
+  grunt_barricade_death 0.63). So the body lies 5 s in all (the fade is inside the 5 s, not after it), and the 0x191
+  countdown waits for the anim (slot flag 2, GenericAI_Update's SP+0x10).
+- Struct atlas (tools/struct_atlas.py): +0x9f0 is m_deathTimer, +0x421 m_hkSimulateEnable (Havok simulating); +0x1bc
+  reads as a WeaponObject pointer (confidence 0.6), which puts the "has a physics skeleton" guess above in doubt (open).
+- Ported: engine/src/corpses.rs (docs/remaster-engine.md "Corpses").
 
 ## 3. Hook points and risks
 

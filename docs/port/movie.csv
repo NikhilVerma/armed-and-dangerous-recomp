@@ -1,0 +1,6 @@
+address,name,disposition,reason
+0x0050ddd0,Movie_ScalarDeletingDestructor,replaced,the movie's entities are despawned and its file dropped (movie.rs close)
+0x0050de00,Movie_Destruct,replaced,"list unlinking and the live-movie count are the movie manager's plumbing; movie.rs keeps one Playing at a time"
+0x0050e490,Movie_SetPaused,not needed,no effect in the remaster: pauses a movie when another screen takes the focus; no remaster screen opens over a movie and the movie clock is real time
+0x004fb860,fn_004fb860,replaced,render state save before the movie quad (Movie_Draw): Bevy draws the sprite in its own pass
+0x004fb920,fn_004fb920,replaced,render state restore after the movie quad: Bevy's render graph

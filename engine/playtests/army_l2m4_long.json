@@ -1,0 +1,12 @@
+{"scene": "lev_2_m4", "timeout": 2400, "steps": [
+ {"note": "lev_2_m4's army timers make 357 platoons in the first ~2.5 minutes while the turret kills few: the marching members pile up (~1,600 at 150 s). Each member is one crowd mesh entity (crowd.rs), not a rigged grunt (~70 entities each: 110k entities, 70-120 ms frames before)"},
+ {"until": "message"},
+ {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 0.5},
+ {"cheat": "SHIELDME"},
+ {"defence": {"aim": "army", "fire": true}},
+ {"wait": 60.0},
+ {"expect": {"army.members": [400, 100000], "entities": [0, 20000]}},
+ {"wait": 90.0},
+ {"expect": {"army.platoons": [300, 100000], "army.members": [1000, 100000], "entities": [0, 25000]}},
+ {"quit": true}
+]}

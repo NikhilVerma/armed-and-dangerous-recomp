@@ -1,0 +1,14 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"loadout": {"health": 5000}},
+ {"note": "a captain (15..20 rounds a clip: he is in the fire state, not reloading, when Roman goes) south of the rock at (189..231, -128..-79) sees Roman in the open and fires (the companions are still far off)"},
+ {"land": [165, -140, 90]},
+ {"spawn": [210, -170, 14], "template": "captain"},
+ {"wait": 4.0},
+ {"expect": {"ai.near.targets_player": true, "ai.near.mind": "Fire", "ai.near.dist": [40, 70], "ai.sight_pursuits": 0}},
+ {"note": "Roman put behind the rock: the captain's line of sight is lost while firing and he pursues (0x00428980 los_lost -> vt+0x184 0x004295d0)"},
+ {"land": [210, -60, 180]},
+ {"wait": 5.0},
+ {"expect": {"ai.sight_pursuits": [1, 200]}},
+ {"quit": true}
+]}

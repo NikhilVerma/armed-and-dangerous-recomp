@@ -1,0 +1,18 @@
+{"scene": "lev_4_m3", "steps": [
+ {"until": "message"},
+ {"wait": 0.5},
+ {"tap": "Enter"},
+ {"wait": 2.0},
+ {"cheat": "SHIELDME"},
+ {"warp": [-1640, 1366, -51, 0]},
+ {"loadout": {"guns": ["vindaloo", "rifle"], "upgrade": false}},
+ {"look_at": [-1648, 1443, -30]},
+ {"wait": 0.6},
+ {"expect": {"weapon": "vindaloo", "weapons.pass": "MultiLock", "weapons.targets": [1, 4], "hud.locks_shown": [1, 4]}},
+ {"click": "Left"},
+ {"wait": 0.2},
+ {"expect": {"weapons.vindaloo_rockets": 2, "vehicles.rockets.player_fired": 2}},
+ {"wait": 2.0},
+ {"expect": {"vehicles.rockets.player_ended": 2}},
+ {"quit": true}
+]}

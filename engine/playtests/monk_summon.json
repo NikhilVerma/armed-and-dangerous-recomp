@@ -1,0 +1,19 @@
+{"scene": "lev_4_m2", "steps": [
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 1.0},
+ {"expect": {"twiglets.made": 0, "ai.monks": 5}},
+ {"loadout": {"health": 5000}},
+ {"ai_force": "companions_hold"},
+ {"spawn": [-600, -7, 300], "template": "monk"},
+ {"warp_companion": [0, 1418, 62, 23]}, {"warp_companion": [1, 1418, 80, 23]},
+ {"wait": 4.0},
+ {"expect": {"ai.near.kind": "Monk", "ai.near.targets_player": true}},
+ {"monk_spell": "twiglets"},
+ {"wait": 6.0},
+ {"expect": {"ai.monks": 6, "twiglets.made": [1, 30], "twiglets.generators": 0}},
+ {"wait": 0.8},
+ {"expect": {"twiglets.running": [1, 30], "twiglets.bombs": [1, 30]}},
+ {"wait": 11.2},
+ {"expect": {"twiglets.made": [1, 30], "twiglets.killed": [1, 30], "health": [0, 4990]}},
+ {"note": "health: hurt in the fight; how much depends on where the twiglets' bombs land (any change to the random sequence moves them: the bamf sound's roll, 2026-10-22)"},
+ {"quit": true}
+]}

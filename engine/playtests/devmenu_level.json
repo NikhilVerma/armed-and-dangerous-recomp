@@ -1,0 +1,16 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_1_m1"}},
+ {"tap": "F1"}, {"wait": 0.5},
+ {"expect": {"dev.open": true, "dev.selected": "Level select"}},
+ {"tap": "Enter"}, {"wait": 0.3},
+ {"expect": {"dev.page": "Levels", "dev.selected": "Back"}},
+ {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
+ {"expect": {"dev.selected": "Liberate Fjorkin Village  (lev_1_m3)"}},
+ {"tap": "Enter"},
+ {"until": "loaded"}, {"wait": 1.0},
+ {"expect": {"campaign.level": "lev_1_m3", "campaign.replay": false, "campaign.money": 5000, "level_generation": 1, "dev.open": false, "mission": "Playing"}},
+ {"until": "message"}, {"wait": 0.5},
+ {"expect": {"mission": "Playing", "health": [1, 100000]}},
+ {"quit": true}
+]}

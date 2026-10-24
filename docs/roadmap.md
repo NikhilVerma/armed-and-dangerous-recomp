@@ -1,5 +1,8 @@
 # Remaster roadmap (human's goals, 2026-10-03)
 
+> Historical: the roadmap of the hook-DLL route (now in archive/). The current roadmap is in the README; the
+> engine's working order is in docs/remaster-engine.md.
+
 North star: a fully decompiled game, then a remaster built on open-source technology. Order of work:
 
 1. **Renderer and asset loading recovered** (current goal: `docs/goals/renderer-and-assets.md`): wireframe,

@@ -1,7 +1,7 @@
 # Camera, projection, FOV and aspect
 
 Static reconnaissance (2026-10-04), for Hor+ widescreen, an FOV slider and letterbox removal. Sources:
-`tools/recover.py <addr> --asm` (disassembly is the evidence), `work/decomp/*.c`, `src/renderer/`. Guesses are
+`archive/tools/recover.py <addr> --asm` (disassembly is the evidence), `work/decomp/*.c`, `archive/src/renderer/`. Guesses are
 labelled **guess**. Nothing here was checked at runtime.
 
 ## Data path in one paragraph

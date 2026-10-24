@@ -1,0 +1,17 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 0.5},
+ {"audio": {"stop_all_but_music": true}},
+ {"wait": 0.2},
+ {"audio": {"play": "amb_pub_busy", "looped": true}},
+ {"audio": {"play": "rom50001_l1_ambient", "looped": true}},
+ {"audio": {"play": "l1amb_002", "looped": true}},
+ {"wait": 0.3},
+ {"expect": {"audio.groups_db.sfx": 0, "audio.level_db.amb_pub_busy": [-0.1, 0.1], "audio.level_db.rom50001_l1_ambient": [-0.1, 0.1], "audio.level_db.l1amb_002": [-0.1, 0.1]}},
+ {"audio": {"mixer": {"sfx": 0.5}}},
+ {"wait": 0.2},
+ {"expect": {"audio.groups_db.sfx": [-7.5, -7.3], "audio.level_db.amb_pub_busy": [-7.5, -7.3], "audio.level_db.rom50001_l1_ambient": [-0.1, 0.1], "audio.level_db.l1amb_002": [-0.1, 0.1]}},
+ {"audio": {"mixer": {"voice": 1.0, "music": 0.0}}},
+ {"wait": 0.2},
+ {"expect": {"audio.level_db.rom50001_l1_ambient": [3.1, 3.3], "audio.level_db.l1amb_002": [-100, -40], "audio.groups_db.music": -100, "audio.level_db.amb_pub_busy": [-7.5, -7.3]}},
+ {"quit": true}
+]}

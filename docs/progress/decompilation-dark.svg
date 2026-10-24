@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="670" height="796" viewBox="0 0 670 796" role="img" aria-label="Decompilation: game code recovered as C++: 3,496 of 3,496 game functions (2,254 also verified in the running game) not recovered, by design: library code and stubs (havok 871, crt 424, d3dx 383, qhull 290, thunk 58, zlib 22)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Decompilation: game code recovered as C++: 3,496 of 3,496 game functions (2,254 also verified in the running game) not recovered, by design: library code and stubs (havok 871, crt 424, d3dx 383, qhull 290, thunk 58, zlib 22)</title>
+<rect width="670" height="796" rx="6" fill="#1a1a19"/>
+<text x="16" y="26" font-size="15" font-weight="600" fill="#f0efec">Decompilation: game code recovered as C++</text>
+<text x="16" y="46" font-size="12" fill="#c3c2b7">3,496 of 3,496 game functions (2,254 also verified in the running game)</text>
+<text x="16" y="62" font-size="12" fill="#c3c2b7">not recovered, by design: library code and stubs (havok 871, crt 424, d3dx 383, qhull 290, thunk 58, zlib 22)</text>
+<text x="102" y="97" font-size="12" text-anchor="end" fill="#f0efec">game</text>
+<rect x="110" y="82" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,82 H343.3 Q343.3,82 343.3,82 V104 Q343.3,104 343.3,104 H114.0 Q110.0,104 110.0,100 V86 Q110.0,82 114.0,82 Z" fill="#86b6ef"><title>game: verified 365 of 729</title></path>
+<path d="M345.3,82 H576.0 Q580.0,82 580.0,86 V100 Q580.0,104 576.0,104 H345.3 Q345.3,104 345.3,104 V82 Q345.3,82 345.3,82 Z" fill="#3987e5"><title>game: recovered 364 of 729</title></path>
+<text x="588" y="97" font-size="12" fill="#c3c2b7">729</text>
+<text x="102" y="127" font-size="12" text-anchor="end" fill="#f0efec">ai</text>
+<rect x="110" y="112" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,112 H304.3 Q304.3,112 304.3,112 V134 Q304.3,134 304.3,134 H114.0 Q110.0,134 110.0,130 V116 Q110.0,112 114.0,112 Z" fill="#86b6ef"><title>ai: verified 223 of 534</title></path>
+<path d="M306.3,112 H576.0 Q580.0,112 580.0,116 V130 Q580.0,134 576.0,134 H306.3 Q306.3,134 306.3,134 V112 Q306.3,112 306.3,112 Z" fill="#3987e5"><title>ai: recovered 311 of 534</title></path>
+<text x="588" y="127" font-size="12" fill="#c3c2b7">534</text>
+<text x="102" y="157" font-size="12" text-anchor="end" fill="#f0efec">ui</text>
+<rect x="110" y="142" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,142 H422.8 Q422.8,142 422.8,142 V164 Q422.8,164 422.8,164 H114.0 Q110.0,164 110.0,160 V146 Q110.0,142 114.0,142 Z" fill="#86b6ef"><title>ui: verified 211 of 315</title></path>
+<path d="M424.8,142 H576.0 Q580.0,142 580.0,146 V160 Q580.0,164 576.0,164 H424.8 Q424.8,164 424.8,164 V142 Q424.8,142 424.8,142 Z" fill="#3987e5"><title>ui: recovered 104 of 315</title></path>
+<text x="588" y="157" font-size="12" fill="#c3c2b7">315</text>
+<text x="102" y="187" font-size="12" text-anchor="end" fill="#f0efec">renderer</text>
+<rect x="110" y="172" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,172 H576.3 Q576.3,172 576.3,172 V194 Q576.3,194 576.3,194 H114.0 Q110.0,194 110.0,190 V176 Q110.0,172 114.0,172 Z" fill="#86b6ef"><title>renderer: verified 278 of 279</title></path>
+<path d="M578.3,172 H579.2 Q580.0,172 580.0,172.84229390681003 V193.15770609318997 Q580.0,194 579.2,194 H578.3 Q578.3,194 578.3,194 V172 Q578.3,172 578.3,172 Z" fill="#3987e5"><title>renderer: recovered 1 of 279</title></path>
+<text x="588" y="187" font-size="12" fill="#c3c2b7">279</text>
+<text x="102" y="217" font-size="12" text-anchor="end" fill="#f0efec">render-fx</text>
+<rect x="110" y="202" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,202 H487.2 Q487.2,202 487.2,202 V224 Q487.2,224 487.2,224 H114.0 Q110.0,224 110.0,220 V206 Q110.0,202 114.0,202 Z" fill="#86b6ef"><title>render-fx: verified 188 of 233</title></path>
+<path d="M489.2,202 H576.0 Q580.0,202 580.0,206 V220 Q580.0,224 576.0,224 H489.2 Q489.2,224 489.2,224 V202 Q489.2,202 489.2,202 Z" fill="#3987e5"><title>render-fx: recovered 45 of 233</title></path>
+<text x="588" y="217" font-size="12" fill="#c3c2b7">233</text>
+<text x="102" y="247" font-size="12" text-anchor="end" fill="#f0efec">loader</text>
+<rect x="110" y="232" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,232 H544.6 Q544.6,232 544.6,232 V254 Q544.6,254 544.6,254 H114.0 Q110.0,254 110.0,250 V236 Q110.0,232 114.0,232 Z" fill="#86b6ef"><title>loader: verified 209 of 225</title></path>
+<path d="M546.6,232 H576.0 Q580.0,232 580.0,236 V250 Q580.0,254 576.0,254 H546.6 Q546.6,254 546.6,254 V232 Q546.6,232 546.6,232 Z" fill="#3987e5"><title>loader: recovered 16 of 225</title></path>
+<text x="588" y="247" font-size="12" fill="#c3c2b7">225</text>
+<text x="102" y="277" font-size="12" text-anchor="end" fill="#f0efec">audio</text>
+<rect x="110" y="262" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,262 H315.6 Q315.6,262 315.6,262 V284 Q315.6,284 315.6,284 H114.0 Q110.0,284 110.0,280 V266 Q110.0,262 114.0,262 Z" fill="#86b6ef"><title>audio: verified 87 of 197</title></path>
+<path d="M317.6,262 H576.0 Q580.0,262 580.0,266 V280 Q580.0,284 576.0,284 H317.6 Q317.6,284 317.6,284 V262 Q317.6,262 317.6,262 Z" fill="#3987e5"><title>audio: recovered 110 of 197</title></path>
+<text x="588" y="277" font-size="12" fill="#c3c2b7">197</text>
+<text x="102" y="307" font-size="12" text-anchor="end" fill="#f0efec">physics-glue</text>
+<rect x="110" y="292" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,292 H503.0 Q503.0,292 503.0,292 V314 Q503.0,314 503.0,314 H114.0 Q110.0,314 110.0,310 V296 Q110.0,292 114.0,292 Z" fill="#86b6ef"><title>physics-glue: verified 137 of 163</title></path>
+<path d="M505.0,292 H576.0 Q580.0,292 580.0,296 V310 Q580.0,314 576.0,314 H505.0 Q505.0,314 505.0,314 V292 Q505.0,292 505.0,292 Z" fill="#3987e5"><title>physics-glue: recovered 26 of 163</title></path>
+<text x="588" y="307" font-size="12" fill="#c3c2b7">163</text>
+<text x="102" y="337" font-size="12" text-anchor="end" fill="#f0efec">save</text>
+<rect x="110" y="322" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,322 H368.7 Q368.7,322 368.7,322 V344 Q368.7,344 368.7,344 H114.0 Q110.0,344 110.0,340 V326 Q110.0,322 114.0,322 Z" fill="#86b6ef"><title>save: verified 66 of 119</title></path>
+<path d="M370.7,322 H576.0 Q580.0,322 580.0,326 V340 Q580.0,344 576.0,344 H370.7 Q370.7,344 370.7,344 V322 Q370.7,322 370.7,322 Z" fill="#3987e5"><title>save: recovered 53 of 119</title></path>
+<text x="588" y="337" font-size="12" fill="#c3c2b7">119</text>
+<text x="102" y="367" font-size="12" text-anchor="end" fill="#f0efec">anim</text>
+<rect x="110" y="352" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,352 H421.3 Q421.3,352 421.3,352 V374 Q421.3,374 421.3,374 H114.0 Q110.0,374 110.0,370 V356 Q110.0,352 114.0,352 Z" fill="#86b6ef"><title>anim: verified 68 of 102</title></path>
+<path d="M423.3,352 H576.0 Q580.0,352 580.0,356 V370 Q580.0,374 576.0,374 H423.3 Q423.3,374 423.3,374 V352 Q423.3,352 423.3,352 Z" fill="#3987e5"><title>anim: recovered 34 of 102</title></path>
+<text x="588" y="367" font-size="12" fill="#c3c2b7">102</text>
+<text x="102" y="397" font-size="12" text-anchor="end" fill="#f0efec">container</text>
+<rect x="110" y="382" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,382 H458.0 Q458.0,382 458.0,382 V404 Q458.0,404 458.0,404 H114.0 Q110.0,404 110.0,400 V386 Q110.0,382 114.0,382 Z" fill="#86b6ef"><title>container: verified 70 of 94</title></path>
+<path d="M460.0,382 H576.0 Q580.0,382 580.0,386 V400 Q580.0,404 576.0,404 H460.0 Q460.0,404 460.0,404 V382 Q460.0,382 460.0,382 Z" fill="#3987e5"><title>container: recovered 24 of 94</title></path>
+<text x="588" y="397" font-size="12" fill="#c3c2b7">94</text>
+<text x="102" y="427" font-size="12" text-anchor="end" fill="#f0efec">render-scene</text>
+<rect x="110" y="412" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,412 H487.4 Q487.4,412 487.4,412 V434 Q487.4,434 487.4,434 H114.0 Q110.0,434 110.0,430 V416 Q110.0,412 114.0,412 Z" fill="#86b6ef"><title>render-scene: verified 67 of 83</title></path>
+<path d="M489.4,412 H576.0 Q580.0,412 580.0,416 V430 Q580.0,434 576.0,434 H489.4 Q489.4,434 489.4,434 V412 Q489.4,412 489.4,412 Z" fill="#3987e5"><title>render-scene: recovered 16 of 83</title></path>
+<text x="588" y="427" font-size="12" fill="#c3c2b7">83</text>
+<text x="102" y="457" font-size="12" text-anchor="end" fill="#f0efec">math</text>
+<rect x="110" y="442" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,442 H513.6 Q513.6,442 513.6,442 V464 Q513.6,464 513.6,464 H114.0 Q110.0,464 110.0,460 V446 Q110.0,442 114.0,442 Z" fill="#86b6ef"><title>math: verified 63 of 73</title></path>
+<path d="M515.6,442 H576.0 Q580.0,442 580.0,446 V460 Q580.0,464 576.0,464 H515.6 Q515.6,464 515.6,464 V442 Q515.6,442 515.6,442 Z" fill="#3987e5"><title>math: recovered 10 of 73</title></path>
+<text x="588" y="457" font-size="12" fill="#c3c2b7">73</text>
+<text x="102" y="487" font-size="12" text-anchor="end" fill="#f0efec">input</text>
+<rect x="110" y="472" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,472 H495.1 Q495.1,472 495.1,472 V494 Q495.1,494 495.1,494 H114.0 Q110.0,494 110.0,490 V476 Q110.0,472 114.0,472 Z" fill="#86b6ef"><title>input: verified 56 of 68</title></path>
+<path d="M497.1,472 H576.0 Q580.0,472 580.0,476 V490 Q580.0,494 576.0,494 H497.1 Q497.1,494 497.1,494 V472 Q497.1,472 497.1,472 Z" fill="#3987e5"><title>input: recovered 12 of 68</title></path>
+<text x="588" y="487" font-size="12" fill="#c3c2b7">68</text>
+<text x="102" y="517" font-size="12" text-anchor="end" fill="#f0efec">camera</text>
+<rect x="110" y="502" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,502 H463.1 Q463.1,502 463.1,502 V524 Q463.1,524 463.1,524 H114.0 Q110.0,524 110.0,520 V506 Q110.0,502 114.0,502 Z" fill="#86b6ef"><title>camera: verified 34 of 45</title></path>
+<path d="M465.1,502 H576.0 Q580.0,502 580.0,506 V520 Q580.0,524 576.0,524 H465.1 Q465.1,524 465.1,524 V502 Q465.1,502 465.1,502 Z" fill="#3987e5"><title>camera: recovered 11 of 45</title></path>
+<text x="588" y="517" font-size="12" fill="#c3c2b7">45</text>
+<text x="102" y="547" font-size="12" text-anchor="end" fill="#f0efec">render-ui</text>
+<rect x="110" y="532" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,532 H407.1 Q407.1,532 407.1,532 V554 Q407.1,554 407.1,554 H114.0 Q110.0,554 110.0,550 V536 Q110.0,532 114.0,532 Z" fill="#86b6ef"><title>render-ui: verified 28 of 44</title></path>
+<path d="M409.1,532 H576.0 Q580.0,532 580.0,536 V550 Q580.0,554 576.0,554 H409.1 Q409.1,554 409.1,554 V532 Q409.1,532 409.1,532 Z" fill="#3987e5"><title>render-ui: recovered 16 of 44</title></path>
+<text x="588" y="547" font-size="12" fill="#c3c2b7">44</text>
+<text x="102" y="577" font-size="12" text-anchor="end" fill="#f0efec">havok-ext</text>
+<rect x="110" y="562" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,562 H425.0 Q425.0,562 425.0,562 V584 Q425.0,584 425.0,584 H114.0 Q110.0,584 110.0,580 V566 Q110.0,562 114.0,562 Z" fill="#86b6ef"><title>havok-ext: verified 29 of 43</title></path>
+<path d="M427.0,562 H576.0 Q580.0,562 580.0,566 V580 Q580.0,584 576.0,584 H427.0 Q427.0,584 427.0,584 V562 Q427.0,562 427.0,562 Z" fill="#3987e5"><title>havok-ext: recovered 14 of 43</title></path>
+<text x="588" y="577" font-size="12" fill="#c3c2b7">43</text>
+<text x="102" y="607" font-size="12" text-anchor="end" fill="#f0efec">unknown</text>
+<rect x="110" y="592" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,592 H311.2 Q311.2,592 311.2,592 V614 Q311.2,614 311.2,614 H114.0 Q110.0,614 110.0,610 V596 Q110.0,592 114.0,592 Z" fill="#86b6ef"><title>unknown: verified 16 of 37</title></path>
+<path d="M313.2,592 H576.0 Q580.0,592 580.0,596 V610 Q580.0,614 576.0,614 H313.2 Q313.2,614 313.2,614 V592 Q313.2,592 313.2,592 Z" fill="#3987e5"><title>unknown: recovered 21 of 37</title></path>
+<text x="588" y="607" font-size="12" fill="#c3c2b7">37</text>
+<text x="102" y="637" font-size="12" text-anchor="end" fill="#f0efec">render-post</text>
+<rect x="110" y="622" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,622 H356.8 Q356.8,622 356.8,622 V644 Q356.8,644 356.8,644 H114.0 Q110.0,644 110.0,640 V626 Q110.0,622 114.0,622 Z" fill="#86b6ef"><title>render-post: verified 18 of 34</title></path>
+<path d="M358.8,622 H576.0 Q580.0,622 580.0,626 V640 Q580.0,644 576.0,644 H358.8 Q358.8,644 358.8,644 V622 Q358.8,622 358.8,622 Z" fill="#3987e5"><title>render-post: recovered 16 of 34</title></path>
+<text x="588" y="637" font-size="12" fill="#c3c2b7">34</text>
+<text x="102" y="667" font-size="12" text-anchor="end" fill="#f0efec">platform</text>
+<rect x="110" y="652" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,652 H502.8 Q502.8,652 502.8,652 V674 Q502.8,674 502.8,674 H114.0 Q110.0,674 110.0,670 V656 Q110.0,652 114.0,652 Z" fill="#86b6ef"><title>platform: verified 21 of 25</title></path>
+<path d="M504.8,652 H576.0 Q580.0,652 580.0,656 V670 Q580.0,674 576.0,674 H504.8 Q504.8,674 504.8,674 V652 Q504.8,652 504.8,652 Z" fill="#3987e5"><title>platform: recovered 4 of 25</title></path>
+<text x="588" y="667" font-size="12" fill="#c3c2b7">25</text>
+<text x="102" y="697" font-size="12" text-anchor="end" fill="#f0efec">renderer-core</text>
+<rect x="110" y="682" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,682 H150.7 Q150.7,682 150.7,682 V704 Q150.7,704 150.7,704 H114.0 Q110.0,704 110.0,700 V686 Q110.0,682 114.0,682 Z" fill="#86b6ef"><title>renderer-core: verified 2 of 22</title></path>
+<path d="M152.7,682 H576.0 Q580.0,682 580.0,686 V700 Q580.0,704 576.0,704 H152.7 Q152.7,704 152.7,704 V682 Q152.7,682 152.7,682 Z" fill="#3987e5"><title>renderer-core: recovered 20 of 22</title></path>
+<text x="588" y="697" font-size="12" fill="#c3c2b7">22</text>
+<text x="102" y="727" font-size="12" text-anchor="end" fill="#f0efec">other</text>
+<rect x="110" y="712" width="470" height="22" rx="4" fill="#383835"/>
+<path d="M114.0,712 H372.4 Q372.4,712 372.4,712 V734 Q372.4,734 372.4,734 H114.0 Q110.0,734 110.0,730 V716 Q110.0,712 114.0,712 Z" fill="#86b6ef"><title>other: verified 18 of 32</title></path>
+<path d="M374.4,712 H576.0 Q580.0,712 580.0,716 V730 Q580.0,734 576.0,734 H374.4 Q374.4,734 374.4,734 V712 Q374.4,712 374.4,712 Z" fill="#3987e5"><title>other: recovered 14 of 32</title></path>
+<text x="588" y="727" font-size="12" fill="#c3c2b7">32</text>
+<rect x="16" y="752" width="10" height="10" rx="2" fill="#86b6ef"/><text x="32" y="761" font-size="12" fill="#f0efec">verified <tspan fill="#c3c2b7">2,254</tspan></text>
+<rect x="221" y="752" width="10" height="10" rx="2" fill="#3987e5"/><text x="237" y="761" font-size="12" fill="#f0efec">recovered <tspan fill="#c3c2b7">1,242</tspan></text>
+<rect x="426" y="752" width="10" height="10" rx="2" fill="#383835"/><text x="442" y="761" font-size="12" fill="#f0efec">not recovered <tspan fill="#c3c2b7">0</tspan></text>
+</svg>

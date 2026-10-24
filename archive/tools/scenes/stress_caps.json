@@ -1,0 +1,303 @@
+{
+  "level": "lev_1_m1",
+  "keys": "30:17*300",
+  "player": "hide",
+  "camera_look": [
+    -217.0,
+    1035.0,
+    150.0,
+    -217.0,
+    965.0,
+    128.0
+  ],
+  "fov": 60,
+  "spawn": [
+    {
+      "template": "grunt_barracks_mini",
+      "at": [
+        -235,
+        975,
+        127
+      ],
+      "yaw": 0,
+      "frame": 380
+    },
+    {
+      "template": "grunt_barracks_mini",
+      "at": [
+        -200,
+        975,
+        127
+      ],
+      "yaw": 0,
+      "frame": 380
+    },
+    {
+      "template": "grunt_barracks_mini",
+      "at": [
+        -235,
+        945,
+        127
+      ],
+      "yaw": 0,
+      "frame": 380
+    },
+    {
+      "template": "grunt_barracks_mini",
+      "at": [
+        -200,
+        945,
+        127
+      ],
+      "yaw": 0,
+      "frame": 380
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -228,
+        990,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -219,
+        990,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -210,
+        990,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -201,
+        990,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -228,
+        978,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -219,
+        978,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -210,
+        978,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -201,
+        978,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -228,
+        966,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -219,
+        966,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -210,
+        966,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    },
+    {
+      "template": "grunt",
+      "at": [
+        -201,
+        966,
+        127
+      ],
+      "yaw": 90,
+      "frame": 385
+    }
+  ],
+  "kill": [
+    {
+      "spawn": 1,
+      "frame": 440
+    },
+    {
+      "spawn": 2,
+      "frame": 443
+    },
+    {
+      "spawn": 3,
+      "frame": 446
+    },
+    {
+      "spawn": 4,
+      "frame": 449
+    },
+    {
+      "spawn": 5,
+      "frame": 440
+    },
+    {
+      "spawn": 6,
+      "frame": 443
+    },
+    {
+      "spawn": 7,
+      "frame": 446
+    },
+    {
+      "spawn": 8,
+      "frame": 449
+    },
+    {
+      "spawn": 9,
+      "frame": 440
+    },
+    {
+      "spawn": 10,
+      "frame": 443
+    },
+    {
+      "spawn": 11,
+      "frame": 446
+    },
+    {
+      "spawn": 12,
+      "frame": 449
+    },
+    {
+      "spawn": 13,
+      "frame": 440
+    },
+    {
+      "spawn": 14,
+      "frame": 443
+    },
+    {
+      "spawn": 15,
+      "frame": 446
+    },
+    {
+      "spawn": 16,
+      "frame": 449
+    }
+  ],
+  "fx": [
+    {
+      "name": "fx_explosion_barracks",
+      "at": [
+        -235,
+        975,
+        130
+      ],
+      "frame": 440
+    },
+    {
+      "name": "fx_explosion_barracks",
+      "at": [
+        -200,
+        975,
+        130
+      ],
+      "frame": 440
+    },
+    {
+      "name": "fx_explosion_barracks",
+      "at": [
+        -235,
+        945,
+        130
+      ],
+      "frame": 440
+    },
+    {
+      "name": "fx_explosion_barracks",
+      "at": [
+        -200,
+        945,
+        130
+      ],
+      "frame": 440
+    }
+  ],
+  "shots": [
+    440,
+    470,
+    500,
+    560
+  ],
+  "settings": {
+    "render.skip_ui": 1,
+    "limits.log": 1
+  },
+  "variants": {
+    "original_caps": {
+      "limits.force_pool": 512,
+      "limits.particle_pool_scale": 1,
+      "limits.path_nodes": 2000
+    },
+    "scale4": {
+      "limits.particle_pool_scale": 4
+    },
+    "scale16": {
+      "limits.particle_pool_scale": 16
+    }
+  }
+}
