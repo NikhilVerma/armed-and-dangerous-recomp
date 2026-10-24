@@ -318,7 +318,7 @@ pub fn default_slot(slots: &[Slot], mode: Mode) -> usize {
 /// local time (0x004a3020: FileTimeToLocalFileTime, FileTimeToSystemTime).
 pub fn date_text(t: SystemTime) -> String {
     let secs = t.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
-    let (y, mo, d, h, mi, s) = civil(secs + local_offset(secs));
+    let (y, mo, d, h, mi, s) = civil(secs + crate::platform::utc_offset_secs(secs));
     format!("{mo}/{d:02}/{:02} {h}:{mi:02}:{s:02}", y.rem_euclid(100))
 }
 
@@ -337,30 +337,6 @@ pub fn civil(secs: i64) -> (i64, u32, u32, u32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
     let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
     (y, m, d, (rem / 3600) as u32, (rem / 60 % 60) as u32, (rem % 60) as u32)
-}
-
-/// The local time zone's offset from UTC at `secs` (as FileTimeToLocalFileTime gives it); 0 off Windows.
-#[cfg(windows)]
-fn local_offset(secs: i64) -> i64 {
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn FileTimeToLocalFileTime(file: *const [u32; 2], local: *mut [u32; 2]) -> i32;
-    }
-    // FILETIME: 100 ns ticks since 1601
-    let ticks = ((secs + 11_644_473_600) as u64) * 10_000_000;
-    let ft = [ticks as u32, (ticks >> 32) as u32];
-    let mut local = [0u32; 2];
-    // SAFETY: both pointers are to live 8-byte FILETIME-shaped arrays
-    if unsafe { FileTimeToLocalFileTime(&ft, &mut local) } == 0 {
-        return 0;
-    }
-    let l = (local[0] as u64 | (local[1] as u64) << 32) as i64;
-    (l - ticks as i64) / 10_000_000
-}
-
-#[cfg(not(windows))]
-fn local_offset(_secs: i64) -> i64 {
-    0
 }
 
 #[cfg(test)]
