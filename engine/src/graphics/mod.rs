@@ -38,7 +38,7 @@ pub mod height_fog;
 pub mod motion_blur;
 pub mod present;
 
-pub use textures::{set_level as set_level_textures, texture_path, world_sampler};
+pub use textures::{set_level as set_level_textures, texture_path, ui_texture_path, world_sampler};
 
 use bevy::anti_alias::contrast_adaptive_sharpening::ContrastAdaptiveSharpening;
 use bevy::anti_alias::smaa::{Smaa, SmaaPreset};
