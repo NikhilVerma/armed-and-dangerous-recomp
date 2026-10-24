@@ -130,10 +130,12 @@ pub struct Roman {
     /// comes when the anim sets 0x80); seconds left
     pub jump_wind: Option<f32>,
     /// this frame's horizontal speed as the update measures it before the drive (+0x4bc: the body's velocity from
-    /// the last step), last frame's (+0x47c, for the stop fx) and the slide fx's anchor (+0x568: fx_roman_slide
-    /// runs while it lives)
+    /// the last step: `stepped_h`), last frame's (+0x47c, for the stop fx) and the slide fx's anchor (+0x568:
+    /// fx_roman_slide runs while it lives)
     pub hspeed: f32,
     pub prev_hspeed: f32,
+    /// the horizontal speed the last step achieved (set after the move; at most the driven speed)
+    pub stepped_h: f32,
     /// friction_min (+0x5a8), friction_max (+0x5a4), friction_exponent (+0x5ac): the ground contacts' friction blend
     pub friction: (f32, f32, f32),
     pub slide_fx: Option<Entity>,
@@ -702,6 +704,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         jump_wind: None,
         hspeed: 0.0,
         prev_hspeed: 0.0,
+        stepped_h: 0.0,
         // (not in p_trotter: PlayerObject_Load's defaults, game_05.cpp:573)
         friction: (p.f("friction_min", 0.3), p.f("friction_max", 2.0), p.f("friction_exponent", 4.0)),
         slide_fx: None,
@@ -946,7 +949,7 @@ pub(crate) fn control(
         // the power: movement_power_min..max by the stick (keys: full stick); for 1 s after a knockback (w = 1 -
         // slow) min becomes w x 7 + (1 - w) and max x (0.5 (1 - w) + w) (game_06.cpp:2572)
         r.wish_h = Vec2::new(wish.x, wish.z).length();
-        r.hspeed = Vec2::new(r.vel.x, r.vel.z).length();
+        r.hspeed = r.stepped_h;
         let stick = (r.wish_h / r.fwd_speed.max(1e-3)).min(1.0);
         let w = 1.0 - r.slow;
         let (pmin, pmax) = if r.slow > 0.0 { (w * r.power_min + (1.0 - w), r.power * (0.5 * (1.0 - w) + w)) } else { (r.power_min, r.power) };
@@ -1116,6 +1119,14 @@ pub(crate) fn control(
                 }
             }
             t.translation = feet;
+        }
+        // the body's horizontal speed after its step (+0x4bc, read by the next update before its drive): what the walker
+        // achieved, at most the driven speed. Pushing into a wall the original's Havok body keeps next to no speed at
+        // the contact; the driven velocity alone stayed at full speed there and dropped whenever the walker lost the
+        // ground for a frame, so the stop fx (ground_effects) fired 20 times a second: a pile of snow puffs on lev_1_m1_b
+        if dt > 0.0 {
+            let done = (t.translation - before) / dt;
+            r.stepped_h = Vec2::new(done.x, done.z).length().min(Vec2::new(r.vel.x, r.vel.z).length());
         }
         if fall_and_land(&mut r, &t, &mut h, vy, was_jump, dt, &physics, &mut fx, t.translation.distance(before), topsy.active() || hits_ignored, jet.as_deref_mut()) {
             // the landing's breath (0x00478200: 0x00493b70 with table 0x005fb9cc, 2 sounds)
