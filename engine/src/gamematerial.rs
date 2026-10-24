@@ -133,13 +133,13 @@ impl<C: Coverage> Material for GameMaterial<C> {
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         let prepass_pipeline = descriptor.vertex.shader_defs.iter().any(|d| matches!(d, bevy::shader::ShaderDefVal::Bool(n, true) if n == "PREPASS_PIPELINE"));
-        if key.mesh_key.contains(bevy::pbr::MeshPipelineKey::DEPTH_PREPASS) && !prepass_pipeline {
-            if let Some(ds) = descriptor.depth_stencil.as_mut() {
-                if ds.depth_write_enabled == Some(true) {
-                    // reverse Z: a positive bias is nearer
-                    ds.bias = bevy::render::render_resource::DepthBiasState { constant: 4, slope_scale: 1.0, clamp: 0.0 };
-                }
-            }
+        if key.mesh_key.contains(bevy::pbr::MeshPipelineKey::DEPTH_PREPASS)
+            && !prepass_pipeline
+            && let Some(ds) = descriptor.depth_stencil.as_mut()
+            && ds.depth_write_enabled == Some(true)
+        {
+            // reverse Z: a positive bias is nearer
+            ds.bias = bevy::render::render_resource::DepthBiasState { constant: 4, slope_scale: 1.0, clamp: 0.0 };
         }
         Ok(())
     }

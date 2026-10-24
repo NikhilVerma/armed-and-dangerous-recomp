@@ -1485,6 +1485,16 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
 
 ## Tips and traps
 
+- **A custom vertex shader against Bevy's prepass depth.** With a depth prepass (TAA, SSAO, SMAA + AO) the game
+  material's colour pass tests GreaterEqual against the depth Bevy's own prepass shader wrote for the same triangles;
+  the two programs need not round the clip position alike, and where ours came out a hair farther whole triangles
+  stayed the clear colour (lev_bonus_m1's orange "sky holes" on the far castle walls, 2026-10-25). The colour pass of
+  the prepassed opaque pipelines takes a small depth bias toward the camera (gamematerial.rs `specialize`). Telling
+  sign: the artefact appears in the Original preset with `--graphics anti_aliasing=taa`, not without.
+- **The far plane is the level's.** options.rs `world_far`: global_settings clip_far, or fog_far plus one landscape
+  grid cell's diagonal (LevelProperties_Load 0x00423900; scene.json `cell_size`, older exports fall back to the
+  lev_1_m1 ratio).
+
 - **Shader defs by name.** `ShaderDefVal::value_as_string()` is the value ("true" for a flag), not the name: match
   `ShaderDefVal::Bool(name, true)` to test for a definition such as PREPASS_PIPELINE (graphics/farclip.rs). To
   check the prepass's normals (what SSAO reads), draw `normal_prepass_texture` against the vertex normal in the game
