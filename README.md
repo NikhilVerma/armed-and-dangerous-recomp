@@ -85,13 +85,16 @@ regenerate them and the known differences still open: [docs/comparisons.md](docs
 
 ### Compatibility
 
-- **Windows 10 / 11, 64-bit.** The only platform built and played so far; Linux and macOS are untested (Bevy and
-  Jolt support them, the asset tools are plain Python, but nobody has tried).
+- **Windows 10 / 11, 64-bit.** The only platform played so far.
+- **macOS** (Apple silicon; Intel Macs too): builds in CI, not yet played. You copy your game files over from a
+  Windows install; see [docs/macos.md](docs/macos.md). Linux is untested.
 - **Game version:** the Steam release (app 6090, build 251748) is the tested one. Other releases (for example GOG)
   are untested; `tools/setup_assets.py` reports an unknown build and tries anyway. Reports welcome.
-- A GPU with current DirectX 12 or Vulkan drivers.
+- A GPU with current DirectX 12 or Vulkan drivers (Metal on macOS).
 
 ## Getting started
+
+The steps below are for Windows. On a Mac, follow [docs/macos.md](docs/macos.md) (same steps, its own commands).
 
 ### 1. Prerequisites
 

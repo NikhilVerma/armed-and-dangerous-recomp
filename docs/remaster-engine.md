@@ -1007,6 +1007,22 @@ none plays) and `game_paused`. `tools/movie_compare.py` matches captures (the or
 and checks the subtitle band. Trap: in scripted runs the game clock is a fixed 1/60 s per frame while the soundtrack
 plays in real time, so the logged drift is bounded by the 0.5 s seek, not ~0 as in play.
 
+## Platforms (macOS readiness, 2026-10-24)
+
+The engine builds for Windows and macOS (CI: Windows build + tests, macOS arm64 build + tests, macOS x86_64 check;
+docs/macos.md). Rules for new code:
+- A system-specific branch goes in `src/platform/` (data folders `app_data_dir` / `user_files_dir`, the system font
+  `find_system_font`, the time zone `utc_offset_secs`, the pointer policy `PLAY_POINTER`), behind the narrowest
+  cfg: `target_os = "windows"`, `target_vendor = "apple"` for what macOS and iOS share, `target_os = "macos"` for
+  desktop-only parts. Prefer `cfg!()` in ordinary code so every branch compiles (and is tested) on every system.
+- Exported files are lower case; look names up lower-cased (`graphics::texture_path`; the level asset reader also
+  retries a missed path in lower case, campaign.rs `LevelAssetReader`). Do not rely on a case-insensitive disk.
+- No keyboard-and-mouse-only assumptions in new code (iOS later: docs/macos.md "Next: iOS"), no writes to the
+  working directory.
+- Textures: GPUs without BC get DDS files decoded on load (`graphics/bc_decode.rs`, `AND_DECODE_BC=1` to test it).
+- Tools: executable names and data folders through `tools/platform_paths.py`, game file names through
+  `gamefiles.find_ignoring_case`.
+
 ## Presentation presets: Remaster and Original (graphics.rs, 2026-10-15)
 
 docs/decision.md 2026-10-15: the player plays the **Remaster** preset (the default for a normal launch); every tool
