@@ -275,7 +275,12 @@ fn pause_blur(vtime: Res<Time<Virtual>>, mut fx: ResMut<ScreenEffects>, mut was_
         fx.apply(ScreenRequest::Phases(owner, PAUSE_PHASES));
         fx.apply(ScreenRequest::IgnorePause(owner, true));
     } else {
-        fx.apply(ScreenRequest::Stop { owner, now: false });
+        // Game_PauseEffect(0) asks for the 0.5 s fade-out (Stop, not now), but the original's own frames show none:
+        // every level's walk video is sharp from play frame 10 after the briefing's Enter at frame 0 (work/videos
+        // frames, Laplacian sharpness flat from the first frame), where a 0.5 s fade would still draw the 128 x 64
+        // blur level at half strength (review C2: the remaster's first frames were heavily blurred). The game is the
+        // oracle: play resumes sharp. Why the original's fade does not show is open (docs/open-questions.md).
+        fx.apply(ScreenRequest::Stop { owner, now: true });
     }
 }
 

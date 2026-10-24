@@ -234,3 +234,13 @@ the camp fight itself (the original was not run: the game was in use by other ag
   stage 0 disables the rest in D3D9: such a material would draw its lit diffuse colour only, untextured. Not seen in
   a capture; the engine draws `fog colour * factor + base * lighting` there (graphics/env_map.rs). Check with a
   capture of a kind-5 material (bronze pipes, n_t_bronze) in a level with no marker (e.g. lev_1_m3).
+- **The pause blur's fade-out after a paused message (2026-10-25, review C2).** Game_SetPaused 0x004031e0 on the
+  last unpause calls Game_PauseEffect 0x00403150 off, PostEffects_Stop 0x0047bfe0 (id 1, now 0): phase 2 with the
+  0.5 s out time PostEffects_SetTimes gave it, weight 1 - t / 0.5 (PostEffect_Apply 0x0047c200), so at play frame
+  10 after the briefing's Enter the blur should still draw at 0.75 x 0.67 (Post_SplitLevel: the 128 x 64 level at
+  half alpha). The original's walk videos (work/videos/frames/*/original, frames 0..30) are sharp from the first
+  frame: lev_2_m2 Laplacian 4.99 at play frame 10 against 4.9 later (lev_4_m2 9.29 / 9.08, lev_3_m3 3.47 / 3.58).
+  The remaster now stops the blur at once on resume (fxvm/screen.rs `pause_blur`). Unexplained: maybe the
+  unpause's clock adjustment (Timer_Tick 0x004e47e0, the paused time taken off 0x00604a98 / 0x00604ac4) gives the
+  first frame a clamped 0.25 s dt, or the hook's test clock differs; a capture of the frames right after Enter
+  (play frames 0..10) would tell.

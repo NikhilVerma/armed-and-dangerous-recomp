@@ -264,7 +264,7 @@ impl Plugin for HudPlugin {
             // transforms propagate
             .add_systems(
                 PostUpdate,
-                (subtitles, chat, crosshair_aim.run_if(crate::playing), crosshair_pose, lock_markers, place, texts, meters, compass, compass_arms, ticker, pub_view, visibility, log_hud)
+                (subtitles, chat, crosshair_aim.run_if(crate::playing), crosshair_pose, lock_markers, place, texts, meters, compass, compass_arms, ticker, pub_view, visibility, fit_chat, log_hud)
                     .chain()
                     .before(bevy::transform::TransformSystems::Propagate),
             );
@@ -311,6 +311,9 @@ pub fn spawn(
     // the elements of the in-game HUD (page pui_main) this level uses
     const SHOWN: &[&str] = &[
         "ui_weapon_bkd", "ui_player_rifle", "ui_player_grenades", "ui_player_health", "ui_health_q", "ui_health_jonesy",
+        // the aimed damage taker's meter (0x00466e70 with hud+0x2c, 0x00408020): the green bar over the weapon panel
+        // while the crosshair is on a building or an AI (review C5: the cottages of lev_5_m2)
+        "ui_health_enemy",
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
         "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
         "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair", "ui_mission_timer",
@@ -1541,6 +1544,87 @@ fn visibility(
             || (el.name == "ui_briefing" && state.briefing.is_some())
             || (el.name == "ui_subtitle" && state.subtitle.is_some());
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
+    }
+}
+
+/// The message feed kept on screen and clear of the corner HUD (review C3). The original draws its glyphs in screen
+/// pixels, so at high resolutions the feed is a thin line of small text between the corner panels; its first line
+/// (y 437 of 480) sits in the letterbox bar above the 3D strip. The remaster's text keeps its 640 x 480 size and the
+/// HUD band fills the window: the first line fell off the top and the wrapped lines (up to 490 units at scale 1) ran
+/// under the compass and the villagers' panel. Each frame, after the layout (`place`) and the visibility: the three
+/// lines move down as a block until the first fits under the window's top, then each line is centred in the gap the
+/// shown left- and right-anchored elements leave at its height, and shrunk to fit when wider than the gap. Works at
+/// any aspect ratio and text size: the gap comes from the elements' drawn bounds.
+#[allow(clippy::type_complexity)]
+fn fit_chat(
+    windows: Query<&Window>,
+    corners: Query<(Entity, &HudElement, &Visibility), Without<TextSize>>,
+    corner_texts: Query<(Entity, &HudElement, &Visibility), With<TextSize>>,
+    children: Query<&Children>,
+    bounds: Query<(&GlobalTransform, &bevy::camera::primitives::Aabb, &InheritedVisibility), With<Mesh2d>>,
+    mut lines: Query<(&HudElement, &TextSize, &mut Transform)>,
+) {
+    let half = window_size(&windows) / 2.0;
+    let margin = (half.y * 0.02).max(2.0);
+    // the shown corner elements' rectangles in overlay pixels (their meshes' bounds, last frame's transforms)
+    let mut rects: Vec<Rect> = Vec::new();
+    for (e, el, vis) in corners.iter().chain(corner_texts.iter()) {
+        if el.anchor == Anchor::Centre || el.full || el.name.starts_with("ui_chat_") || *vis == Visibility::Hidden {
+            continue;
+        }
+        for d in children.iter_descendants(e) {
+            let Ok((gt, aabb, shown)) = bounds.get(d) else { continue };
+            if !shown.get() || aabb.half_extents.x <= 0.0 {
+                continue;
+            }
+            let (c, h) = (Vec3::from(aabb.center), Vec3::from(aabb.half_extents));
+            let mut r = Rect { min: Vec2::splat(f32::MAX), max: Vec2::splat(f32::MIN) };
+            for k in [Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, -1.0, 0.0), Vec3::new(-1.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 0.0)] {
+                let p = gt.transform_point(c + h * k).truncate();
+                r.min = r.min.min(p);
+                r.max = r.max.max(p);
+            }
+            rects.push(r);
+        }
+    }
+    // the lines' nominal height (a 20-unit glyph at the element's 0.8 scale and its text scale): the block's shift
+    // does not depend on what the lines say
+    let nominal = |t: &Transform| 20.0 * 0.8 * t.scale.y;
+    let top = lines
+        .iter()
+        .filter(|(el, _, _)| el.name.starts_with("ui_chat_0"))
+        .map(|(_, _, t)| t.translation.y + nominal(t) / 2.0)
+        .fold(f32::MIN, f32::max);
+    let shift = (top - (half.y - margin)).max(0.0);
+    for (el, size, mut t) in &mut lines {
+        if !el.name.starts_with("ui_chat_0") {
+            continue;
+        }
+        t.translation.y -= shift;
+        let (w, h) = (size.0.x * t.scale.x, (size.0.y * t.scale.y).max(nominal(&t)));
+        if w <= 0.0 {
+            continue;
+        }
+        let (y0, y1) = (t.translation.y - h / 2.0 - margin, t.translation.y + h / 2.0 + margin);
+        let (mut l, mut r) = (-half.x + margin, half.x - margin);
+        for b in rects.iter().filter(|b| b.max.y > y0 && b.min.y < y1) {
+            if b.center().x < 0.0 {
+                l = l.max(b.max.x + margin);
+            } else {
+                r = r.min(b.min.x - margin);
+            }
+        }
+        if r - l <= margin {
+            continue;
+        }
+        if w <= r - l {
+            t.translation.x = 0.0f32.clamp(l + w / 2.0, r - w / 2.0);
+        } else {
+            let k = (r - l) / w;
+            t.scale.x *= k;
+            t.scale.y *= k;
+            t.translation.x = (l + r) / 2.0;
+        }
     }
 }
 
