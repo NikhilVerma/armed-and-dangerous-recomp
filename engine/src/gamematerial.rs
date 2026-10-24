@@ -119,6 +119,30 @@ impl<C: Coverage> Material for GameMaterial<C> {
     fn prepass_fragment_shader() -> bevy::shader::ShaderRef {
         if C::ALPHA_TESTED { embedded_shader(bevy::asset::embedded_path!("gamematerial_prepass.wesl")) } else { bevy::shader::ShaderRef::Default }
     }
+    /// With a depth prepass, the colour pass of a solid game material tests against the depth that Bevy's own prepass
+    /// shader wrote for the same triangles. Two shader programs computing the same clip position need not round it
+    /// alike, and where this one came out a hair farther the GreaterEqual test failed: whole triangles of distant walls
+    /// stayed the clear (fog) colour (lev_bonus_m1's orange trapezoids, findings B4) and thin pale slivers showed the
+    /// sky through lev_4_m3's mill walls (B3), in every preset with a prepass (TAA, SSAO, SMAA + AO), never without.
+    /// A depth bias toward the camera on the colour pass of the prepassed (opaque) pipelines takes the rounding back;
+    /// the depth it writes is the prepass's anyway.
+    fn specialize(
+        _pipeline: &bevy::pbr::MaterialPipeline,
+        descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
+        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+        key: bevy::pbr::MaterialPipelineKey<Self>,
+    ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
+        let prepass_pipeline = descriptor.vertex.shader_defs.iter().any(|d| matches!(d, bevy::shader::ShaderDefVal::Bool(n, true) if n == "PREPASS_PIPELINE"));
+        if key.mesh_key.contains(bevy::pbr::MeshPipelineKey::DEPTH_PREPASS) && !prepass_pipeline {
+            if let Some(ds) = descriptor.depth_stencil.as_mut() {
+                if ds.depth_write_enabled == Some(true) {
+                    // reverse Z: a positive bias is nearer
+                    ds.bias = bevy::render::render_resource::DepthBiasState { constant: 4, slope_scale: 1.0, clamp: 0.0 };
+                }
+            }
+        }
+        Ok(())
+    }
     fn alpha_mode(&self) -> AlphaMode {
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original

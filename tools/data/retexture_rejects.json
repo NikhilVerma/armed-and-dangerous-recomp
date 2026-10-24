@@ -1,0 +1,4 @@
+{
+ "about": "Retextures (GameData/overrides/textures) judged wrong in play and kept original by tools/remaster_textures.py until they are regenerated (docs/retexture.md). Name (lower case) -> why, with the evidence.",
+ "b_level1_clouds": "lev_4_m3's river surface (4_3_water): the override paints a cluster of white blobs with dark rims into the soft clouds; the colour lock keeps their hard edges, drawn as pale lily pads over the murky water (walk-video findings B3, 2026-10-25; work/texfix/B3_*.jpg)"
+}

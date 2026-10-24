@@ -71,6 +71,8 @@ GATE_LOW = 20.0
 SIGMA = 2.0
 # names of data textures; every material's blend mask is data too, whatever its name (main(): l5_m2_ground_m)
 DATA = re.compile(r"^(b_a_blend|.*_ground_light|.*_lightmap_|.*_mask|.*_ground_m$)")
+# overrides judged wrong in play, kept original until regenerated (name -> why)
+REJECTS = {k: v for k, v in json.loads((ROOT / "tools" / "data" / "retexture_rejects.json").read_text()).items() if k != "about"}
 
 
 def resize_f(a, size, method):
@@ -288,7 +290,8 @@ def main():
         # storm's spray dome fx_wind_spray: teal blotches with stair-step edges), and the AI redrew their soft rims
         # (fx_glow_red's black ring, fx_flash_2's bright edge column: lines at the card's edge); a soft glow gains
         # nothing from 4x the texels
-        if name in premultiplied and name not in world:
+        # and the overrides judged wrong in play (tools/data/retexture_rejects.json, with the evidence)
+        if (name in premultiplied and name not in world) or name in REJECTS:
             effects.append(name)
             (dst / f"{name}.dds").unlink(missing_ok=True)
             continue
@@ -297,7 +300,7 @@ def main():
             continue
         jobs.append((name, t, overrides[name], out, name not in normal_maps, a.sigma))
     print(f"{a.level}: {len(jobs)} to convert, {len(data)} data textures kept original ({', '.join(data)}), "
-          f"{len(effects)} effect sprites kept original ({', '.join(effects)})")
+          f"{len(effects)} effect sprites and rejected overrides kept original ({', '.join(effects)})")
     report = {}
     with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 2)) as ex:
         for name, msg in ex.map(convert, jobs):
