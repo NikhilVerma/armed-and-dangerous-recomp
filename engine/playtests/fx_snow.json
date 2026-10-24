@@ -1,4 +1,4 @@
-{"load": "states/after_pub.json", "preset": "remaster", "steps": [
+{"load": "states/after_pub.json", "preset": "original", "steps": [
  {"wait": 4.0},
  {"expect": {"fx.by_template.fxo_snow": 2, "fx.by_template.fxo_snow_2": 1, "fx.by_template.fxo_glow_red": [1, 30],
              "fx.by_template.fxo_white": null, "fx.by_template.fxo_true_story": null, "fx.by_template.fxo_snow_spray": null,
