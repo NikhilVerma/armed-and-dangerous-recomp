@@ -18,7 +18,7 @@ use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialExtensionKey, Mater
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, CompareFunction, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
-use bevy::shader::ShaderRef;
+use bevy::shader::{ShaderDefVal, ShaderRef};
 
 /// The sky's material: Bevy's standard material (unlit) that fills the pixels the game material clips.
 pub type SkyMaterial = ExtendedMaterial<StandardMaterial, SkyBehindClip>;
@@ -43,13 +43,16 @@ impl MaterialExtension for SkyBehindClip {
     }
 
     /// With a depth prepass, the colour pass draws the sky without a depth test or depth writes (the shader decides).
+    /// The prepass itself stays depth-tested: drawn there without the test, the sky wrote its normals and motion
+    /// vectors over everything drawn before it (most of the solid scenery), and the ambient occlusion read them as
+    /// surfaces facing the wrong way: hard-edged dark bands and polygons across walls and ground (2026-10-24).
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        let prepass_pipeline = descriptor.vertex.shader_defs.iter().any(|d| d.value_as_string() == "PREPASS_PIPELINE");
+        let prepass_pipeline = is_prepass_pipeline(descriptor);
         if key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS) && !prepass_pipeline {
             if let Some(ds) = descriptor.depth_stencil.as_mut() {
                 ds.depth_compare = Some(CompareFunction::Always);
@@ -58,6 +61,12 @@ impl MaterialExtension for SkyBehindClip {
         }
         Ok(())
     }
+}
+
+/// Whether Bevy's prepass (depth, normals, motion vectors) builds this pipeline: it defines PREPASS_PIPELINE (by
+/// name; the value of the boolean definition is just "true").
+fn is_prepass_pipeline(descriptor: &RenderPipelineDescriptor) -> bool {
+    descriptor.vertex.shader_defs.iter().any(|d| matches!(d, ShaderDefVal::Bool(name, true) if name == "PREPASS_PIPELINE"))
 }
 
 pub struct FarClipPlugin;
@@ -125,5 +134,16 @@ mod tests {
         assert!((r.far - 1712.132).abs() < 0.01);
         assert_eq!(r.fade, 1.0);
         assert_eq!(sky_clip(None, &super::super::GraphicsSettings::original()), SkyClip { far: 0.0, fade: 0.0 });
+    }
+
+    /// The prepass is told apart by its definition's name (a boolean definition's value is "true"): only the colour
+    /// pass loses the depth test.
+    #[test]
+    fn prepass_pipeline_by_name() {
+        let mut d = RenderPipelineDescriptor::default();
+        d.vertex.shader_defs = vec!["MORPH_TARGETS".into()];
+        assert!(!is_prepass_pipeline(&d));
+        d.vertex.shader_defs.push("PREPASS_PIPELINE".into());
+        assert!(is_prepass_pipeline(&d));
     }
 }
