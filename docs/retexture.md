@@ -224,3 +224,21 @@ The player's settings merged with the sweep: Media Lab jobs 20261011-175746-5266
   had green fringes and black halos. 25 overrides were removed (list in work/retex/excluded/removed_2026-10-12.txt).
 - `[overrides] exclude=name;name` leaves single textures original for an A/B in the playground; `uv_checker=` swaps
   them for a UV grid to find which texture a surface uses.
+
+## Engine conversion: the low-frequency lock (2026-10-24)
+
+tools/remaster_textures.py (the overrides made ready for the engine) locked every override texel-exactly to the
+original until 2026-10-24: cand + up(orig - down(cand)). That keeps only detail finer than one original texel, so a 2x
+override (originals of 512 px and more: the lev_5_m2 ground l5_m2_ground_1/2, rock faces) came out as the original
+upscaled, the human: "floor textures are not swapped at all". It now uses this document's low-frequency lock (sigma
+2 original texels, blurred at the original's size: cand + up(blur(orig - down(cand)))), falling back to the
+texel-exact lock where the result's shrunk-back shift exceeds 20 (effects, sprites, glyphs whose shapes moved); the
+fidelity gate (12) applies to the exact lock. Of 24 levels' ~6,200 converted textures, about three quarters take the
+low-frequency lock. Every texture a material uses as its blend mask is data and stays original (l5_m2_ground_m was
+enlarged by the AI before: the name rule knew only `*_mask`).
+
+Regenerated with the recipe's faithful route (SeedVR2 7b, recipe.finish) for the textures failing the gate:
+fx_glass_shattered now passes (shift 10.8, work/retexfix/overrides_new); b_lbutton, b_rbutton, b_weapons,
+n_a_t_fencing still fail (hard-edged glyphs and strips: bicubic up and box down are not inverses at their edges), and
+fx_parachute_strings' upscale lost its thin strings (structure 0.43). work/retexfix/coverage.md lists the rest:
+originals under 32 px (the recipe's MIN_SIDE), data, normal maps, the font.

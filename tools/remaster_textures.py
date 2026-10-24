@@ -112,14 +112,14 @@ def tiles(orig):
 
 
 def lock_low(cand, orig, sigma, wrap):
-    """The low-frequency lock (docs/retexture.md, tools/retex/lowfreq.py): cand - blur(cand) + blur(up(orig)), the
-    blur's sigma `sigma` original texels. The broad colour and brightness (wider than ~sigma texels) are the
-    original's; the AI's shapes and detail below that stay."""
+    """The low-frequency lock (docs/retexture.md, tools/retex/lowfreq.py: cand - blur(cand) + blur(orig)), with the
+    blur (sigma `sigma` original texels) taken at the original's size: cand + up(blur(orig - down(cand))). The broad
+    colour and brightness (wider than ~sigma texels) are the original's; the AI's shapes and detail below that stay.
+    At the original's size the blur costs a 2048 px override seconds, not minutes."""
     h, w = orig.shape
     H, W = cand.shape
-    s = sigma * W / w
-    up = resize_f(orig, (W, H), Image.BICUBIC)
-    return cand - blur(cand, s, wrap) + blur(up, s, wrap)
+    err = blur(orig - resize_f(cand, (w, h), Image.BOX), sigma, wrap)
+    return cand + resize_f(err, (W, H), Image.BICUBIC)
 
 
 def dds(levels, fmt):
