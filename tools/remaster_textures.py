@@ -18,8 +18,9 @@ ignoring case):
     lock is against the stored, possibly premultiplied, texels).
   - a full mip chain (box filter in linear light), BC1 (opaque) or BC3 (alpha), DDS, so the engine loads it as fast
     as the originals.
-Kept original: effect sprites (the bank's premultiplied textures that no world model uses: flashes, glows, sparks,
-fire, spray, rain; drawn additively they show the retexture's dark-end noise and redrawn rims), data textures (docs/retexture.md "Data textures": terrain blend masks, lightmaps; every texture a
+Kept original: effect textures (the bank's premultiplied ones and the fx_* / fire_* families, unless a world model
+uses them: flashes, glows, sparks, fire, smoke, trails, spray, rain, decals, the HUD's art; drawn additively they show the retexture's dark-end noise and redrawn rims), the overrides
+judged wrong in play (tools/data/retexture_rejects.json; 'exact' ones take the texel-exact lock), data textures (docs/retexture.md "Data textures": terrain blend masks, lightmaps; every texture a
 material uses as its blend mask, whatever its name), normal maps (the
 AI's relief changed the lighting: n_b_t_snow made the snow 7 levels brighter), overrides no larger than the original,
 and those failing the fidelity gate (shrunk back, more than GATE levels from the original after the lock: the
@@ -257,8 +258,8 @@ def main():
         try:
             for sub in json.loads(m.read_text()).get("submeshes", []):
                 mat = sub.get("material") or {}
-                if sub.get("texture") and not effect_model:
-                    world.add(sub["texture"].lower())
+                if not effect_model:
+                    world.update(t.lower() for t in (sub.get("texture"), mat.get("texture2")) if t)
                 if mat.get("normal_map"):
                     normal_maps.add(mat["normal_map"].lower())
                 # a terrain's blend mask is data whatever its name (l5_m2_ground_m was enlarged by the AI until
@@ -267,13 +268,13 @@ def main():
                     masks.add(mat["mask"].lower())
         except (ValueError, AttributeError):
             pass
-    # the bank's premultiplied (DXT2) textures: the additive sprites (flashes, glows, sparks, fire, spray, rain) and
-    # the HUD's art (the HUD keeps the originals anyway, engine/src/graphics/textures.rs)
+    # the effect textures: the bank's premultiplied (DXT2) ones (the additive sprites; the HUD's art) and the fx_* /
+    # fire_* families, unless a world model uses them
     try:
         info = json.loads((level_dir / "scene.json").read_text()).get("textures", {})
     except (OSError, ValueError):
         info = {}
-    premultiplied = {k.lower() for k, v in info.items() if v.get("premultiplied")}
+    effect = {k.lower() for k, v in info.items() if v.get("premultiplied") or k.lower().startswith(("fx", "fire"))} - world
     jobs, data, effects = [], [], []
     for t in sorted(src.glob("*.dds")):
         name = t.stem.lower()
@@ -287,13 +288,14 @@ def main():
             data.append(name)
             (dst / f"{name}.dds").unlink(missing_ok=True)
             continue
-        # effect sprites stay original (walk-video findings A3 / B1, 2026-10-25): drawn additively, the dark end of a
-        # retexture (BC quantisation steps, the AI's chroma noise) shows multiplied over a dark scene (the lev_5
-        # storm's spray dome fx_wind_spray: teal blotches with stair-step edges), and the AI redrew their soft rims
-        # (fx_glow_red's black ring, fx_flash_2's bright edge column: lines at the card's edge); a soft glow gains
-        # nothing from 4x the texels
+        # effect textures (sprites, flashes, glows, sparks, fire, smoke, trails, spray, rain, decals; the HUD's art,
+        # which keeps the originals anyway) stay original (walk-video findings A3 / B1,
+        # 2026-10-25): drawn additively, the dark end of a retexture (BC quantisation steps, the AI's chroma noise)
+        # shows multiplied over a dark scene (the lev_5 storm's spray dome fx_wind_spray: teal blotches with
+        # stair-step edges), and the AI redrew their soft rims and seams (fx_glow_red's black ring, fx_flash_2's bright
+        # edge column, fx_wing_stream's dark wrap seam: lines on the cards); a soft glow gains nothing from 4x texels
         # and the overrides judged wrong in play (tools/data/retexture_rejects.json, with the evidence)
-        if (name in premultiplied and name not in world) or name in REJECTS:
+        if name in effect or name in REJECTS:
             effects.append(name)
             (dst / f"{name}.dds").unlink(missing_ok=True)
             continue
