@@ -991,6 +991,10 @@ position-only fx on their side). What changed for everything that starts fx:
   the object's hold and release, the stop on its removal, the pause blur on the real clock); the blur and the fade
   are drawn on the game's view under the HUD (`screen_post`, 2026-10-22).
 - Fx lights are published (`FxVm::lights`) but not drawn: the original shows none (engine-limits.md R4).
+- The camera's weather domes (fx following camera_fx: snow, rain, wind spray) add the original's gamma-space light
+  over the opaque scene's own pixel (fxvm/over_scene.wesl, Bevy's transmissive phase, 2026-10-25): added as linear
+  light their dark textures greyed the rain levels out. Other additive fx still match over a fixed 0.6.
+- A resume stops the pause blur at once: the original's frames are sharp right after a message (open-questions.md).
 
 Playtests: `{"fx": {"name", "at", "yaw", "clear"}}` steps and the `fx` state-log field (counts per pool and template,
 bodies, hits, lights, extent, screen); scripts fx_particles, fx_debris, fx_emit, fx_lights, fx_screen, fx_hits.

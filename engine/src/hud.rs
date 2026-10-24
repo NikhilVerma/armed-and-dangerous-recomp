@@ -311,6 +311,9 @@ pub fn spawn(
     // the elements of the in-game HUD (page pui_main) this level uses
     const SHOWN: &[&str] = &[
         "ui_weapon_bkd", "ui_player_rifle", "ui_player_grenades", "ui_player_health", "ui_health_q", "ui_health_jonesy",
+        // the aimed damage taker's meter (0x00466e70 with hud+0x2c, 0x00408020): the green bar over the weapon panel
+        // while the crosshair is on a building or an AI (review C5: the cottages of lev_5_m2)
+        "ui_health_enemy",
         "ui_crosshair", "ui_compass", "ui_compass_objective", "ui_ammo_infinity", "ui_ammo_count", "ui_grenade_count",
         "ui_hit_top", "ui_hit_bottom", "ui_hit_left", "ui_hit_right", "ui_player_mg", "ui_player_topsy", "ui_clock", "ui_tickerbomb",
         "ui_tickerbomb_set", "ui_mg_crosshair", "ui_crosshair_friendly", "ui_special_crosshair", "ui_mission_timer",
