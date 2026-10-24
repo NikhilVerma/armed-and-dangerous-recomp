@@ -98,9 +98,9 @@ impl Default for CameraRig {
         let node = |eye: Vec3, fov_h: f32| CamNode { eye, target: Vec3::new(0.0, 6.877, -7.194), fov: vertical_fov(fov_h) };
         CameraRig {
             loaded: false,
-            follow: node(Vec3::new(0.0, 11.128, 22.703), 1.0471976),
+            follow: node(Vec3::new(0.0, 11.128, 22.703), std::f32::consts::FRAC_PI_3),
             pivot: Vec3::new(0.0, 7.749, -1.058),
-            zoom: [("rifle".to_string(), node(Vec3::new(0.0, 7.918, 0.13), 0.4363323)), ("machinegun".to_string(), node(Vec3::new(0.0, 7.918, 0.13), 0.5235988))].into(),
+            zoom: [("rifle".to_string(), node(Vec3::new(0.0, 7.918, 0.13), 0.4363323)), ("machinegun".to_string(), node(Vec3::new(0.0, 7.918, 0.13), std::f32::consts::FRAC_PI_6))].into(),
             pitch: (-1.5608, 1.15),
             ray_offset: 5.0,
             smooth_secs: 1.0,
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn node_fov_is_made_vertical_for_the_design_aspect() {
         // Camera_end's 60 degrees horizontal -> 37.5 vertical (0.654 rad in the original's camera dumps)
-        assert!((vertical_fov(1.0471976) - 0.654).abs() < 2e-3);
+        assert!((vertical_fov(std::f32::consts::FRAC_PI_3) - 0.654).abs() < 2e-3);
         // Camera_rifle 25 degrees
         assert!((vertical_fov(0.4363323).to_degrees() - 14.8).abs() < 0.1);
     }
