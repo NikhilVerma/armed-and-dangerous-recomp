@@ -4,7 +4,9 @@
 //! The original has no weather system: a level's `camera_fx` script attaches textured cylinders around the camera
 //! (`fxo_snow`, `fxo_snow_2`, lev_1_m1's fx_camera_l1_m1) whose UV scrolling reads as falling snow. With the setting
 //! on, in a level whose camera fx attached those cylinders, they are hidden (as the fx "invisible" opcode 0x16 does:
-//! the fx script, its lifetime and the camera path run on) and a volume of flakes around the camera falls instead:
+//! the fx script, its lifetime and the camera path run on), the camera-locked flake emitter stops emitting
+//! ([`SnowTuning::mutes`]: its sprites fly at the lens as big soft blobs) and a volume of flakes around the camera
+//! falls instead:
 //! - each flake is a particle in a storage buffer, moved by a compute pass: born in the sky above the camera, falling
 //!   at its terminal speed through gusting, swirling wind with drag, born again when it lands on a visible surface
 //!   (the depth prepass) or leaves the volume; sideways the volume wraps around the camera. It fills the visible world
@@ -22,7 +24,7 @@
 //! save thumbnail's camera does not); [`Snowfall`] (resource: whether it snows, the flake count, the cylinders).
 
 use super::GraphicsSettings;
-use crate::fxvm::FxEntity;
+use crate::fxvm::{FxEntity, FxVm};
 use crate::gamematerial::GameLights;
 use bevy::anti_alias::taa::temporal_anti_alias;
 use bevy::core_pipeline::prepass::ViewPrepassTextures;
@@ -92,6 +94,12 @@ pub const STEPPERS: [(&str, f32, f32, usize); 1] = [("snow_amount", 0.0, 3_000_0
 pub struct SnowTuning {
     /// the fx objects the snowfall replaces (hidden while it snows); a level snows when its camera fx attach one
     pub replaces: Vec<String>,
+    /// the camera-locked particle emitters the snowfall replaces too (they stop emitting while it snows): lev_1_m1's
+    /// fx_camera_l1_m1_locked carries an invisible `fxo_glow_red` that sprays flake sprites along the view at the lens
+    /// all level (docs/subsystems/weather.md "snow bubbles"); they pass the near plane as big soft blobs over the
+    /// scene. The player reported those "bubbles" and the old remaster muted them with its snowfall (67d7adf,
+    /// archive/hook/enhance/weather.cpp); the Original preset keeps them. Empty: the remaster keeps them too
+    pub mutes: Vec<String>,
     /// horizontal half size of the volume around the camera (game units)
     pub radius: f32,
     /// flakes are born this high above the camera
@@ -126,6 +134,7 @@ impl Default for SnowTuning {
     fn default() -> Self {
         SnowTuning {
             replaces: vec!["fxo_snow".into(), "fxo_snow_2".into()],
+            mutes: vec!["fxo_glow_red".into()],
             radius: 150.0,
             sky: 70.0,
             below: 40.0,
@@ -163,6 +172,8 @@ pub struct Snowfall {
     /// replaced fx objects hidden now / still drawn
     pub cylinders_hidden: usize,
     pub cylinders_shown: usize,
+    /// camera-locked emitters muted now ([`SnowTuning::mutes`])
+    pub emitters_muted: usize,
     gpu: SnowFrame,
 }
 
@@ -211,6 +222,7 @@ fn track(
     lights: Option<Res<GameLights>>,
     mut snow: ResMut<Snowfall>,
     fx: Query<(Entity, &Name, &Visibility, Option<&HiddenBySnow>), With<FxEntity>>,
+    (mut vm, camera): (Option<ResMut<FxVm>>, Query<Entity, With<SnowCamera>>),
 ) {
     let settings = &settings.snowfall;
     let t = &settings.snow_tuning;
@@ -238,6 +250,13 @@ fn track(
     if active != snow.active {
         info!("snow: GPU snowfall {} ({} flakes, {} cylinders hidden)", if active { "on" } else { "off" }, settings.snow_amount, hidden);
     }
+    // the camera's own flake emitter goes with the cylinders (an empty list mutes nothing, and unmutes)
+    let mutes: &[String] = if active { &t.mutes } else { &[] };
+    let muted = vm.as_deref_mut().map_or(0, |vm| vm.mute_camera_emitters(camera.iter().next(), mutes));
+    if muted != snow.emitters_muted {
+        info!("snow: {muted} camera-locked particle emitter(s) muted");
+    }
+    snow.emitters_muted = muted;
     snow.active = active;
     snow.flakes = if active { settings.snow_amount.min(MAX_FLAKES) } else { 0 };
     snow.cylinders_hidden = hidden;
@@ -275,6 +294,7 @@ fn playtest_state(snow: Res<Snowfall>, stats: Res<SnowStats>, state: Option<ResM
             "flakes": snow.flakes,
             "cylinders_hidden": snow.cylinders_hidden,
             "cylinders_shown": snow.cylinders_shown,
+            "emitters_muted": snow.emitters_muted,
             "frames_drawn": stats.0.load(Ordering::Relaxed),
         }),
     );

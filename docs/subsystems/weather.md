@@ -175,5 +175,9 @@ hook drew them after its AA at SceneEnd), reading the depth prepass (reverse Z: 
 volume is filled when the pipelines are first ready (not on the first prepared frame: the pipelines compile in the
 background, and a fill consumed before then left every flake at the origin). Active while a live fx object named in
 `snow_tuning.replaces` (fxo_snow, fxo_snow_2) exists; those are made invisible (marker `HiddenBySnow`, restored when
-the setting goes off). Unlike the hook, the camera's flake emitter fxo_glow_red is not muted (player feedback FX1 wants
-its flakes). Playtest state "snow": active, flakes, cylinders_hidden / cylinders_shown, frames_drawn.
+the setting goes off). The camera's flake emitter (the fxo_glow_red locked to the camera, `snow_tuning.mutes`) stops
+emitting while it snows, as the hook muted it (2026-10-24, player feedback G6; FxObject `muted`, FxVm
+`mute_camera_emitters`): from 10-19 to 10-24 the port kept it, reading FX1 (10-18, before the GPU snow existed, when
+the domes and the emitter drew too faint to see) as wanting its flakes, and the big soft blobs it throws at the lens
+were back in the Remaster preset. The Original preset keeps it. Playtest state "snow": active, flakes,
+cylinders_hidden / cylinders_shown, emitters_muted, frames_drawn.

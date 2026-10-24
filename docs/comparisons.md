@@ -42,8 +42,9 @@ landscape. Contrast / saturation: original 47.7 / 0.157, remaster 47.3 / 0.154 (
 The village houses. Cascaded shadows (Roman's on the snow), ambient occlusion under the eaves and where the walls
 meet the ground, retextured walls, roofs and barrels, TAA with sharpening. The roof undersides are dark brown planks in both
 (the dark wood, ambient 0.1, faces away from both of the level's lights; the remaster crushed it to black until it
-converted the game's values with the sRGB curve instead of a 2.2 power). The soft white blobs are the original's own
-camera-locked snow particles (see Known differences). Contrast / saturation: 55.2 / 0.219 against 52.8 / 0.199
+converted the game's values with the sRGB curve instead of a 2.2 power). The soft white blobs in this capture are the
+original's camera-locked snow particles, which the remaster's GPU snowfall replaces since 2026-10-24 (player feedback
+G6; the image is from before). Contrast / saturation: 55.2 / 0.219 against 52.8 / 0.199
 (before: 38.6 / 0.116).
 
 ### Village street
@@ -192,7 +193,6 @@ Not in the set: an explosion pair (a blast needs a scripted moment that frames t
 
 Open visual differences against the original, found with these tools (status in docs/player-feedback.md):
 
-- **Snow puffs near the camera** (lev_1_m1): the big soft white blobs are the original's own camera-locked snow emitter (fx_camera_l1_m1_locked, the same count, size and speed), but they read brighter over dark walls than in the original, which blends in gamma space where the remaster blends in linear light (matched over the snow's brightness).
 - **The rain levels (lev_5_m1, lev_5_m3)**: the camera's rain and wind-spray domes (fxo_rain_1..3, fxo_wind_spray) grey the whole view out; their textures are dark, so the cause is in the fx materials, not found yet (G5).
 - **Sky holes** on lev_5_m3 and lev_bonus_m1: bright white patches where the sky should show (the lev_5_m3 ones are lit snow in front of the rain domes; lev_bonus_m1's not examined).
 - **lev_3_m3's town through the gate**: was missing (black) for want of the level's fog; fixed, the town still reads darker than the original's.

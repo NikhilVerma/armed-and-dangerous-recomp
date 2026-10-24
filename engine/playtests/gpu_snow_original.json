@@ -1,6 +1,7 @@
 {"load": "states/after_pub.json", "preset": "original", "steps": [
  {"wait": 4.0},
  {"expect": {"snow.active": false, "snow.flakes": 0, "snow.cylinders_hidden": 0, "snow.cylinders_shown": 3, "snow.frames_drawn": 0,
-             "fx.by_template.fxo_snow": 2, "fx.by_template.fxo_snow_2": 1}},
+             "fx.by_template.fxo_snow": 2, "fx.by_template.fxo_snow_2": 1,
+             "snow.emitters_muted": 0, "fx.near_camera": [150, 2000]}},
  {"quit": true}
 ]}

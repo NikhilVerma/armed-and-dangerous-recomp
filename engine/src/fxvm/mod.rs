@@ -99,6 +99,19 @@ impl FxVm {
     pub fn set_particle_pool_scale(&mut self, scale: usize) {
         self.pools.scale = scale.max(1);
     }
+
+    /// Mutes the particle emitters of the objects locked to `camera` (following its full transform, not only its
+    /// position: the original's camera_fx with position_only 0) whose template is one of `templates`, and unmutes
+    /// every other object; returns how many are muted. graphics/snow.rs calls it while the GPU snowfall runs.
+    pub fn mute_camera_emitters(&mut self, camera: Option<Entity>, templates: &[String]) -> usize {
+        let mut muted = 0;
+        for o in self.objects.values_mut() {
+            let locked = camera.is_some() && o.follow.map(|f| f.0) == camera && !o.follow_pos_only;
+            o.muted = locked && !o.emitters.is_empty() && templates.iter().any(|t| t.eq_ignore_ascii_case(&o.template));
+            muted += o.muted as usize;
+        }
+        muted
+    }
 }
 
 /// What a script run or an object update asks of other systems this frame (sent by `run` / `objects`).

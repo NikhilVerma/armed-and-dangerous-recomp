@@ -381,6 +381,9 @@ pub struct FxObject {
     pub gravity: f32,
     /// explosion debris kept past its lifespan (debris.rs)
     pub kept: bool,
+    /// its particle emitters do not run (graphics/snow.rs: the camera's flake emitter while the GPU snowfall replaces
+    /// it, as the hook remaster skipped that object's update; particles already out finish their lives)
+    pub muted: bool,
 }
 
 impl FxObject {
@@ -422,6 +425,7 @@ impl FxObject {
             restored: false,
             gravity: 0.0,
             kept: false,
+            muted: false,
         }
     }
 
@@ -757,7 +761,11 @@ pub fn objects(
         let pos = o.place.w_axis.truncate();
         let obj_dir = -o.place.y_axis.truncate();
         for em in &mut o.emitters {
-            step_emitter(&mut vm.pools, &mut vm.rng, em, pos, obj_dir, dt);
+            if o.muted {
+                em.prev_pos = pos; // unmuted, it starts from here, not along the path it travelled muted
+            } else {
+                step_emitter(&mut vm.pools, &mut vm.rng, em, pos, obj_dir, dt);
+            }
         }
         if o.screen {
             vm.out.screen.push(super::screen::ScreenRequest::Position(super::screen::EffectOwner::Object(e), axes * pos));
