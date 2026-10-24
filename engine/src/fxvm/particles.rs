@@ -345,7 +345,7 @@ pub fn build_quads(pool: &[Particle], right: Vec3, up: Vec3, out: &mut QuadBuffe
                 let cdir = (cx * d.x + cy * d.y) / dl * s.signum();
                 w += (right * d.x + up * d.y) * cdir * p.stretch;
                 if cdir < 0.0 {
-                    alpha *= (1.0 + 0.7071 * cdir).max(0.0);
+                    alpha *= (1.0 + std::f32::consts::FRAC_1_SQRT_2 * cdir).max(0.0);
                 }
             }
             out.pos.push(w.to_array());

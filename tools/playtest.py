@@ -19,6 +19,9 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import platform_paths  # noqa: E402
+
 ANSI = re.compile(r'\x1b\[[0-9;]*m')
 
 ap = argparse.ArgumentParser()
@@ -40,7 +43,7 @@ if a.timeout is None:
         a.timeout = 300
 
 engine = os.path.join(ROOT, 'engine')
-exe = os.path.join(engine, a.exe, 'release', 'and_remaster.exe')
+exe = str(platform_paths.engine_exe(a.exe))
 script = os.path.abspath(a.script)
 
 # The saved state the script starts from ("load", resolved against the script's folder) is written by a playtest of

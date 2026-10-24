@@ -791,7 +791,7 @@ pub fn grab_cursor(
     }
     let play = crate::cursor::in_play(*state.get(), menu.page);
     let Ok((mut w, mut c)) = windows.single_mut() else { return };
-    // hidden in play; in the menus the Windows pointer or the game's sprite; confined with clip_cursor (cursor.rs)
+    // hidden in play; in the menus the system pointer or the game's sprite; confined with clip_cursor (cursor.rs)
     let (mode, visible) = crate::cursor::grab(&crate::cursor::settings(gfx.as_deref()), play, w.focused);
     if c.grab_mode != mode || c.visible != visible {
         c.grab_mode = mode;
@@ -804,12 +804,16 @@ pub fn grab_cursor(
         info!("EVENT input: window {}", if f { "focused" } else { "lost the focus" });
     }
     let size = Vec2::new(w.width(), w.height());
-    look.0 = mouse.frame(&crate::mouselook::PointerFrame { play, focused: w.focused, window: size, cursor: w.cursor_position(), reports: &reports });
+    // a pointer the system locks (macOS, platform/mod.rs) stays where it was locked: the look is the raw motion alone,
+    // so it counts as centred, and it is never moved (a move would unlock it)
+    let recentre = crate::platform::PLAY_POINTER == crate::platform::PlayPointer::Recentre;
+    let cursor = if recentre { w.cursor_position() } else { Some(size / 2.0) };
+    look.0 = mouse.frame(&crate::mouselook::PointerFrame { play, focused: w.focused, window: size, cursor, reports: &reports });
     if mouse.absolute() != *was_absolute {
         *was_absolute = mouse.absolute();
         info!("EVENT input: pointer reports {}", if *was_absolute { "absolute positions (a remote desktop stream's mouse mode?)" } else { "relative motion" });
     }
-    if play && w.focused {
+    if play && w.focused && recentre {
         w.set_cursor_position(Some(size / 2.0));
     }
 }

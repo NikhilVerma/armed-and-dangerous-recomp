@@ -2,7 +2,8 @@
 //! reports and reproduction. Local files only; nothing leaves the machine. It is the game's own input as its window
 //! received it, never system-wide keyboard capture.
 //!
-//! A session is a folder `<root>/<YYYY-MM-DD_HH-MM-SS>` (local time on Windows, else UTC), root `%LOCALAPPDATA%/AndRemaster/sessions` (else
+//! A session is a folder `<root>/<YYYY-MM-DD_HH-MM-SS>` (local time), root `<app data>/sessions` (platform.rs
+//! `app_data_dir`: `%LOCALAPPDATA%/AndRemaster` on Windows, `~/Library/Application Support/AndRemaster` on macOS; else
 //! `sessions/` next to the executable), holding:
 //! - `session.json`: when, the command line, the version;
 //! - `game.log`: every log line the game writes (info and up: warnings, errors) and panics with their backtrace
@@ -78,7 +79,7 @@ pub fn root(tool_run: bool, no_session: bool, script: Option<&Path>) -> Option<P
     if tool_run {
         return None;
     }
-    let base = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("AndRemaster")).or_else(|| std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)));
+    let base = crate::platform::app_data_dir().or_else(|| std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)));
     base.map(|b| b.join("sessions"))
 }
 
@@ -98,35 +99,10 @@ pub fn stamp(unix_secs: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}_{:02}-{:02}-{:02}", s / 3600, s / 60 % 60, s % 60)
 }
 
-/// The local date and time now as "YYYY-MM-DD_HH-MM-SS" (Windows: GetLocalTime, so the folder names match the
-/// player's clock), else the UTC [`stamp`].
+/// The local date and time of a Unix time as "YYYY-MM-DD_HH-MM-SS", so the folder names match the player's clock.
 fn local_stamp(unix_secs: u64) -> String {
-    #[cfg(windows)]
-    {
-        #[repr(C)]
-        #[derive(Default)]
-        struct SystemTime16 {
-            year: u16,
-            month: u16,
-            day_of_week: u16,
-            day: u16,
-            hour: u16,
-            minute: u16,
-            second: u16,
-            millis: u16,
-        }
-        #[link(name = "kernel32")]
-        unsafe extern "system" {
-            fn GetLocalTime(st: *mut SystemTime16);
-        }
-        let mut t = SystemTime16::default();
-        // SAFETY: GetLocalTime fills the SYSTEMTIME it is given (eight u16 fields, the layout above)
-        unsafe { GetLocalTime(&mut t) };
-        if t.year > 1900 {
-            return format!("{:04}-{:02}-{:02}_{:02}-{:02}-{:02}", t.year, t.month, t.day, t.hour, t.minute, t.second);
-        }
-    }
-    stamp(unix_secs)
+    let offset = crate::platform::utc_offset_secs(unix_secs as i64);
+    stamp(unix_secs.saturating_add_signed(offset))
 }
 
 /// A session folder's name ("YYYY-MM-DD_HH-MM-SS", maybe "_N" after it): only these are ever deleted.

@@ -29,7 +29,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, Extent3d, TextureDimension, TextureFormat};
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dPlugin};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::OnceLock;
 
 /// Field pixels per atlas pixel when the atlas' own pixels are the source (no typeface).
@@ -103,10 +103,9 @@ fn atlas_char(code: u32) -> Option<char> {
     }
 }
 
-/// The system's copy of the typeface, if any.
+/// The system's copy of the typeface, if any (Windows: Fonts\arial.ttf; macOS: Supplemental/Arial.ttf).
 fn typeface() -> Option<Vec<u8>> {
-    let windir = std::env::var_os("WINDIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("C:\\Windows"));
-    std::fs::read(windir.join("Fonts").join(TYPEFACE_FILE)).ok()
+    std::fs::read(crate::platform::find_system_font(TYPEFACE_FILE)?).ok()
 }
 
 /// The distance field of the UI folder's font (font.png, font.json): R8, 0.5 on the outline, more inside, linear
@@ -418,7 +417,7 @@ mod tests {
     #[test]
     fn typeface_keeps_the_metrics() {
         // AND_UI_DIR: the exported ui folder when this checkout has no work/ (a worktree)
-        let ui = std::env::var_os("AND_UI_DIR").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../work/remaster/lev_1_m1/ui"));
+        let ui = std::env::var_os("AND_UI_DIR").map(std::path::PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../work/remaster/lev_1_m1/ui"));
         let (Some(font), Ok(bytes)) = (typeface(), std::fs::read(ui.join("font.png"))) else {
             eprintln!("skipped: no {TYPEFACE_FILE} or no exported font.png");
             return;

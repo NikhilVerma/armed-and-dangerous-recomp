@@ -118,7 +118,7 @@ impl GameOptions {
     /// player's options.
     fn path() -> PathBuf {
         let name = if std::env::args().any(|a| a == "--play") { "options_playtest.json" } else { "options.json" };
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(name))).unwrap_or_else(|| PathBuf::from(name))
+        crate::platform::user_files_dir().join(name)
     }
 
     pub fn load() -> Self {

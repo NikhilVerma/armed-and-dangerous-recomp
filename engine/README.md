@@ -18,7 +18,8 @@ One level only, or one exporter step: `tools/export_level.py LEVEL [--steps scen
 the steps and what each writes).
 
 Build and play (cargo is in %USERPROFILE%/.cargo/bin; add it to PATH in Git Bash). After a build, `engine/play.bat`
-(double-click) starts the game on the title menu.
+(double-click) starts the game on the title menu; `engine/play.sh` on macOS and Linux (**docs/macos.md**: building
+and running on a Mac, where the game keeps its files there, what differs).
 
 ```bash
 cd engine && cargo build --release && ./target/release/and_remaster.exe --size 1600x900
@@ -26,6 +27,9 @@ cd engine && cargo build --release && ./target/release/and_remaster.exe --size 1
 
 After a build, once per export: `python tools/bake_env_maps.py --exe target` bakes each level's environment cube
 map (the reflections on ice, water and metal; graphics/env_map.rs). Without it those surfaces reflect the fog colour.
+Platform differences (data folders, the system font, the local time zone, how the pointer is held in play) live in
+one module, `src/platform/`; GPUs without BC texture support get their DDS textures decoded on load
+(`src/graphics/bc_decode.rs`).
 
 Options: `--size WxH`, `--vsync`, `--no-ai`, `--scene DIR`, `--skip-title` (straight into the level),
 `--play SCRIPT.json` (playtest bot, see docs/remaster-engine.md), `--camera DUMP.json` (render from a camera dumped

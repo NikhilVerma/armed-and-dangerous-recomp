@@ -158,7 +158,7 @@ pub struct PendingLoad(pub SaveData, pub u32);
 /// The saves' folder: saves/ next to the executable (scripted runs use their own build's: tools/playtest.py never
 /// runs the player's engine/target).
 pub fn saves_dir() -> PathBuf {
-    std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("saves"))).unwrap_or_else(|| PathBuf::from("saves"))
+    crate::platform::user_files_dir().join("saves")
 }
 
 /// Deletes every save of the folder (a playtest's `clear_saves` step: a script starts from no saves).

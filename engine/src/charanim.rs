@@ -399,7 +399,8 @@ fn wrap(a: f32) -> f32 {
 
 /// The bone callback 0x004735f0 (flag 2) on Roman's "center" and "belly" after the anims set the joints.
 pub(crate) fn twist(mut tw: ResMut<Twist>, mut q: Query<(&mut Roman, &Animator)>, mut joints: Query<&mut Transform>, mut state: Option<ResMut<crate::playtest::PlayState>>) {
-    for (mut r, a) in &mut q {
+    // one Roman: the first match only
+    if let Some((mut r, a)) = q.iter_mut().next() {
         if std::mem::take(&mut r.twist_reset) {
             tw.leg_yaw = None;
             tw.turn = None;
@@ -453,7 +454,6 @@ pub(crate) fn twist(mut tw: ResMut<Twist>, mut q: Query<(&mut Roman, &Animator)>
             s.0.insert("turn_anim".into(), tw.turn.map_or("", |(l, _)| if l { "left" } else { "right" }).into());
             s.0.insert("turns".into(), tw.turns.into());
         }
-        break;
     }
 }
 

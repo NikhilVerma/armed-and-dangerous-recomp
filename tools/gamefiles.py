@@ -22,3 +22,26 @@ def game_exe(gamedata):
     unpacked = gamedata / "game.unpacked.exe"
     return unpacked if unpacked.exists() else gamedata / "game.exe"
 
+
+def find_ignoring_case(base, rel):
+    """base/rel, matching each part of rel without regard to case when the exact spelling is missing (the game's
+    banks name files as Windows spelled them; a GameData folder copied to a case-sensitive file system keeps the
+    install's spelling). rel may use backslashes. Returns the exact spelling's path when nothing matches."""
+    base = pathlib.Path(base)
+    parts = [p for p in str(rel).replace("\\", "/").split("/") if p]
+    exact = base.joinpath(*parts)
+    if exact.exists():
+        return exact
+    here = base
+    for part in parts:
+        nxt = here / part
+        if not nxt.exists():
+            try:
+                nxt = next((e for e in here.iterdir() if e.name.lower() == part.lower()), None)
+            except OSError:
+                nxt = None
+            if nxt is None:
+                return exact
+        here = nxt
+    return here
+

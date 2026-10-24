@@ -18,6 +18,7 @@
 //! API: [`CursorPlugin`] (the sprite); [`grab`] (the grab mode and pointer visibility player.rs `grab_cursor` sets).
 
 use crate::graphics::GraphicsSettings;
+use crate::platform::PlayPointer;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 use serde::{Deserialize, Serialize};
@@ -47,11 +48,23 @@ impl Default for CursorSettings {
     }
 }
 
-/// The grab mode and whether the Windows pointer shows: in play (hidden; confined with `clip_cursor`) or in a menu
-/// (shown with `hardware_cursor`; confined with `clip_cursor` while the window has the focus).
+/// The grab mode and whether the system pointer shows: in play (hidden; confined with `clip_cursor`) or in a menu
+/// (shown with `hardware_cursor`; confined with `clip_cursor` while the window has the focus), on this platform
+/// ([`crate::platform::PLAY_POINTER`]).
 pub fn grab(s: &CursorSettings, play: bool, focused: bool) -> (CursorGrabMode, bool) {
-    let mode = |on: bool| if on { CursorGrabMode::Confined } else { CursorGrabMode::None };
-    if play { (mode(s.clip_cursor), false) } else { (mode(s.clip_cursor && focused), s.hardware_cursor) }
+    grab_with(crate::platform::PLAY_POINTER, s, play, focused)
+}
+
+/// [`grab`] for a given way of holding the pointer. Where the system only locks it (macOS), play locks it while the
+/// window has the focus (a lock kept after the focus left would freeze the pointer for every other program), and the
+/// menus never confine it.
+fn grab_with(pointer: PlayPointer, s: &CursorSettings, play: bool, focused: bool) -> (CursorGrabMode, bool) {
+    let confine = |on: bool| if on && pointer.can_confine() { CursorGrabMode::Confined } else { CursorGrabMode::None };
+    match (play, pointer) {
+        (true, PlayPointer::Recentre) => (confine(s.clip_cursor), false),
+        (true, PlayPointer::Locked) => (if focused { CursorGrabMode::Locked } else { CursorGrabMode::None }, false),
+        (false, _) => (confine(s.clip_cursor && focused), s.hardware_cursor),
+    }
 }
 
 /// Whether the game is in play for the pointer (not a menu, not the pub screen, which takes the pointer too).
@@ -154,6 +167,7 @@ mod tests {
     /// menus, confined while focused, and confined and hidden in play.
     #[test]
     fn grab_modes() {
+        let grab = |s: &CursorSettings, play, focused| grab_with(PlayPointer::Recentre, s, play, focused);
         let o = CursorSettings::original();
         assert_eq!(grab(&o, false, true), (CursorGrabMode::None, false));
         assert_eq!(grab(&o, true, true), (CursorGrabMode::None, false));
@@ -161,6 +175,18 @@ mod tests {
         assert_eq!(grab(&r, false, true), (CursorGrabMode::Confined, true));
         assert_eq!(grab(&r, false, false), (CursorGrabMode::None, true));
         assert_eq!(grab(&r, true, true), (CursorGrabMode::Confined, false));
+    }
+
+    /// macOS: locked and hidden in play while focused (either preset: the look needs it), released without the
+    /// focus; the menus never confine (the system cannot).
+    #[test]
+    fn grab_modes_where_the_pointer_only_locks() {
+        let grab = |s: &CursorSettings, play, focused| grab_with(PlayPointer::Locked, s, play, focused);
+        for s in [CursorSettings::original(), CursorSettings::remaster()] {
+            assert_eq!(grab(&s, true, true), (CursorGrabMode::Locked, false));
+            assert_eq!(grab(&s, true, false), (CursorGrabMode::None, false));
+            assert_eq!(grab(&s, false, true), (CursorGrabMode::None, s.hardware_cursor));
+        }
     }
 
     #[test]

@@ -30,7 +30,9 @@ ap.add_argument('--timeout', type=float, default=240.0)
 a = ap.parse_args()
 
 levels = a.levels or sorted(d for d in os.listdir(WORK) if d.startswith('lev_') and os.path.exists(os.path.join(WORK, d, 'scene.json')))
-exe = os.path.join(ROOT, 'engine', a.exe, 'release', 'and_remaster.exe')
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import platform_paths  # noqa: E402
+exe = str(platform_paths.engine_exe(a.exe))
 script_dir = os.path.join(WORK, 'smoke')
 os.makedirs(script_dir, exist_ok=True)
 results = {}

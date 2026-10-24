@@ -79,6 +79,7 @@ mod physics;
 mod physicsstep;
 mod peasant;
 mod pickup;
+mod platform;
 mod pools;
 mod pubscreen;
 mod ragdoll;
