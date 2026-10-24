@@ -166,10 +166,13 @@ struct Args {
     dev: Option<String>,
     /// --no-session: no session recording
     no_session: bool,
+    /// --bake-env-map: render the level's environment cube map to <scene>/env_map_<preset>.png and quit
+    /// (graphics/env_map.rs; tools/bake_env_maps.py)
+    bake_env_map: bool,
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false, level: None, dev: None, no_session: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false, level: None, dev: None, no_session: false, bake_env_map: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -209,6 +212,7 @@ fn args() -> Args {
             "--level" => a.level = Some(next),
             "--dev" => a.dev = Some(next),
             "--no-session" => (a.no_session, used) = (true, 1),
+            "--bake-env-map" => (a.bake_env_map, used) = (true, 1),
             other => panic!("unknown argument {other}"),
         }
         i += used;
@@ -449,6 +453,11 @@ fn main() {
             app.add_plugins(profile::ProfilePlugin);
         }
     }
+    if a.bake_env_map {
+        let preset = graphics::current().preset;
+        app.insert_resource(graphics::env_map::EnvMapBake::new(scene_dir.join(graphics::env_map::atlas_file(preset))));
+        app.insert_state(AppState::Playing);
+    }
     if a.skip_title {
         app.insert_state(AppState::Playing);
     }
@@ -603,7 +612,7 @@ fn setup(
     let info = level::spawn(&mut commands, &scene, &data, &mut lib, &mut physics, &assets, &mut meshes, &mut materials, &mut skin_ctx);
     // the landscape with the original's materials (rendering piece 1, docs/remaster-engine.md)
     if !launch.std_materials {
-        let mut lights = gamematerial::GameLights::from_scene(&scene);
+        let mut lights = gamematerial::GameLights::from_scene(&scene, &data);
         let white = images.add(Image::new_fill(
             bevy::render::render_resource::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
             bevy::render::render_resource::TextureDimension::D2,
@@ -612,6 +621,20 @@ fn setup(
             bevy::asset::RenderAssetUsages::RENDER_WORLD,
         ));
         lights.white = white.clone();
+        // the environment cube map (graphics/env_map.rs): the marker (for a bake) and the level's baked atlas
+        let g = graphics::current();
+        lights.env_probe = graphics::env_map::EnvProbe::from_scene(&scene, &data, &g.env_map);
+        let atlas = graphics::env_map::atlas_path(&launch.scene, g.preset).filter(|_| g.env_map.env_maps && lights.env_probe.is_some());
+        lights.env_baked = atlas.is_some();
+        lights.env_atlas = match atlas {
+            Some(f) => assets
+                .load_builder()
+                .with_settings(|s: &mut bevy::image::ImageLoaderSettings| {
+                    s.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor::linear());
+                })
+                .load(f),
+            None => white.clone(),
+        };
         let parts = lib.load_game_parts(&scene.landscape, &lights, &assets, &mut meshes, &mut game_materials, &white);
         let e = commands.spawn((Transform::from_matrix(Mat4::from_quat(level::game_to_engine())), Visibility::default(), Name::new("landscape"))).id();
         for (i, (mesh, mat)) in parts.into_iter().enumerate() {

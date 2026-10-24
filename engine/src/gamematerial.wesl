@@ -23,7 +23,35 @@ import bevy_pbr::render::mesh_view_types;
 import and_remaster::gamematerial_shared::far_clipped;
 import and_remaster::graphics::height_fog::height_fog;
 import and_remaster::graphics::ao_extras::remaster_occlusion;
-import and_remaster::gamematerial_bindings::{p, base_tex, base_smp, normal_tex, normal_smp, tex2, tex2_smp, mask_tex, mask_smp};
+import and_remaster::gamematerial_bindings::{p, base_tex, base_smp, normal_tex, normal_smp, tex2, tex2_smp, mask_tex, mask_smp, env_tex, env_smp};
+
+// The level's environment cube along `d` (engine space), from its six faces in a 3 x 2 atlas (graphics/env_map.rs
+// FACES: the face of the largest axis, the basis Bevy's looking_to gives its camera, a pi/2 view). Linear colour.
+// Each face's samples stay half a texel inside it, so the filter never reads the neighbouring face.
+fn env_lookup(d: vec3<f32>) -> vec3<f32> {
+    let a = abs(d);
+    var face = 0u;
+    var f = vec3(1.0, 0.0, 0.0);
+    var u = vec3(0.0, 1.0, 0.0);
+    if (a.x >= a.y && a.x >= a.z) {
+        face = select(1u, 0u, d.x > 0.0);
+        f = vec3(sign(d.x), 0.0, 0.0);
+    } else if (a.y >= a.z) {
+        face = select(3u, 2u, d.y > 0.0);
+        f = vec3(0.0, sign(d.y), 0.0);
+        u = vec3(0.0, 0.0, sign(d.y));
+    } else {
+        face = select(5u, 4u, d.z > 0.0);
+        f = vec3(0.0, 0.0, sign(d.z));
+    }
+    let right = normalize(cross(f, u));
+    let up = cross(right, f);
+    let z = max(dot(d, f), 1e-6);
+    let inset = 0.5 / max(f32(textureDimensions(env_tex).y) * 0.5, 1.0);
+    let in_face = clamp(vec2(0.5 + 0.5 * dot(d, right) / z, 0.5 - 0.5 * dot(d, up) / z), vec2(inset), vec2(1.0 - inset));
+    let cell = vec2(f32(face % 3u), f32(face / 3u));
+    return textureSampleLevel(env_tex, env_smp, (cell + in_face) / vec2(3.0, 2.0), 0.0).rgb;
+}
 
 // What the vertex stage hands on: Bevy's mesh outputs plus the fog, computed per vertex as the original's vertex
 // shaders do (oFog = clamp((end - view depth) * 1 / (end - start), 0, 1), c1 = {start, end, 1 / (end - start), 0.5},
@@ -70,11 +98,16 @@ fn vertex(vertex_in: Vertex) -> GameOut {
 
 // The original computes in gamma space (D3D9: texture bytes times light bytes, no sRGB). Bevy samples sRGB textures
 // as linear and writes linear to an sRGB target, so samples go back to gamma here and only the result to linear.
+// Both with the sRGB curve itself (the exact inverse of the GPU's decode and encode), so a texture byte and a result
+// byte are the original's: a 2.2 power instead (until 2026-10-24) crushed everything below ~0.05 to near black (the
+// sRGB curve's linear toe), e.g. the village's dark wood under the eaves at 2 / 255 where the original shows 9-10.
 fn to_gamma(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(1.0 / 2.2));
+    let x = max(c, vec3(0.0));
+    return select(1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3(0.0031308));
 }
 fn to_linear(c: vec3<f32>) -> vec3<f32> {
-    return pow(max(c, vec3(0.0)), vec3(2.2));
+    let x = max(c, vec3(0.0));
+    return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
 @fragment
@@ -138,10 +171,17 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     let sun = clamp(dot(n, to_sun), 0.0, 1.0) * c1;
     let light = min(clamp(sun + v0, vec3(0.0), vec3(1.0)), clamp(sun + v0_open, vec3(0.0), vec3(1.0)) * ao_whole);
     var col = albedo * light;
-    if (env) {
-        col = p.env.rgb * p.env.w + albedo * light;
-    }
     let to_eye = normalize(view.world_position.xyz - in.world_position.xyz);
+    if (env) {
+        // stage 0 cube * TFACTOR, stage 1 MULTIPLYADD current + texture * diffuse (graphics/env_map.rs); the stages'
+        // results saturate. The cube along the reflected view: per pixel here (the original's fixed function made the
+        // reflection vector per vertex); without the level's cube, the fog colour
+        var reflected = p.env.rgb;
+        if (p.env_map.x > 0.5) {
+            reflected = to_gamma(env_lookup(reflect(-to_eye, n)));
+        }
+        col = min(reflected * p.env.w + albedo * light, vec3(1.0));
+    }
     if ((p.kind & 16u) != 0u && p.specular.w > 0.0) {
         // the bump + specular pixel shader (characters): the sun's highlight through the normal map
         let h = normalize(to_sun + to_eye);

@@ -110,7 +110,7 @@ Remaster engine (engine/, Bevy; 2026-10-15, engine/src/graphics/, Remaster prese
 | kVsConstantCount / kPsConstantCount | 256 / 32 | vk_abi.h | |
 | kMaxSamplers | 8 | vk_abi.h | |
 | kMotionBlurTile | 48 px (= the longest blur) | vk_motionblur.h | |
-| Snow | 1.5M flakes (0.1M-3M) | weather.cpp | |
+| Snow | 0.2M flakes by default since 2026-10-23, the original's visible amount (0-3M on the slider, 4M cap) | weather.cpp; engine graphics/snow.rs | |
 | GTAO | 3 slices x 3 steps | lighting.md | |
 
 ### Unknown, needs a runtime check

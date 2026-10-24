@@ -181,7 +181,7 @@ fn report(
 fn apply_mip_bias(
     mut commands: Commands,
     s: Res<GraphicsSettings>,
-    cams: Query<(Entity, Option<&MipBias>), With<Camera3d>>,
+    cams: Query<(Entity, Option<&MipBias>), (With<Camera3d>, Without<crate::graphics::env_map::EnvProbeView>)>,
     new_cams: Query<(), Added<Camera>>,
 ) {
     if !s.is_changed() && new_cams.is_empty() {

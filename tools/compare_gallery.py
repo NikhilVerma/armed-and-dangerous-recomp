@@ -18,7 +18,7 @@ Reads tools/compare_gallery.json (shot definitions). For each shot:
    an optional crop (fractions of the strip), side by side or stacked, with small corner labels, as JPEG under the
    size budget into docs/images/compare/<name>.jpg. Raw captures stay in work/gallery/<name>/ (never committed).
 
-The hero image (docs/images/preview.jpg) is the shot named by "hero" in the JSON, composed as a diagonal split.
+The hero image (docs/images/preview.jpg) is the shot named by "hero" in the JSON: the same view side by side.
 Captures are cached: --skip-original / --skip-remaster / --compose-only reuse what work/gallery holds.
 """
 import argparse
@@ -33,6 +33,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import compare  # noqa: E402
 import instances  # noqa: E402
+import numpy as np  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -104,8 +105,10 @@ def capture_original(shot, cfg, d):
 
 # --- the remaster -------------------------------------------------------------------------------------------------
 
-def capture_remaster(shot, cfg, d, exe_dir, variant):
-    """variant: "remaster" (the JSON's remaster settings) or "original_preset"."""
+def capture_remaster(shot, cfg, d, exe_dir, variant, out_name=None):
+    """variant: "remaster" (the JSON's remaster settings) or "original_preset"; out_name: the capture's file name
+    (default: the variant's)."""
+    out_name = out_name or variant
     delay = cfg.get("play_delay", 30)
     # the shot at the same play frame as the original's dump (oracle.rs `shots`), then a few frames to save it
     oracle = {"keys": shot.get("keys", ""), "frames": shot["frame"] + 15, "trace_every": 0, "play_delay": delay,
@@ -114,9 +117,9 @@ def capture_remaster(shot, cfg, d, exe_dir, variant):
         oracle["warp"] = shot["warp"]
     if shot.get("hold_health"):
         oracle["hold_health"] = True
-    script = os.path.join(d, f"{variant}.json")
+    script = os.path.join(d, f"{out_name}.json")
     json.dump({"oracle": oracle}, open(script, "w"), indent=1)
-    png = os.path.join(d, f"{variant}.oracle-{shot['frame']}.png")
+    png = os.path.join(d, f"{out_name}.oracle-{shot['frame']}.png")
     if os.path.exists(png):
         os.remove(png)
     cam = os.path.join(d, "original.camera.json")
@@ -137,19 +140,22 @@ def capture_remaster(shot, cfg, d, exe_dir, variant):
     t = time.time()
     p = subprocess.run(args, cwd=os.path.join(ROOT, "engine"), capture_output=True, text=True, errors="replace",
                        timeout=900, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    open(os.path.join(d, f"{variant}.stdout.txt"), "w", encoding="utf-8").write(p.stdout + p.stderr)
+    open(os.path.join(d, f"{out_name}.stdout.txt"), "w", encoding="utf-8").write(p.stdout + p.stderr)
+    for line in (p.stdout + p.stderr).splitlines():
+        if line.startswith("--graphics:"):
+            print(f"  remaster ({out_name}): {line}")
     if not os.path.exists(png):
-        print(f"  remaster ({variant}): no shot (exit {p.returncode}; {os.path.join(d, variant + '.stdout.txt')})")
+        print(f"  remaster ({out_name}): no shot (exit {p.returncode}; {os.path.join(d, out_name + '.stdout.txt')})")
         return False
-    shutil.copy2(png, os.path.join(d, f"{variant}.png"))
-    print(f"  remaster ({variant}): {time.time() - t:.0f} s")
+    shutil.copy2(png, os.path.join(d, f"{out_name}.png"))
+    print(f"  remaster ({out_name}): {time.time() - t:.0f} s")
     return True
 
 
 def graphics_arg(changes):
-    """--graphics key=value,...: values as JSON (true, 8192), strings bare (taa). The engine resolves these before its
-    log starts, so a value of the wrong type ("True") or an unknown key would be dropped without a word
-    (graphics/mod.rs resolve): JSON spelling only."""
+    """--graphics key=value,...: values as JSON (true, 8192), strings bare (taa). A value of the wrong type ("True")
+    or an unknown key is skipped; the engine says so on stderr ("--graphics: ...", graphics/mod.rs resolve_checked),
+    which capture_remaster echoes."""
     return ",".join(f"{k}={v if isinstance(v, str) else json.dumps(v)}" for k, v in changes.items())
 
 
@@ -265,24 +271,64 @@ def save_pair(shot, cfg, out):
 
 
 def compose_hero(shot, cfg, d):
-    """A diagonal split: the original on the left, the remaster on the right, at the hero width."""
+    """The same view twice, side by side at the hero width: the original on the left, the remaster on the right
+    (the JSON's hero_crop, else the shot's crop, frames the part worth showing). Like for like: the earlier diagonal
+    split of one frame showed a different house on each side."""
     before = original_strip(d)
     after = Image.open(os.path.join(d, "remaster.png")).convert("RGB").resize(before.size, Image.LANCZOS)
-    before, after = crop(before, shot.get("crop")), crop(after, shot.get("crop"))
-    w = cfg.get("hero_width", 1600)
+    frac = cfg.get("hero_crop") or shot.get("crop")
+    before, after = crop(before, frac), crop(after, frac)
+    gap = 4
+    w = (cfg.get("hero_width", 1600) - gap) // 2
     h = round(before.height * w / before.width)
-    before, after = before.resize((w, h), Image.LANCZOS), after.resize((w, h), Image.LANCZOS)
-    mask = Image.new("L", (w, h), 0)
-    md = ImageDraw.Draw(mask)
-    skew = h * 0.18
-    md.polygon([(w / 2 + skew, 0), (w, 0), (w, h), (w / 2 - skew, h)], fill=255)
-    out = Image.composite(after, before, mask)
-    ImageDraw.Draw(out).line([(w / 2 + skew, 0), (w / 2 - skew, h)], fill=(240, 240, 240), width=3)
-    out = label(out, "Original (2003)", "bl")
-    out = label(out, "Remaster", "br")
+    before = label(before.resize((w, h), Image.LANCZOS), "Original (2003)", "tl")
+    after = label(after.resize((w, h), Image.LANCZOS), "Remaster", "tl")
+    out = Image.new("RGB", (2 * w + gap, h), (16, 16, 16))
+    out.paste(before, (0, 0))
+    out.paste(after, (w + gap, 0))
     path = os.path.join(ROOT, "docs", "images", "preview.jpg")
     q = save_jpeg(out, path, cfg.get("budget_kb", 400) * 1024)
-    print(f"  {os.path.relpath(path, ROOT)}: {w}x{h}, q{q}, {os.path.getsize(path) // 1024} KB")
+    print(f"  {os.path.relpath(path, ROOT)}: {out.width}x{out.height}, q{q}, {os.path.getsize(path) // 1024} KB")
+
+
+def box_blur(a, r):
+    """Mean over a (2r+1)^2 box (edges clamped), numpy only."""
+    p = np.pad(a, r, mode="edge")
+    c = np.cumsum(np.cumsum(p, 0), 1)
+    c = np.pad(c, ((1, 0), (1, 0)))
+    k = 2 * r + 1
+    return (c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]) / (k * k)
+
+
+def image_stats(im):
+    """Measures for tuning the look against the original (same strip size): luma mean / spread (contrast), mean HSV
+    saturation, and `specks`: small bright dots standing out of their surroundings (falling snow; a local maximum
+    at least 18 levels above its 7x7 mean). Over the 3D view without the HUD's bottom fifth."""
+    a = np.asarray(im.convert("RGB"), dtype=np.float32)
+    a = a[: int(a.shape[0] * 0.8)]
+    mx, mn = a.max(2), a.min(2)
+    luma = a @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0)
+    local = luma - box_blur(luma, 3)
+    peak = np.ones_like(luma, dtype=bool)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dy or dx:
+                peak &= luma >= np.roll(np.roll(luma, dy, 0), dx, 1)
+    specks = int(((local > 18) & peak & (luma > 110)).sum())
+    return {"luma": round(float(luma.mean()), 1), "contrast": round(float(luma.std()), 1),
+            "saturation": round(float(sat.mean()), 3), "specks": specks}
+
+
+def print_stats(shot, d, variants):
+    """The original's strip and each remaster capture, measured at the same size (crop applied)."""
+    before = crop(original_strip(d), shot.get("crop"))
+    print(f"  {'original':18} {image_stats(before)}")
+    for v in variants:
+        path = os.path.join(d, f"{v}.png")
+        if os.path.exists(path):
+            im = Image.open(path).convert("RGB").resize(original_strip(d).size, Image.LANCZOS)
+            print(f"  {v:18} {image_stats(crop(im, shot.get('crop')))}")
 
 
 def main():
@@ -294,8 +340,32 @@ def main():
     ap.add_argument("--skip-remaster", action="store_true")
     ap.add_argument("--compose-only", action="store_true")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--stats", action="store_true", help="print luma / contrast / saturation / snow specks of the "
+                    "original and the remaster captures (and any --variant) per shot")
+    ap.add_argument("--variant", default="", help="NAME=key=value,...: render the remaster once more with these "
+                    "--graphics changes over the JSON's (work/gallery/<shot>/NAME.png), for A/B tuning; implies --stats")
     a = ap.parse_args()
     cfg = json.load(open(a.config))
+    if a.variant:
+        name, _, changes = a.variant.partition("=")
+        for s in [s for s in cfg["shots"] if not a.only or s["name"] in a.only.split(",")]:
+            d = os.path.join(WORK, s["name"])
+            v = json.loads(json.dumps(cfg))
+            for kv in [kv for kv in changes.split(",") if kv]:
+                k, _, val = kv.partition("=")
+                if k == "preset":
+                    v["remaster"]["preset"] = val
+                    continue
+                try:
+                    v["remaster"]["graphics"][k] = json.loads(val)
+                except json.JSONDecodeError:
+                    v["remaster"]["graphics"][k] = val
+            print(f"[{s['name']}] variant {name}")
+            # the name original_preset renders the engine's bare Original preset
+            kind = "original_preset" if name == "original_preset" else "remaster"
+            if capture_remaster(s, v, d, a.exe, kind, out_name=name):
+                print_stats(s, d, ["remaster", name])
+        return
     only = [n for n in a.only.split(",") if n]
     shots = [s for s in cfg["shots"] if not only or s["name"] in only]
     if a.list:
@@ -316,6 +386,8 @@ def main():
         if not os.path.exists(os.path.join(d, "remaster.png")):
             print("  no remaster capture yet: not composed")
             continue
+        if a.stats and not s.get("widescreen"):
+            print_stats(s, d, ["remaster"])
         compose(s, cfg, d)
         if s["name"] == cfg.get("hero"):
             compose_hero(s, cfg, d)

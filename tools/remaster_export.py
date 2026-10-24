@@ -160,6 +160,10 @@ def mesh_submeshes(ch, bone_index=None):
                 # +0x48, which the draw state takes as its constant alpha (texture factor) when below 1
                 "blend": b[p + 0x37],
                 "opacity": struct.unpack_from("<f", b, p + 0x48)[0],
+                # the environment materials' (kind bit 4 without a mask) cube map strength: the draw state's texture
+                # factor is this grey, ftol(+0x40 * 255) clamped to 255, alpha 255 (the material set-up in
+                # archive/src/loader/loader_01.cpp, the 0x7000 colour mix); stage 0 multiplies the cube by it
+                "env_factor": struct.unpack_from("<f", b, p + 0x40)[0],
                 "normal_map": texids.get(h(0x18)),
                 "texture2": texids.get(h(0x1A)),
                 "mask": texids.get(h(0x1C)),

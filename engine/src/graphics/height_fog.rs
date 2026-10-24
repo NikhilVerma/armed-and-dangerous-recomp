@@ -28,14 +28,18 @@ pub struct HeightFogSettings {
 }
 
 impl HeightFogSettings {
-    /// The level's linear fog (the old remaster's defaults kept for when it is switched on).
+    /// The level's linear fog (the remaster's values kept for when it is switched on).
     pub fn original() -> Self {
-        HeightFogSettings { fog_modern: false, fog_density: 1.0, fog_height: 0.002, fog_sun: 0.6 }
+        HeightFogSettings { fog_modern: false, ..Self::remaster() }
     }
 
-    /// The old remaster's defaults: on.
+    /// On, at the density that hazes the scene about as much as the level's own linear fog does: 0.6 with a sun
+    /// glow of 0.3 (2026-10-23, the player: "it shouldn't mask the image too much"). The old remaster's 1.0 / 0.6
+    /// lowered the village's contrast (luma spread) from 52.0 with the linear fog to 49.7 and its mean saturation
+    /// from 0.189 to 0.176 (the original: 55.2 / 0.219); at 0.6 / 0.3 they are 51.8 / 0.189, the linear fog's
+    /// (tools/compare_gallery.py --variant, l1_village).
     pub fn remaster() -> Self {
-        HeightFogSettings { fog_modern: true, ..Self::original() }
+        HeightFogSettings { fog_modern: true, fog_density: 0.6, fog_height: 0.002, fog_sun: 0.3 }
     }
 
     /// The game material's `height_fog` parameters (x 0 = the level's linear fog), at the level's reference height
@@ -71,7 +75,7 @@ impl Plugin for HeightFogPlugin {
 }
 
 /// The level's reference height: the 3D camera's on the level's first frame (GameLights is per level).
-fn record_reference(lights: Option<ResMut<GameLights>>, cams: Query<(&Camera, &GlobalTransform), With<Camera3d>>) {
+fn record_reference(lights: Option<ResMut<GameLights>>, cams: Query<(&Camera, &GlobalTransform), (With<Camera3d>, Without<crate::graphics::env_map::EnvProbeView>)>) {
     let Some(mut lights) = lights else { return };
     if lights.fog_reference.is_some() {
         return;
@@ -102,6 +106,6 @@ mod tests {
     fn material_params() {
         assert_eq!(HeightFogSettings::original().material_params(Some(50.0)), Vec4::ZERO);
         let p = HeightFogSettings::remaster().material_params(Some(50.0));
-        assert_eq!(p, Vec4::new(1.0, 0.002, 0.6, 50.0));
+        assert_eq!(p, Vec4::new(0.6, 0.002, 0.3, 50.0));
     }
 }

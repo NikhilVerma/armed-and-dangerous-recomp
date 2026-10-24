@@ -180,7 +180,7 @@ fn attach_lods(
 /// Each frame: every switching object's LOD from its depth along the camera's view (Object_SelectLod 0x00452f50).
 fn select_lods(
     settings: Res<GraphicsSettings>,
-    cams: Query<(&Camera, &GlobalTransform, &Projection), With<Camera3d>>,
+    cams: Query<(&Camera, &GlobalTransform, &Projection), (With<Camera3d>, Without<crate::graphics::env_map::EnvProbeView>)>,
     mut objects: Query<(&GlobalTransform, &LodSource, &mut LodParts)>,
     mut vis: Query<&mut Visibility>,
 ) {

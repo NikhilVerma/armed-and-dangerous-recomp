@@ -28,6 +28,8 @@ mod farclip;
 pub mod geometry;
 pub mod snow;
 mod textures;
+// the environment cube maps of ice, water and metal (2026-10-23)
+pub mod env_map;
 // the old remaster's atmosphere, AO shaping and output passes (agent-port-atmos, 2026-10-19)
 pub mod ao_extras;
 mod effects_log;
@@ -190,6 +192,9 @@ pub struct GraphicsSettings {
     // --- GPU snowfall (snow.rs), flattened: options.json says "snow", "snow_amount", "snow_tuning"
     #[serde(flatten)]
     pub snowfall: snow::SnowSettings,
+    // --- the environment cube maps (env_map.rs): "env_maps", "env_map_size"
+    #[serde(flatten)]
+    pub env_map: env_map::EnvMapSettings,
 }
 
 impl GraphicsSettings {
@@ -233,6 +238,7 @@ impl GraphicsSettings {
             motion_blur: motion_blur::MotionBlurSettings::original(),
             present: present::PresentSettings::original(),
             snowfall: snow::SnowSettings::original(),
+            env_map: env_map::EnvMapSettings::original(),
         }
     }
 
@@ -266,6 +272,7 @@ impl GraphicsSettings {
             motion_blur: motion_blur::MotionBlurSettings::remaster(),
             present: present::PresentSettings::remaster(),
             snowfall: snow::SnowSettings::remaster(),
+            env_map: env_map::EnvMapSettings::remaster(),
             ..Self::original()
         }
     }
@@ -287,10 +294,26 @@ impl Default for GraphicsSettings {
 /// A preset with changes (options.json `graphics`), key by key: a change of the wrong type or an unknown key is
 /// skipped (logged), as GameOptions::from_json treats the options file.
 pub fn resolve(preset: Preset, changes: &serde_json::Map<String, serde_json::Value>) -> GraphicsSettings {
+    let (settings, rejected) = resolve_checked(preset, changes);
+    for r in rejected {
+        warn!("graphics: {r}");
+    }
+    settings
+}
+
+/// [`resolve`], also returning why each skipped change was skipped (an unknown name, a value of the wrong type), for
+/// callers that run before the log is up (`--graphics`, [`GraphicsLaunch::new`]).
+pub fn resolve_checked(preset: Preset, changes: &serde_json::Map<String, serde_json::Value>) -> (GraphicsSettings, Vec<String>) {
     let base = GraphicsSettings::of(preset);
-    let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(&base) else { return base };
+    let mut rejected = Vec::new();
+    let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(&base) else { return (base, rejected) };
     for (k, v) in changes {
-        if k == "preset" || !merged.contains_key(k) {
+        if k == "preset" {
+            continue;
+        }
+        if !merged.contains_key(k) {
+            // a misspelt or retired setting would otherwise vanish without a word
+            rejected.push(format!("unknown setting {k}, ignored"));
             continue;
         }
         let mut trial = merged.clone();
@@ -298,10 +321,10 @@ pub fn resolve(preset: Preset, changes: &serde_json::Map<String, serde_json::Val
         if serde_json::from_value::<GraphicsSettings>(serde_json::Value::Object(trial)).is_ok() {
             merged.insert(k.clone(), v.clone());
         } else {
-            warn!("graphics: {k} is of the wrong type, kept the preset's value");
+            rejected.push(format!("{k} = {v} is of the wrong type, kept the preset's value"));
         }
     }
-    serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or(base)
+    (serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or(base), rejected)
 }
 
 /// Sets one setting in a changes map; a value equal to the preset's own is removed (the map keeps only changes).
@@ -414,6 +437,10 @@ impl GraphicsLaunch {
             let v = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::from(v));
             map.insert(k.trim().to_owned(), v);
         }
+        // the command line is read before the log starts: say on stderr what will not apply
+        for r in resolve_checked(preset_arg.unwrap_or_default(), &map).1 {
+            eprintln!("--graphics: {r}");
+        }
         GraphicsLaunch { pinned: preset_arg.or(if tool_run { Some(Preset::Original) } else { None }), changes: map }
     }
 
@@ -492,7 +519,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
             .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
-            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin))
+            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin, env_map::EnvMapPlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -528,7 +555,7 @@ pub(crate) fn sync(launch: Res<GraphicsLaunch>, options: Res<crate::options::Gam
 pub(crate) fn apply_cameras(
     mut commands: Commands,
     s: Res<GraphicsSettings>,
-    cams: Query<Entity, With<Camera3d>>,
+    cams: Query<Entity, (With<Camera3d>, Without<env_map::EnvProbeView>)>,
     others: Query<Entity, (With<Camera>, Without<Camera3d>)>,
     new_cams: Query<(), Added<Camera>>,
 ) {
