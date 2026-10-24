@@ -104,10 +104,22 @@ impl LevelAssetReader {
     }
 }
 
+/// The lower-case spelling of an asset path, when it differs. The exporters write every file under its lower-case name,
+/// while names from the game's data are not always lower case: on a case-sensitive file system (Linux; macOS volumes
+/// formatted that way) the exact spelling misses, the lower-case one finds the file.
+fn lower_case_twin(path: &Path) -> Option<PathBuf> {
+    let s = path.to_str()?;
+    s.bytes().any(|b| b.is_ascii_uppercase()).then(|| PathBuf::from(s.to_ascii_lowercase()))
+}
+
 impl AssetReader for LevelAssetReader {
     async fn read<'a>(&'a self, path: &'a Path) -> Result<VecReader, AssetReaderError> {
         let full = self.full(path);
-        match std::fs::read(&full) {
+        let read = std::fs::read(&full).or_else(|e| match lower_case_twin(path) {
+            Some(lower) if e.kind() == std::io::ErrorKind::NotFound => std::fs::read(self.full(&lower)),
+            _ => Err(e),
+        });
+        match read {
             Ok(bytes) => Ok(VecReader::new(bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(AssetReaderError::NotFound(full)),
             Err(e) => Err(AssetReaderError::Io(Arc::new(e))),
@@ -296,4 +308,15 @@ fn log_state(
         LevelEnd::Credits => "credits",
     };
     state.0.insert("campaign".into(), serde_json::json!({ "level": levels.current_name(), "money": opts.money, "tokens": opts.tokens, "difficulty": difficulty.0, "end": end, "replay": replay.0, "levels_reached": opts.levels_reached.len(), "movies_seen": opts.movies_seen.len() }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn asset_paths_fall_back_to_lower_case() {
+        assert_eq!(lower_case_twin(Path::new("textures/FX_Smoke.dds")), Some(PathBuf::from("textures/fx_smoke.dds")));
+        assert_eq!(lower_case_twin(Path::new("textures/fx_smoke.dds")), None);
+    }
 }

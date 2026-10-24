@@ -65,13 +65,15 @@ pub(super) fn count() -> usize {
     SET.read().ok().and_then(|s| s.as_ref().map(|s| s.remaster.len())).unwrap_or(0)
 }
 
-/// The asset path of a texture by its game name: the remaster's version when the preset uses it and one exists.
+/// The asset path of a texture by its game name: the remaster's version when the preset uses it and one exists. The
+/// exporters write every texture under its lower-case name, and the game's own references (FX scripts, materials)
+/// are not always lower case: the path is, so it is found on a case-sensitive file system too.
 pub fn texture_path(name: &str) -> String {
     let lower = name.to_lowercase();
     if SET.read().is_ok_and(|s| s.as_ref().is_some_and(|s| s.remaster.contains(&lower))) {
         format!("textures_remaster/{lower}.dds")
     } else {
-        format!("textures/{name}.dds")
+        format!("textures/{lower}.dds")
     }
 }
 

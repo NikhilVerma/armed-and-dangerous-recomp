@@ -24,6 +24,7 @@
 //! The far clip with a depth prepass (TAA, SSAO, soft particles): farclip.rs has the sky fill the pixels the game
 //! material clips, whose depth the prepass holds, so the sky shows beyond the clip as in the Original.
 
+mod bc_decode;
 mod farclip;
 pub mod geometry;
 pub mod snow;
@@ -492,7 +493,7 @@ impl Plugin for GraphicsPlugin {
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
             .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
-            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin))
+            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin, bc_decode::BcDecodePlugin))
             .add_systems(
                 PostUpdate,
                 (
