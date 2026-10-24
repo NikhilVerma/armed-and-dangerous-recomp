@@ -172,13 +172,12 @@ pub struct FxAddParams {
     /// the uv transform's rows (u' = x.x u + x.y v + x.z; v' likewise with y)
     pub uv_x: Vec4,
     pub uv_y: Vec4,
-    /// x: the texture stored premultiplied (1)
-    pub flags: Vec4,
 }
 
 impl FxAddParams {
-    pub fn new(colour: Vec3, premultiplied: bool) -> Self {
-        let mut p = FxAddParams { colour: colour.extend(1.0), flags: Vec4::new(premultiplied as u8 as f32, 0.0, 0.0, 0.0), ..default() };
+    /// A premultiplied (DXT2) texture needs nothing of its own: it is sampled as stored, as D3D9 does (fxadd.wesl).
+    pub fn new(colour: Vec3) -> Self {
+        let mut p = FxAddParams { colour: colour.extend(1.0), ..default() };
         p.set_uv(bevy::math::Affine2::IDENTITY);
         p
     }

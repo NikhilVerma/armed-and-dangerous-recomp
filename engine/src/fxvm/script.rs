@@ -267,7 +267,7 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                         let s = t.to_srgba();
                         Vec3::new(s.red, s.green, s.blue)
                     });
-                    let mut params = FxAddParams::new(colour, premultiplied(&ctx.lib.dir, &name));
+                    let mut params = FxAddParams::new(colour);
                     params.colour.w = opacity;
                     let am = ctx.add_materials.add(FxAddMaterial { base: tex, params, opacity });
                     texture_name.get_or_insert(name);
