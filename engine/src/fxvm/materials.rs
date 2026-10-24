@@ -62,10 +62,14 @@ impl Material for FxLayerMaterial {
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Add
     }
+    /// drawn in the transmissive pass, composited in gamma space (additive.rs)
+    fn reads_view_transmission_texture(&self) -> bool {
+        true
+    }
 }
 
-/// Additive fx meshes with one stage (fxadd.wesl): the texture times the material colour, added as the original adds
-/// in gamma space (matched over a scene of brightness `scene.x`).
+/// Additive fx meshes with one stage (fxadd.wesl): the texture times the material colour, added as the original adds,
+/// in gamma space (additive.rs).
 #[derive(bevy::render::render_resource::AsBindGroup, Debug, Clone, Asset, bevy::reflect::TypePath)]
 pub struct FxAddMaterial {
     #[texture(0)]
@@ -86,13 +90,13 @@ pub struct FxAddParams {
     /// the uv transform's rows (u' = x.x u + x.y v + x.z; v' likewise with y)
     pub uv_x: Vec4,
     pub uv_y: Vec4,
-    /// x: the scene brightness the addition is matched over; y: the texture stored premultiplied (1)
-    pub scene: Vec4,
+    /// x: the texture stored premultiplied (1)
+    pub flags: Vec4,
 }
 
 impl FxAddParams {
-    pub fn new(colour: Vec3, scene: f32, premultiplied: bool) -> Self {
-        let mut p = FxAddParams { colour: colour.extend(1.0), scene: Vec4::new(scene, premultiplied as u8 as f32, 0.0, 0.0), ..default() };
+    pub fn new(colour: Vec3, premultiplied: bool) -> Self {
+        let mut p = FxAddParams { colour: colour.extend(1.0), flags: Vec4::new(premultiplied as u8 as f32, 0.0, 0.0, 0.0), ..default() };
         p.set_uv(bevy::math::Affine2::IDENTITY);
         p
     }
@@ -109,6 +113,10 @@ impl Material for FxAddMaterial {
     fn alpha_mode(&self) -> AlphaMode {
         AlphaMode::Add
     }
+    /// drawn in the transmissive pass, composited in gamma space (additive.rs)
+    fn reads_view_transmission_texture(&self) -> bool {
+        true
+    }
 }
 
 /// The particle material: bank texture x vertex colour, additive or alpha-blended (particle.wesl).
@@ -119,8 +127,9 @@ pub struct ParticleMaterial {
     pub bank: Handle<Image>,
     pub additive: bool,
     /// x: the gamma of the original's blend (alpha-blended pools: 2.2, the original blends in gamma space, emulated
-    /// in particle.wesl; additive: 1, alpha as it is); y: the soft-particle depth (graphics.rs); z: the scene
-    /// brightness a white alpha-blended source is matched over (particles.rs WHITE_OVER)
+    /// in particle.wesl; additive: 1, the colour summed in gamma space and composited by additive.rs); y: the
+    /// soft-particle depth (graphics.rs); z: the scene brightness a white alpha-blended source is matched over
+    /// (particles.rs WHITE_OVER)
     #[uniform(2)]
     pub params: Vec4,
     /// the pool's quad corners, written each frame (particles.rs draw_particles)
@@ -137,6 +146,10 @@ impl Material for ParticleMaterial {
     }
     fn alpha_mode(&self) -> AlphaMode {
         if self.additive { AlphaMode::Add } else { AlphaMode::Blend }
+    }
+    /// the additive pool draws in the transmissive pass, composited in gamma space (additive.rs)
+    fn reads_view_transmission_texture(&self) -> bool {
+        self.additive
     }
 }
 

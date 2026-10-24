@@ -85,12 +85,10 @@ fn fragment(in: ParticleOut) -> @location(0) vec4<f32> {
     // expects the shader to premultiply and zero the alpha (its PBR shader does): written as they were, a sprite's
     // white colour around its soft alpha (n_fx_bank_1's spark tile is all white, its shape in the alpha) drew whole
     // white squares (the keg's and the grenades' sparks)
-    // The addition is the original's, in gamma space, over a scene of brightness params.z (as fxadd.wesl): the linear
-    // light added is (g + c a)^2.2 - g^2.2, c the sprite's gamma colour
+    // The addition is the original's, in gamma space: the pool draws in the transmissive pass, the blend sums the
+    // sprites' gamma colours times alpha and additive.rs composites the sum over the scene (as fxadd.wesl)
     if (params.x == 1.0) {
-        let g = params.z;
-        let added = pow(max(c.rgb, vec3(0.0)), vec3(1.0 / 2.2)) * clamp(c.a, 0.0, 1.0);
-        c = vec4(max(pow(min(vec3(g) + added, vec3(1.0)), vec3(2.2)) - vec3(pow(g, 2.2)), vec3(0.0)), 0.0);
+        c = vec4(pow(max(c.rgb, vec3(0.0)), vec3(1.0 / 2.2)) * clamp(c.a, 0.0, 1.0), 0.0);
     }
     return c;
 }

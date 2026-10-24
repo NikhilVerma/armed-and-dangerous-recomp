@@ -20,6 +20,7 @@
 //! the level), FxInstance_Alloc 0x0041cc20 by `Instance`, the instance list walk Fx_UpdateAll 0x004237b0 by `run`, the
 //! push stack FxStack_Push / Pop 0x00423430 / 0x00423470 by a Vec in `script::run_script`.
 
+mod additive;
 mod attach;
 pub mod body;
 mod ear;
@@ -153,7 +154,7 @@ impl Plugin for FxVmPlugin {
         app.add_plugins(MaterialPlugin::<FxLayerMaterial>::default());
         app.add_plugins(MaterialPlugin::<FxAddMaterial>::default());
         app.add_plugins(MaterialPlugin::<ParticleMaterial>::default());
-        app.add_plugins(screen::ScreenFxPlugin);
+        app.add_plugins((screen::ScreenFxPlugin, additive::AdditiveCompositePlugin));
         app.add_message::<TriggerFxEar>().init_level_resource::<FxEars>();
         app.add_level_spawner(setup)
             .add_systems(

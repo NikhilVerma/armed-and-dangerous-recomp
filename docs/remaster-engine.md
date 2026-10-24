@@ -1494,6 +1494,12 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
   authored in its own frame (fx scripts, attached objects, projectiles' trails, impact fx) needs that rotation in
   its transform, or it comes out sideways or vertical (the vertical tracers were this).
 - **Exported rotations** in anims are conjugated (big-anim.md); the ui_clock hand turns the other way for that reason.
+- **Additive fx are composited, not blended** (fxvm/additive.rs, 2026-10-25). The additive materials (FxAddMaterial,
+  FxLayerMaterial, the additive particle pool) return true from `reads_view_transmission_texture`, which puts them in
+  Bevy's transmissive pass (the game view has `ScreenSpaceTransmission`, one step). They output gamma-space colour x
+  alpha, summed by the blend; `composite` then writes (scene's gamma + sum, at most 1)^2.2 from Bevy's pre-pass copy
+  of the scene. A new additive material must do the same (gamma output, transmissive), or it adds gamma values as
+  linear light. A plain `StandardMaterial` with `AlphaMode::Add` (the camera-locked overlays) still adds linearly.
 - **Model index buffers** in work/remaster/*/models/*.bin are u32.
 - **Bevy 0.20**: shaders are WESL; meshes built with `RenderAssetUsages::RENDER_WORLD` cannot be read on the CPU
   later (the skinning check needs MAIN_WORLD: skinned meshes keep it); `Mesh::attribute` panics after extraction,

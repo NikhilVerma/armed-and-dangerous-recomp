@@ -4,7 +4,7 @@
 //   stage 1: CURRENT = t1 * diffuse            (t1: the second texture, uv scroll layer 2)
 //   stage 2: colour  = LERP(t2.rgb, CURRENT, TEMP)  (t2: the mask, op 26 = D3DTOP_LERP), alpha = t2.a * factor
 //   blend:   SRCALPHA, ONE (table 0x0057d9e0 entry 1): additive
-// Gamma space as the original (samples back to gamma); the result added as it is (see the end).
+// Gamma space as the original (samples back to gamma); the result summed and composited by additive.rs (see the end).
 import bevy_pbr::render::forward_io::VertexOutput;
 
 struct FxLayerParams {
@@ -51,9 +51,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let alpha = s1.a * m.a * p.colour.w;
     // additive (SRCALPHA, ONE): the stage colour times the stage alpha. Textures stored premultiplied (DXT2: the
     // snow flakes, the blast ring) are un-premultiplied first: the flakes' colour is white where they show.
-    // the stage maths run in gamma space (as the original). The original adds that to a gamma-space target; this target
-    // is linear, where an addition of c in gamma brightens by (dst + c)^2.2 - dst^2.2: more than c over the bright
-    // snow, less over dark ground. Added as it is (c in linear), the flakes keep their strength over the snow within a
-    // factor ~2; the earlier c^2.2 (2026-10-14 to 10-18) made faint flakes (c ~0.2 -> 0.03) all but vanish
+    // the stage maths run in gamma space (as the original), and so does the addition: the material draws in the
+    // transmissive pass, the blend sums these gamma-space colours and additive.rs composites the sum over the scene as
+    // the original adds it ((dst + sum)^2.2 in linear light; until 2026-10-25 the gamma value was added as linear
+    // light, within a factor ~2 over the snow)
     return vec4(max(col * alpha, vec3(0.0)), 0.0);
 }
