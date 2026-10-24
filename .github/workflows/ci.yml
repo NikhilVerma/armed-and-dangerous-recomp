@@ -145,5 +145,5 @@ jobs:
         run: python -m compileall -q tools tests
       - name: Unit tests (tools/test_*.py)
         run: python -m unittest discover -s tools -p "test_*.py"
-      - name: Setup tool runs (no game: reports what is missing)
+      - name: "Setup tool runs (no game: reports what is missing)"
         run: python tools/setup_assets.py --check
