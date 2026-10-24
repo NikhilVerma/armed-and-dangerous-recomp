@@ -80,7 +80,7 @@ impl Plugin for FarClipPlugin {
 
 /// The clip the sky's shader repeats: the game material's (gamematerial.rs `make`).
 fn sky_clip(lights: Option<&GameLights>, settings: &super::GraphicsSettings) -> SkyClip {
-    let far = lights.and_then(|l| l.fog).map(|f| crate::options::world_far(f.1, 1.0)).unwrap_or(0.0);
+    let far = lights.filter(|l| l.fog.is_some()).map_or(0.0, |l| crate::options::world_far(l.clip_far, 1.0));
     SkyClip { far, fade: if settings.far_fade { 1.0 } else { 0.0 } }
 }
 
@@ -129,7 +129,7 @@ mod tests {
     /// The sky's clip is the game material's: the far plane at draw distance 1, the dissolve as the setting says.
     #[test]
     fn clip_follows_the_game_material() {
-        let lights = GameLights { fog: Some((300.0, 1500.0, Vec3::ONE)), ..Default::default() };
+        let lights = GameLights { fog: Some((300.0, 1500.0, Vec3::ONE)), clip_far: 1712.132, ..Default::default() };
         let r = sky_clip(Some(&lights), &super::super::GraphicsSettings::remaster());
         assert!((r.far - 1712.132).abs() < 0.01);
         assert_eq!(r.fade, 1.0);

@@ -242,3 +242,22 @@ fx_glass_shattered now passes (shift 10.8, work/retexfix/overrides_new); b_lbutt
 n_a_t_fencing still fail (hard-edged glyphs and strips: bicubic up and box down are not inverses at their edges), and
 fx_parachute_strings' upscale lost its thin strings (structure 0.43). work/retexfix/coverage.md lists the rest:
 originals under 32 px (the recipe's MIN_SIDE), data, normal maps, the font.
+
+## Walk-video fixes (2026-10-25, findings B1 / B3 / B5, work/texfix/)
+
+- **Effect textures stay original**: the bank's premultiplied (DXT2) textures and the fx_* / fire_* families, unless
+  a world model (or its texture2) uses them. Drawn additively, a retexture's dark end showed multiplied over a dark
+  scene: fx_wind_spray, the lev_5 storm's spray dome, drew teal blotches with stair-step edges over everything (B1).
+  The audit of every level's fx retextures also found redrawn rims and seams: fx_glow_red's black ring, fx_flash_2's
+  bright edge column, fx_wing_stream's wrap edges 96 -> 5-9 (a dark seam in the scrolling trail), fx_m_muzzle_flash's
+  edge column.
+- **BC blocks from tools/bcn.py** instead of Pillow's encoder (a third of a dark texture's blocks in BC1's 3-colour
+  mode, loose endpoints: green / teal steps in dark gradients); 4-colour mode, principal-axis endpoints refined by
+  least squares (fx_wind_spray: mean error 1.77 -> 1.15, chroma 1.27 -> 0.88).
+- **tools/data/retexture_rejects.json**: overrides judged wrong in play, with the evidence; `original` keeps the
+  original (b_level1_clouds: the river surface of lev_4_m3 painted with white blobs, B3), `exact` takes the
+  texel-exact lock (2m1_ground3, b_stone: the low-frequency lock kept their brushed streaks / leathery folds, the
+  streaky rock of lev_3_m1 / 3_m2, B5; pack v1's exact lock did not). Regenerate them with the recipe, then drop
+  their entries.
+- A change of the script, bcn.py or the rejects file makes every output stale: re-run each level (not done on the
+  shared work/remaster/*/textures_remaster on 2026-10-25; private copies in work/texfix/scenes).

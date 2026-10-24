@@ -398,7 +398,7 @@ def main():
                       "property": t["property"].decode("latin1").lower() if t else None,
                       "props": {(k if isinstance(k, str) else k.decode("latin1")).lower(): v for k, v in it["props"]}})
     scene = {"level": level, "logic": logic, "up": "z", "landscape": "landscape", "bounds": [grid["min"], grid["max"]],
-             "instances": placed, "lights": lights, "settings": settings, "textures": texinfo}
+             "cell_size": grid["cell_size"], "instances": placed, "lights": lights, "settings": settings, "textures": texinfo}
     (out / "scene.json").write_text(json.dumps(scene, indent=1))
     print(f"instances: {len(placed)} placed from {len(models)} models; lights {len(lights)}; "
           f"skipped (no model) {sum(skipped.values())}: {sorted(skipped)}")

@@ -18,7 +18,9 @@ ignoring case):
     lock is against the stored, possibly premultiplied, texels).
   - a full mip chain (box filter in linear light), BC1 (opaque) or BC3 (alpha), DDS, so the engine loads it as fast
     as the originals.
-Kept original: data textures (docs/retexture.md "Data textures": terrain blend masks, lightmaps; every texture a
+Kept original: effect textures (the bank's premultiplied ones and the fx_* / fire_* families, unless a world model
+uses them: flashes, glows, sparks, fire, smoke, trails, spray, rain, decals, the HUD's art; drawn additively they show the retexture's dark-end noise and redrawn rims), the overrides
+judged wrong in play (tools/data/retexture_rejects.json; 'exact' ones take the texel-exact lock), data textures (docs/retexture.md "Data textures": terrain blend masks, lightmaps; every texture a
 material uses as its blend mask, whatever its name), normal maps (the
 AI's relief changed the lighting: n_b_t_snow made the snow 7 levels brighter), overrides no larger than the original,
 and those failing the fidelity gate (shrunk back, more than GATE levels from the original after the lock: the
@@ -38,9 +40,12 @@ import sys
 import numpy as np
 from PIL import Image
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bcn  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # a change of this script makes its outputs stale
-SOURCE_MTIME = pathlib.Path(__file__).stat().st_mtime
+SOURCE_MTIME = max(pathlib.Path(p).stat().st_mtime for p in (__file__, bcn.__file__, ROOT / "tools" / "data" / "retexture_rejects.json"))
 
 
 def main_checkout():
@@ -67,6 +72,10 @@ GATE_LOW = 20.0
 SIGMA = 2.0
 # names of data textures; every material's blend mask is data too, whatever its name (main(): l5_m2_ground_m)
 DATA = re.compile(r"^(b_a_blend|.*_ground_light|.*_lightmap_|.*_mask|.*_ground_m$)")
+# overrides judged wrong in play, until regenerated: name -> "original" (kept original) or "exact" (the exact lock)
+_JUDGED = json.loads((ROOT / "tools" / "data" / "retexture_rejects.json").read_text())
+REJECTS = {k for k, v in _JUDGED.items() if k != "about" and v["use"] == "original"}
+EXACT = {k for k, v in _JUDGED.items() if k != "about" and v["use"] == "exact"}
 
 
 def resize_f(a, size, method):
@@ -123,15 +132,16 @@ def lock_low(cand, orig, sigma, wrap):
 
 
 def dds(levels, fmt):
-    """One DDS file from per-level images, each encoded by Pillow (DXT1 / DXT5), with the mip count set."""
+    """One DDS file from per-level images (DXT1 / DXT5) with the mip count set: the header from Pillow, the blocks
+    from tools/bcn.py (Pillow's own encoder posterised dark gradients: findings B1, 2026-10-25)."""
     header, data = None, []
     for im in levels:
-        b = io.BytesIO()
-        im.save(b, "DDS", pixel_format=fmt)
-        raw = b.getvalue()
         if header is None:
-            header = bytearray(raw[:128])
-        data.append(raw[128:])
+            b = io.BytesIO()
+            im.save(b, "DDS", pixel_format=fmt)
+            header = bytearray(b.getvalue()[:128])
+        px = np.asarray(im)
+        data.append(bcn.encode_bc1(px[..., :3]) if fmt == "DXT1" else bcn.encode_bc3(px))
     flags = struct.unpack_from("<I", header, 8)[0] | 0x20000  # DDSD_MIPMAPCOUNT
     struct.pack_into("<I", header, 8, flags)
     struct.pack_into("<I", header, 28, len(levels))
@@ -241,11 +251,15 @@ def main():
     dst.mkdir(exist_ok=True)
     overrides = {p.stem.lower(): p for p in pathlib.Path(a.overrides).iterdir() if p.suffix.lower() == ".png"}
     # the engine samples normal maps as data (gamematerial.rs load_tex srgb false); everything else as sRGB colour
-    normal_maps, masks = set(), set()
+    normal_maps, masks, world = set(), set(), set()
     for m in (level_dir / "models").glob("*.json"):
+        # the textures of the world's models (not the effect objects fxo_* / camera_fx, not the HUD's ui_*)
+        effect_model = m.stem.lower().startswith(("fx", "ui_", "camera_fx"))
         try:
             for sub in json.loads(m.read_text()).get("submeshes", []):
                 mat = sub.get("material") or {}
+                if not effect_model:
+                    world.update(t.lower() for t in (sub.get("texture"), mat.get("texture2")) if t)
                 if mat.get("normal_map"):
                     normal_maps.add(mat["normal_map"].lower())
                 # a terrain's blend mask is data whatever its name (l5_m2_ground_m was enlarged by the AI until
@@ -254,7 +268,14 @@ def main():
                     masks.add(mat["mask"].lower())
         except (ValueError, AttributeError):
             pass
-    jobs, data = [], []
+    # the effect textures: the bank's premultiplied (DXT2) ones (the additive sprites; the HUD's art) and the fx_* /
+    # fire_* families, unless a world model uses them
+    try:
+        info = json.loads((level_dir / "scene.json").read_text()).get("textures", {})
+    except (OSError, ValueError):
+        info = {}
+    effect = {k.lower() for k, v in info.items() if v.get("premultiplied") or k.lower().startswith(("fx", "fire"))} - world
+    jobs, data, effects = [], [], []
     for t in sorted(src.glob("*.dds")):
         name = t.stem.lower()
         if a.only and not re.search(a.only, name):
@@ -267,11 +288,23 @@ def main():
             data.append(name)
             (dst / f"{name}.dds").unlink(missing_ok=True)
             continue
+        # effect textures (sprites, flashes, glows, sparks, fire, smoke, trails, spray, rain, decals; the HUD's art,
+        # which keeps the originals anyway) stay original (walk-video findings A3 / B1,
+        # 2026-10-25): drawn additively, the dark end of a retexture (BC quantisation steps, the AI's chroma noise)
+        # shows multiplied over a dark scene (the lev_5 storm's spray dome fx_wind_spray: teal blotches with
+        # stair-step edges), and the AI redrew their soft rims and seams (fx_glow_red's black ring, fx_flash_2's bright
+        # edge column, fx_wing_stream's dark wrap seam: lines on the cards); a soft glow gains nothing from 4x texels
+        # and the overrides judged wrong in play (tools/data/retexture_rejects.json, with the evidence)
+        if name in effect or name in REJECTS:
+            effects.append(name)
+            (dst / f"{name}.dds").unlink(missing_ok=True)
+            continue
         out = dst / f"{name}.dds"
         if not a.force and out.exists() and out.stat().st_mtime > max(overrides[name].stat().st_mtime, t.stat().st_mtime, SOURCE_MTIME):
             continue
-        jobs.append((name, t, overrides[name], out, name not in normal_maps, a.sigma))
-    print(f"{a.level}: {len(jobs)} to convert, {len(data)} data textures kept original ({', '.join(data)})")
+        jobs.append((name, t, overrides[name], out, name not in normal_maps, 0.0 if name in EXACT else a.sigma))
+    print(f"{a.level}: {len(jobs)} to convert, {len(data)} data textures kept original ({', '.join(data)}), "
+          f"{len(effects)} effect sprites and rejected overrides kept original ({', '.join(effects)})")
     report = {}
     with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 2)) as ex:
         for name, msg in ex.map(convert, jobs):
