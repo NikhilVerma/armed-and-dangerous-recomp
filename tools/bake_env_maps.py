@@ -33,7 +33,7 @@ def has_marker(level_dir):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("levels", nargs="*")
-    ap.add_argument("--exe", default="target-wt-shots", help="cargo target dir under engine/ (never \"target\")")
+    ap.add_argument("--exe", default="target", help="cargo target dir under engine/ (default: your own build, engine/target; agents pass their own target-wt-NAME)")
     ap.add_argument("--presets", default="remaster,original")
     ap.add_argument("--force", action="store_true", help="bake again where a file exists")
     a = ap.parse_args()

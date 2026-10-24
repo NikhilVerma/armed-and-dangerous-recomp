@@ -65,6 +65,10 @@ GPU snowfall matched to the original's amount, environment-mapped ice, cascaded 
 occlusion, height fog, colour-locked AI retextures and Hor+ widescreen. All pairs, the settings used, how to
 regenerate them and the known differences still open: [docs/comparisons.md](docs/comparisons.md).
 
+**Videos:** Roman walking forwards for 10 s from the start of each level, original and remaster side by side:
+[lev_1_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_1_m1.mp4) · [lev_2_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_2_m3.mp4) · [lev_3_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_3_m3.mp4) ·
+[lev_4_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_4_m1.mp4) · [lev_5_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_5_m2.mp4) · [all 19 levels](docs/comparisons.md#videos).
+
 ### What works today
 
 - **All 24 levels** (the 21 campaign levels and the 3 bonus levels) can be played to mission complete: a playtest
@@ -137,7 +141,12 @@ repository, on Cloudflare R2; the script downloads it and checks every file agai
 ```bat
 cd engine
 cargo build --release
+cd ..
+.venv\Scripts\python tools\bake_env_maps.py
 ```
+
+The last step renders each level's reflection map once (the original renders it at load), for the icy sheen on
+ice, water and metal; without it those surfaces reflect the fog colour.
 
 ### 5. Play
 
