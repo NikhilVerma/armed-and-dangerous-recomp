@@ -65,6 +65,8 @@ impl AssetLoader for DecodingDdsLoader {
             let data = image.data.take().unwrap_or_default();
             image.data = Some(decode(image.texture_descriptor.format, &data, size.width, size.height, size.depth_or_array_layers, levels).ok_or_else(|| format!("{}: BC data shorter than its mip chain", load_context.path().path().display()))?);
             image.texture_descriptor.format = format;
+            static FIRST: std::sync::Once = std::sync::Once::new();
+            FIRST.call_once(|| info!("graphics: first BC texture decoded: {} ({levels} levels)", load_context.path().path().display()));
         } else if !self.supported.supports(image.texture_descriptor.format) {
             return Err(format!("{}: {:?} is not supported by this GPU and not decoded", load_context.path().path().display(), image.texture_descriptor.format).into());
         }
@@ -253,12 +255,12 @@ mod tests {
         let mut b = [0u8; 16];
         b[0] = 255;
         b[1] = 0;
-        // texel 0: index 0 (255), texel 1: index 1 (0), texel 2: index 7 (1/7 of the way to 0... palette[7])
-        let bits: u64 = 0 | 1 << 3 | 7 << 6;
+        // texel 0: index 0 (a0 = 255), texel 1: index 1 (a1 = 0), texel 2: index 7 (1/7 a0 + 6/7 a1, rounded: 36)
+        let bits: u64 = 1 << 3 | 7 << 6;
         b[2..8].copy_from_slice(&bits.to_le_bytes()[..6]);
         b[8..].copy_from_slice(&bc1_red_blue(0));
         let t = decode_block(Bc::Bc3, &b);
-        assert_eq!((t[0][3], t[1][3], t[2][3]), (255, 0, (255 + 3) / 7));
+        assert_eq!((t[0][3], t[1][3], t[2][3]), (255, 0, 36));
     }
 
     /// A 2x2 image with a 1x1 mip: one block per level, cropped to the level's size.
