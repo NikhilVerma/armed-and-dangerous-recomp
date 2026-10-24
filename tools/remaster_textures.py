@@ -18,7 +18,8 @@ ignoring case):
     lock is against the stored, possibly premultiplied, texels).
   - a full mip chain (box filter in linear light), BC1 (opaque) or BC3 (alpha), DDS, so the engine loads it as fast
     as the originals.
-Kept original: data textures (docs/retexture.md "Data textures": terrain blend masks, lightmaps; every texture a
+Kept original: effect sprites (the bank's premultiplied textures that no world model uses: flashes, glows, sparks,
+fire, spray, rain; drawn additively they show the retexture's dark-end noise and redrawn rims), data textures (docs/retexture.md "Data textures": terrain blend masks, lightmaps; every texture a
 material uses as its blend mask, whatever its name), normal maps (the
 AI's relief changed the lighting: n_b_t_snow made the snow 7 levels brighter), overrides no larger than the original,
 and those failing the fidelity gate (shrunk back, more than GATE levels from the original after the lock: the
@@ -38,9 +39,12 @@ import sys
 import numpy as np
 from PIL import Image
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import bcn  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # a change of this script makes its outputs stale
-SOURCE_MTIME = pathlib.Path(__file__).stat().st_mtime
+SOURCE_MTIME = max(pathlib.Path(__file__).stat().st_mtime, pathlib.Path(bcn.__file__).stat().st_mtime)
 
 
 def main_checkout():
@@ -123,15 +127,16 @@ def lock_low(cand, orig, sigma, wrap):
 
 
 def dds(levels, fmt):
-    """One DDS file from per-level images, each encoded by Pillow (DXT1 / DXT5), with the mip count set."""
+    """One DDS file from per-level images (DXT1 / DXT5) with the mip count set: the header from Pillow, the blocks
+    from tools/bcn.py (Pillow's own encoder posterised dark gradients: findings B1, 2026-10-25)."""
     header, data = None, []
     for im in levels:
-        b = io.BytesIO()
-        im.save(b, "DDS", pixel_format=fmt)
-        raw = b.getvalue()
         if header is None:
-            header = bytearray(raw[:128])
-        data.append(raw[128:])
+            b = io.BytesIO()
+            im.save(b, "DDS", pixel_format=fmt)
+            header = bytearray(b.getvalue()[:128])
+        px = np.asarray(im)
+        data.append(bcn.encode_bc1(px[..., :3]) if fmt == "DXT1" else bcn.encode_bc3(px))
     flags = struct.unpack_from("<I", header, 8)[0] | 0x20000  # DDSD_MIPMAPCOUNT
     struct.pack_into("<I", header, 8, flags)
     struct.pack_into("<I", header, 28, len(levels))
@@ -241,11 +246,15 @@ def main():
     dst.mkdir(exist_ok=True)
     overrides = {p.stem.lower(): p for p in pathlib.Path(a.overrides).iterdir() if p.suffix.lower() == ".png"}
     # the engine samples normal maps as data (gamematerial.rs load_tex srgb false); everything else as sRGB colour
-    normal_maps, masks = set(), set()
+    normal_maps, masks, world = set(), set(), set()
     for m in (level_dir / "models").glob("*.json"):
+        # the textures of the world's models (not the effect objects fxo_* / camera_fx, not the HUD's ui_*)
+        effect_model = m.stem.lower().startswith(("fx", "ui_", "camera_fx"))
         try:
             for sub in json.loads(m.read_text()).get("submeshes", []):
                 mat = sub.get("material") or {}
+                if sub.get("texture") and not effect_model:
+                    world.add(sub["texture"].lower())
                 if mat.get("normal_map"):
                     normal_maps.add(mat["normal_map"].lower())
                 # a terrain's blend mask is data whatever its name (l5_m2_ground_m was enlarged by the AI until
@@ -254,7 +263,14 @@ def main():
                     masks.add(mat["mask"].lower())
         except (ValueError, AttributeError):
             pass
-    jobs, data = [], []
+    # the bank's premultiplied (DXT2) textures: the additive sprites (flashes, glows, sparks, fire, spray, rain) and
+    # the HUD's art (the HUD keeps the originals anyway, engine/src/graphics/textures.rs)
+    try:
+        info = json.loads((level_dir / "scene.json").read_text()).get("textures", {})
+    except (OSError, ValueError):
+        info = {}
+    premultiplied = {k.lower() for k, v in info.items() if v.get("premultiplied")}
+    jobs, data, effects = [], [], []
     for t in sorted(src.glob("*.dds")):
         name = t.stem.lower()
         if a.only and not re.search(a.only, name):
@@ -267,11 +283,21 @@ def main():
             data.append(name)
             (dst / f"{name}.dds").unlink(missing_ok=True)
             continue
+        # effect sprites stay original (walk-video findings A3 / B1, 2026-10-25): drawn additively, the dark end of a
+        # retexture (BC quantisation steps, the AI's chroma noise) shows multiplied over a dark scene (the lev_5
+        # storm's spray dome fx_wind_spray: teal blotches with stair-step edges), and the AI redrew their soft rims
+        # (fx_glow_red's black ring, fx_flash_2's bright edge column: lines at the card's edge); a soft glow gains
+        # nothing from 4x the texels
+        if name in premultiplied and name not in world:
+            effects.append(name)
+            (dst / f"{name}.dds").unlink(missing_ok=True)
+            continue
         out = dst / f"{name}.dds"
         if not a.force and out.exists() and out.stat().st_mtime > max(overrides[name].stat().st_mtime, t.stat().st_mtime, SOURCE_MTIME):
             continue
         jobs.append((name, t, overrides[name], out, name not in normal_maps, a.sigma))
-    print(f"{a.level}: {len(jobs)} to convert, {len(data)} data textures kept original ({', '.join(data)})")
+    print(f"{a.level}: {len(jobs)} to convert, {len(data)} data textures kept original ({', '.join(data)}), "
+          f"{len(effects)} effect sprites kept original ({', '.join(effects)})")
     report = {}
     with concurrent.futures.ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 2)) as ex:
         for name, msg in ex.map(convert, jobs):
