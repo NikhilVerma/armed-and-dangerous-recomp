@@ -13,7 +13,8 @@ the machine is (docs/remaster-engine.md "Traps": scripted runs step game time by
 may read the wall clock, the audio device's position or how many frames an asset took to load).
 
 From a git worktree without work/: --scene the main checkout's work/remaster/lev_1_m1 (passed on to playtest.py), or
-link the main checkout's work/ into the worktree (a directory junction: mklink /J work <main checkout>\\work).
+link the main checkout's work/ into the worktree (a directory junction: mklink /J work <main checkout>\\work; macOS
+and Linux: ln -s <main checkout>/work work).
 
 Scripts live in engine/playtests (tracked) and, for older local ones, work/remaster/play (--play; not in git). Most
 start from states/after_pub.json next to them, which state_after_pub.json writes (run first when it is missing).

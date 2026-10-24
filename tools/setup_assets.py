@@ -1,14 +1,17 @@
 """From your own copy of Armed and Dangerous to everything the remaster engine loads, in one command.
 
     python tools/setup_assets.py --game "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Armed and Dangerous"
+    python3 tools/setup_assets.py --game ~/Games/ArmedAndDangerous     macOS / Linux: a copy of the game's folder
     python tools/setup_assets.py --game DIR --levels lev_1_m1            just the first level (minutes, not an hour)
     python tools/setup_assets.py --remaster-textures remaster_textures.zip   add the optional texture pack later
     python tools/setup_assets.py --check                                  what is set up, what is missing
 
 Steps (each skipped when its output is already there, unless --force):
   1. game     checks the install (GameData/game.exe, the level banks) and links it in as orig/pc (a directory
-              junction; nothing is copied, nothing in the install is written). The Steam build (app 6090, build
-              251748) is the tested one; another build (GOG) is reported as untested and tried anyway.
+              junction on Windows, a symbolic link elsewhere; nothing is copied, nothing in the install is written).
+              A plain copy of the install folder serves as well as the install (nothing is read from the registry
+              or Steam): on macOS or Linux, copy it from a Windows PC (docs/macos.md). The Steam build (app 6090,
+              build 251748) is the tested one; another build (GOG) is reported as untested and tried anyway.
   2. export   tools/export_level.py for each level -> work/remaster/<level>/ (scene, animations, audio, mission,
               UI, prompt icons, player, AI and instance data). Reads the banks and, read only, game.exe's data
               sections (tools/gamefiles.py): the Steam executable is used as installed, it is never unwrapped.
@@ -21,7 +24,7 @@ Steps (each skipped when its output is already there, unless --force):
               them; without them it uses the original textures.
 
 Everything written goes under work/ (never committed). Afterwards: cargo build --release in engine/, then
-engine\\play.bat. Python 3.12 with requirements.txt.
+engine\\play.bat (Windows) or engine/play.sh (macOS, Linux). Python 3.12 with requirements.txt.
 """
 import argparse
 import hashlib
@@ -36,6 +39,9 @@ import urllib.request
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import platform_paths  # noqa: E402
+
 ORIG = ROOT / "orig" / "pc"
 GAME = ORIG / "GameData"
 WORK = ROOT / "work" / "remaster"
@@ -66,7 +72,7 @@ def find_gamedata(given):
         if (cand / "game.exe").is_file():
             return cand
     sys.exit(f"no GameData/game.exe under {p}: give the folder Steam installed the game into "
-             "(Steam: right-click the game > Manage > Browse local files)")
+             "(Steam: right-click the game > Manage > Browse local files), or a copy of it (docs/macos.md)")
 
 
 def levels_in(gamedata):
@@ -130,9 +136,8 @@ def movies(force):
     if (WORK / "movies").is_dir() and any((WORK / "movies").iterdir()) and not force:
         print("movies: already exported")
         return
-    if not shutil.which("ffmpeg") and not list(pathlib.Path(os.environ.get("LOCALAPPDATA", "")).glob(
-            "Microsoft/WinGet/Packages/Gyan.FFmpeg*/ffmpeg-*/bin/ffmpeg.exe")):
-        print("movies: SKIPPED, ffmpeg not found (winget install Gyan.FFmpeg, then run this again); "
+    if not platform_paths.find_ffmpeg():
+        print(f"movies: SKIPPED, ffmpeg not found ({platform_paths.FFMPEG_HINT}, then run this again); "
               "the game runs without its cut-scenes")
         return
     if run([ROOT / "tools" / "remaster_export_movies.py"]):
@@ -220,7 +225,7 @@ def check():
     print(f"movies:   {len(list(mv.iterdir())) if mv.is_dir() else 0} exported")
     tex = [l for l in done if (WORK / l / "textures_remaster").is_dir()]
     print(f"textures: {len(tex)}/{len(done)} exported levels have the Remaster pack (optional)")
-    exe = ROOT / "engine" / "target" / "release" / "and_remaster.exe"
+    exe = platform_paths.engine_exe()
     print(f"engine:   {'built' if exe.exists() else 'not built (cd engine && cargo build --release)'}")
 
 
@@ -257,8 +262,8 @@ def main():
         movies(a.force)
     if a.remaster_textures:
         install_textures(a.remaster_textures)
-    print("done. Next: cd engine && cargo build --release, then engine\\play.bat (or python tools/setup_assets.py "
-          "--check)")
+    print(f"done. Next: cd engine && cargo build --release, then {platform_paths.PLAY_COMMAND} (or python "
+          "tools/setup_assets.py --check)")
 
 
 if __name__ == "__main__":

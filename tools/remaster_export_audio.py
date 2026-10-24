@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT / "tools" / "formats"))
 from big_kinds import aud, fx, inst, prop, text  # noqa: E402
 
 GAME = ROOT / "orig" / "pc" / "GameData"
-from gamefiles import game_exe  # noqa: E402
+from gamefiles import find_ignoring_case, game_exe  # noqa: E402
 EXE = game_exe(GAME)  # tools/gamefiles.py: game.unpacked.exe if present, else game.exe
 
 # Definition flags (+0x20). Readers in archive/src/audio/audio_02.cpp, archive/src/renderer/auto_004fb1f0.cpp, auto_004fb170.cpp.
@@ -292,7 +292,7 @@ def export_sounds(level, out, ambient_names):
             d["source"] = "bank"
         else:
             path = cstr(s["path"])
-            src = GAME / path.replace("\\", "/")
+            src = find_ignoring_case(GAME, path)
             d["source"] = f"GameData\\{path}"
             d["next"] = [cstr(n).lower() for n in s["next"]]
             key = path.lower()

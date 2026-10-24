@@ -5,7 +5,8 @@ into a playtest that loads its save, so a reported bug can be reproduced headles
     python tools/session.py show [SESSION|latest] [--root DIR]
     python tools/session.py repro SESSION|latest N [--out SCRIPT.json] [--root DIR]
 
-SESSION is a folder name (or a unique prefix of one); the root defaults to %LOCALAPPDATA%/AndRemaster/sessions.
+SESSION is a folder name (or a unique prefix of one); the root defaults to the engine's sessions folder
+(%LOCALAPPDATA%/AndRemaster/sessions on Windows, ~/Library/Application Support/AndRemaster/sessions on macOS).
 `repro` writes a playtest script (default work/remaster/play/bookmark_<session>_<N>.json) that starts from the
 bookmark's save and takes a screenshot; run it with `python tools/playtest.py SCRIPT --exe target-...` and add steps.
 """
@@ -16,11 +17,13 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'tools'))
+import platform_paths  # noqa: E402
 
 
 def default_root():
-    base = os.environ.get('LOCALAPPDATA')
-    return os.path.join(base, 'AndRemaster', 'sessions') if base else os.path.join(ROOT, 'engine', 'target', 'release', 'sessions')
+    base = platform_paths.app_data_dir()
+    return str(base / 'sessions') if base else os.path.join(ROOT, 'engine', 'target', 'release', 'sessions')
 
 
 SESSION_NAME = re.compile(r'^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d(_\d+)?$')

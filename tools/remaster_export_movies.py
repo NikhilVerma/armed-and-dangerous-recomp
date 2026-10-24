@@ -43,26 +43,31 @@ colour, always shown, size, x, y; 0x00495cb0). A line whose text id is not in th
 import argparse
 import json
 import pathlib
-import shutil
 import struct
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-MOVIES = ROOT / "orig" / "pc" / "GameData" / "movies"
+sys.path.insert(0, str(ROOT / "tools"))
+from gamefiles import find_ignoring_case  # noqa: E402
+import platform_paths  # noqa: E402
+
+MOVIES = find_ignoring_case(ROOT / "orig" / "pc", "GameData/movies")
 OUT = ROOT / "work" / "remaster" / "movies"
-FFMPEG_WINGET = pathlib.Path.home() / "AppData/Local/Microsoft/WinGet/Packages"
+
+
+def movie_files():
+    """GameData/movies/*.pcv, whatever the case of the extension (Credits.pcv, PM_Logo.pcv, ...)."""
+    return sorted(p for p in MOVIES.iterdir() if p.suffix.lower() == ".pcv") if MOVIES.is_dir() else []
 
 
 def find_ffmpeg(given):
     if given:
         return pathlib.Path(given)
-    p = shutil.which("ffmpeg")
-    if p:
-        return pathlib.Path(p)
-    for c in sorted(FFMPEG_WINGET.glob("Gyan.FFmpeg*/ffmpeg-*/bin/ffmpeg.exe")):
-        return c
-    sys.exit("ffmpeg not found: install it (winget install Gyan.FFmpeg) or pass --ffmpeg")
+    found = platform_paths.find_ffmpeg()
+    if found:
+        return found
+    sys.exit(f"ffmpeg not found: install it ({platform_paths.FFMPEG_HINT}) or pass --ffmpeg")
 
 
 def probe(ffmpeg, src):
@@ -213,12 +218,12 @@ def main():
     ffmpeg = find_ffmpeg(a.ffmpeg)
     subs = subtitles_by_movie(pathlib.Path(a.ui))
     want = {n.lower() for n in a.names}
-    sources = [p for p in sorted(MOVIES.glob("*.pcv")) if not want or p.stem.lower() in want]
+    sources = [p for p in movie_files() if not want or p.stem.lower() in want]
     if want and len(sources) != len(want):
         sys.exit(f"not found: {sorted(want - {p.stem.lower() for p in sources})}")
     for src in sources:
         export(ffmpeg, src, subs, a.quality)
-    unmatched = sorted(set(subs) - {p.stem.lower() for p in MOVIES.glob("*.pcv")})
+    unmatched = sorted(set(subs) - {p.stem.lower() for p in movie_files()})
     if unmatched and not want:
         print(f"subtitle tables without a movie file: {unmatched}")
 
