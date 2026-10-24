@@ -222,6 +222,7 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                             Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, 0.0),
                         ),
                         opacity: def.alpha(),
+                        background: None,
                     });
                     layers.push(lm.clone());
                     c.spawn((Mesh3d(mesh), MeshMaterial3d(lm), bevy::light::NotShadowCaster));
@@ -928,6 +929,23 @@ pub fn run_script(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, spawned:
             "0x79" => {
                 if let Some(o) = obj!() {
                     o.inert = true;
+                }
+            }
+            // 0x62 Fx_SetBackground 0x0041fe00 (w0 order, w1 fog): the object leaves the scene's draw and joins the
+            // second sky list (0x00488130, ScenePass_Render 0x00489070 flag 0x10 draws it before the world, far plane
+            // 1e6); its materials get bit 0x20 and the fog bit 0x10 = w1 (the bit BackgroundObject_Load 0x0040a890 sets
+            // from `fog`; Renderer_BindMaterialDeclaration reads it as fog on). lev_5's sea and cloud dome (w1 = 1): an
+            // opaque record (kind 13, no translucent bit: 0x004897d0 gives no blend) under the level's fog, which at
+            // their distance is all fog (the original's sky is exactly the fog colour 80 95 105). Their layered parts
+            // turn opaque and fogged and draw behind the world (materials.rs FxLayerMaterial::background). The
+            // shoreline (w1 = 0) is a single-stage additive strip: unchanged, drawn without fog as before.
+            "0x62" => {
+                if let Some(o) = obj!() {
+                    for h in &o.layer_mats {
+                        if let Some(mut m) = ctx.layer_materials.get_mut(h) {
+                            m.background = Some(super::materials::Background { fog: w(2) != 0.0 });
+                        }
+                    }
                 }
             }
             other => {

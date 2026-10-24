@@ -163,7 +163,8 @@ impl Plugin for FxVmPlugin {
             )
             .add_systems(Update, playtest_fx.before(start).run_if(resource_exists::<crate::playtest::Playtest>))
             .add_systems(PostUpdate, (object::follow, particles::draw_particles).before(TransformSystems::Propagate))
-            .add_systems(PostUpdate, streamers::streamers.after(TransformSystems::Propagate));
+            .add_systems(PostUpdate, streamers::streamers.after(TransformSystems::Propagate))
+            .add_systems(PostUpdate, materials::background_fog);
     }
 }
 

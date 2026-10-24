@@ -52,14 +52,21 @@ impl MaterialExtension for SkyBehindClip {
         _layout: &MeshVertexBufferLayoutRef,
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        let prepass_pipeline = is_prepass_pipeline(descriptor);
-        if key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS) && !prepass_pipeline {
-            if let Some(ds) = descriptor.depth_stencil.as_mut() {
-                ds.depth_compare = Some(CompareFunction::Always);
-                ds.depth_write_enabled = Some(false);
-            }
-        }
+        behind_prepass(descriptor, key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS));
         Ok(())
+    }
+}
+
+/// What draws with the sky (the level's background objects here, the fx backgrounds of opcode 0x62 in
+/// fxvm/materials.rs): when a depth prepass ran (`prepass`), its colour pipeline loses the depth test and writes, and
+/// its shader keeps only the pixels nothing is in front of (farclip.wesl, fxlayer.wesl). The prepass pipeline itself
+/// is left depth-tested.
+pub(crate) fn behind_prepass(descriptor: &mut RenderPipelineDescriptor, prepass: bool) {
+    if prepass && !is_prepass_pipeline(descriptor) {
+        if let Some(ds) = descriptor.depth_stencil.as_mut() {
+            ds.depth_compare = Some(CompareFunction::Always);
+            ds.depth_write_enabled = Some(false);
+        }
     }
 }
 

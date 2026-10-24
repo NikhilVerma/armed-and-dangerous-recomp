@@ -25,7 +25,7 @@
 //! material clips, whose depth the prepass holds, so the sky shows beyond the clip as in the Original.
 
 mod bc_decode;
-mod farclip;
+pub(crate) mod farclip;
 pub mod geometry;
 pub mod snow;
 mod textures;
