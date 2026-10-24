@@ -44,7 +44,7 @@ import bcn  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # a change of this script makes its outputs stale
-SOURCE_MTIME = max(pathlib.Path(__file__).stat().st_mtime, pathlib.Path(bcn.__file__).stat().st_mtime)
+SOURCE_MTIME = max(pathlib.Path(p).stat().st_mtime for p in (__file__, bcn.__file__, ROOT / "tools" / "data" / "retexture_rejects.json"))
 
 
 def main_checkout():
@@ -71,8 +71,10 @@ GATE_LOW = 20.0
 SIGMA = 2.0
 # names of data textures; every material's blend mask is data too, whatever its name (main(): l5_m2_ground_m)
 DATA = re.compile(r"^(b_a_blend|.*_ground_light|.*_lightmap_|.*_mask|.*_ground_m$)")
-# overrides judged wrong in play, kept original until regenerated (name -> why)
-REJECTS = {k: v for k, v in json.loads((ROOT / "tools" / "data" / "retexture_rejects.json").read_text()).items() if k != "about"}
+# overrides judged wrong in play, until regenerated: name -> "original" (kept original) or "exact" (the exact lock)
+_JUDGED = json.loads((ROOT / "tools" / "data" / "retexture_rejects.json").read_text())
+REJECTS = {k for k, v in _JUDGED.items() if k != "about" and v["use"] == "original"}
+EXACT = {k for k, v in _JUDGED.items() if k != "about" and v["use"] == "exact"}
 
 
 def resize_f(a, size, method):
@@ -298,7 +300,7 @@ def main():
         out = dst / f"{name}.dds"
         if not a.force and out.exists() and out.stat().st_mtime > max(overrides[name].stat().st_mtime, t.stat().st_mtime, SOURCE_MTIME):
             continue
-        jobs.append((name, t, overrides[name], out, name not in normal_maps, a.sigma))
+        jobs.append((name, t, overrides[name], out, name not in normal_maps, 0.0 if name in EXACT else a.sigma))
     print(f"{a.level}: {len(jobs)} to convert, {len(data)} data textures kept original ({', '.join(data)}), "
           f"{len(effects)} effect sprites and rejected overrides kept original ({', '.join(effects)})")
     report = {}

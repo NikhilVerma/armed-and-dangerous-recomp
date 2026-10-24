@@ -1,4 +1,6 @@
 {
- "about": "Retextures (GameData/overrides/textures) judged wrong in play and kept original by tools/remaster_textures.py until they are regenerated (docs/retexture.md). Name (lower case) -> why, with the evidence.",
- "b_level1_clouds": "lev_4_m3's river surface (4_3_water): the override paints a cluster of white blobs with dark rims into the soft clouds; the colour lock keeps their hard edges, drawn as pale lily pads over the murky water (walk-video findings B3, 2026-10-25; work/texfix/B3_*.jpg)"
+ "about": "Retextures (GameData/overrides/textures) judged wrong in play, for tools/remaster_textures.py until they are regenerated (docs/retexture.md). Name (lower case) -> {use, why}: use 'original' keeps the original texture, 'exact' takes the texel-exact colour lock (only detail finer than one original texel stays, as pack v1 had it) instead of the low-frequency lock.",
+ "b_level1_clouds": {"use": "original", "why": "lev_4_m3's river surface (4_3_water): the override paints a cluster of white blobs with dark rims into the soft clouds; the colour lock keeps their hard edges, drawn as pale lily pads over the murky water (walk-video findings B3, 2026-10-25; work/texfix/B3_*.jpg)"},
+ "2m1_ground3": {"use": "exact", "why": "the rock of lev_2_m1 / 2_m2 / 3_m1 / 3_m2: the override is long brushed streaks ('fur'); the low-frequency lock (2026-10-24) kept them, stretched along the rock faces with hard seams (findings B5; work/texfix/B5_*.jpg); the exact lock (pack v1) did not"},
+ "b_stone": {"use": "exact", "why": "the boulders and stone faces of lev_3_m2 / lev_4_m3: the override's leathery folds, kept by the low-frequency lock, read as wrinkled hide (findings B5)"}
 }
