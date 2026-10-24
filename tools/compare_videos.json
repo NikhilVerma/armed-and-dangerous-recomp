@@ -67,7 +67,9 @@
    "level": "lev_4_m2"
   },
   {
-   "level": "lev_5_m1"
+   "level": "lev_5_m1",
+   "keys": "0:ENTER*3,10:17*620,60:ENTER*3,120:ENTER*3",
+   "note": "the original shows its mission briefing after the detected one: Enter again at play frames 60 and 120"
   },
   {
    "level": "lev_5_m3"

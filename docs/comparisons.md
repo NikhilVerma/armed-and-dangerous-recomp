@@ -191,7 +191,7 @@ Not in the set: an explosion pair (a blast needs a scripted moment that frames t
 Open visual differences against the original, found with these tools (status in docs/player-feedback.md):
 
 - **Snow puffs near the camera** (lev_1_m1): the big soft white blobs are the original's own camera-locked snow emitter (fx_camera_l1_m1_locked, the same count, size and speed), but they read brighter over dark walls than in the original, which blends in gamma space where the remaster blends in linear light (matched over the snow's brightness).
-- **lev_5_m3's night rain**: the camera's rain and wind-spray domes (fxo_rain_1..3, fxo_wind_spray) grey the whole view out; their textures are dark, so the cause is in the fx materials, not found yet (G5).
+- **The rain levels (lev_5_m1, lev_5_m3)**: the camera's rain and wind-spray domes (fxo_rain_1..3, fxo_wind_spray) grey the whole view out; their textures are dark, so the cause is in the fx materials, not found yet (G5).
 - **Sky holes** on lev_5_m3 and lev_bonus_m1: bright white patches where the sky should show (the lev_5_m3 ones are lit snow in front of the rain domes; lev_bonus_m1's not examined).
 - **lev_3_m3's town through the gate**: was missing (black) for want of the level's fog; fixed, the town still reads darker than the original's.
 - **lev_1_m1 pub windows**: not lit as in the original (not examined).
