@@ -45,7 +45,7 @@ pub struct FxLayerParams {
     pub uv2_x: Vec4,
     pub uv2_y: Vec4,
     pub colour: Vec4,
-    /// t0 / t1 / t2 stored premultiplied (1) or not (0); w: 1 = a background (opaque, see [`Background`])
+    /// t0 / t1 / t2 stored premultiplied (1) or not (0)
     pub flags: Vec4,
     /// a fogged background: the level's fog colour (rgb, gamma) and w 1 (0: no fog)
     pub fog_col: Vec4,
@@ -87,8 +87,14 @@ impl Material for FxLayerMaterial {
     fn reads_view_transmission_texture(&self) -> bool {
         self.background.is_none()
     }
-    /// A background's colour pass behind a depth prepass draws as the sky does (graphics/farclip.rs): no depth test
-    /// or writes, the shader keeps what nothing covers. Its prepass stays depth-tested.
+    /// No prepass: the additive layers are not prepassed anyway, and a background is drawn behind the world as the
+    /// sky is (graphics/farclip.rs `SkyBehindClip::enable_prepass`): its depth must hide nothing.
+    fn enable_prepass() -> bool {
+        false
+    }
+    /// A background (opaque) takes its own entry point (fxlayer.wesl `fragment_background`) and, behind a depth
+    /// prepass, draws as the sky does (graphics/farclip.rs): no depth test or writes, the shader keeps what nothing
+    /// covers.
     fn specialize(
         _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
@@ -96,8 +102,14 @@ impl Material for FxLayerMaterial {
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         use bevy::pbr::MeshPipelineKey;
-        let opaque = key.mesh_key & MeshPipelineKey::BLEND_RESERVED_BITS == MeshPipelineKey::BLEND_OPAQUE;
-        crate::graphics::farclip::behind_prepass(descriptor, opaque && key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS));
+        let background = key.mesh_key & MeshPipelineKey::BLEND_RESERVED_BITS == MeshPipelineKey::BLEND_OPAQUE;
+        // the shader has two entry points: one must be named
+        if let Some(f) = descriptor.fragment.as_mut() {
+            f.entry_point = Some(if background { "fragment_background" } else { "fragment" }.into());
+        }
+        if background {
+            crate::graphics::farclip::behind_prepass(descriptor, key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS));
+        }
         Ok(())
     }
 }
@@ -115,7 +127,6 @@ pub fn background_fog(
         let Some(m) = layers.get(id) else { continue };
         let fog = m.background.is_some_and(|b| b.fog);
         let mut p = m.params.clone();
-        p.flags.w = 1.0;
         let clip = crate::options::world_far(lights.clip_far, 1.0);
         let fade = if settings.far_fade { 1.0 } else { 0.0 };
         match lights.fog.filter(|_| fog) {
@@ -131,7 +142,7 @@ pub fn background_fog(
             }
         }
         p.sun_dir = lights.sun_dir.extend(0.0);
-        if (p.flags, p.fog_col, p.fog_range, p.height_fog, p.sun_dir) != (m.params.flags, m.params.fog_col, m.params.fog_range, m.params.height_fog, m.params.sun_dir) {
+        if (p.fog_col, p.fog_range, p.height_fog, p.sun_dir) != (m.params.fog_col, m.params.fog_range, m.params.height_fog, m.params.sun_dir) {
             if let Some(mut m) = layers.get_mut(id) {
                 m.params = p;
             }

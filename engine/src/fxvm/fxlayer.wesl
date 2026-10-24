@@ -5,8 +5,8 @@
 //   stage 2: colour  = LERP(t2.rgb, CURRENT, TEMP)  (t2: the mask, op 26 = D3DTOP_LERP), alpha = t2.a * factor
 //   blend:   SRCALPHA, ONE (table 0x0057d9e0 entry 1): additive
 // Gamma space as the original (samples back to gamma); the result summed and composited by additive.rs (see the end).
-// A background (opcode 0x62, Fx_SetBackground 0x0041fe00: lev_5's sea and cloud dome, flags.w 1) is an opaque record:
-// the same stages, no blend, the level's fog (fixed-function table fog: per pixel on view depth), drawn with the sky.
+// A background (opcode 0x62, Fx_SetBackground 0x0041fe00: lev_5's sea and cloud dome; entry point fragment_background)
+// is an opaque record: the same stages, no blend, the level's fog (fixed-function table fog: per pixel on view depth), drawn with the sky.
 import bevy_pbr::render::forward_io::VertexOutput;
 import bevy_pbr::render::mesh_view_bindings::{view, globals};
 import bevy_pbr::render::view_transformations::depth_ndc_to_view_z;
@@ -23,7 +23,7 @@ struct FxLayerParams {
     uv2_y: vec4<f32>,
     // rgb: the material colour (emissive: the domes are unlit), w: the fade / texture factor
     colour: vec4<f32>,
-    // x, y, z: t0, t1, t2 stored premultiplied (the export's `premultiplied`: DXT2 in the bank); w: 1 = a background
+    // x, y, z: t0, t1, t2 stored premultiplied (the export's `premultiplied`: DXT2 in the bank)
     flags: vec4<f32>,
     // a background: the fog colour (gamma), w 1 = fogged; start, end, the far clip and its dissolve; the height fog's
     // parameters (x 0 = the linear fog); toward the sun
@@ -51,8 +51,8 @@ fn colour_of(s: vec4<f32>, premultiplied: f32) -> vec3<f32> {
     return select(c, min(c / max(s.a, 1.0 / 255.0), vec3(1.0)), premultiplied > 0.5);
 }
 
-@fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+// The three stages' colour (gamma) and alpha
+fn stages(in: VertexOutput) -> vec4<f32> {
     let uv = vec3(in.uv, 1.0);
     let s0 = textureSample(t0, s0, vec2(dot(p.uv1_x.xyz, uv), dot(p.uv1_y.xyz, uv)));
     let s1 = textureSample(t1, s1, vec2(dot(p.uv2_x.xyz, uv), dot(p.uv2_y.xyz, uv)));
@@ -61,11 +61,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let b = colour_of(s1, p.flags.y) * p.colour.rgb;
     // stage 2 LERP(mask, CURRENT (t1), TEMP (t0)) by the mask's colour
     let col = mix(a, b, colour_of(m, p.flags.z));
-    if (p.flags.w > 0.5) {
-        return background(in, col);
-    }
     // stage 1 alpha SELECTARG1 TEXTURE (t1's alpha), stage 2 alpha MODULATE(CURRENT, TEXTURE): t1 x mask
-    let alpha = s1.a * m.a * p.colour.w;
+    return vec4(col, s1.a * m.a);
+}
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let s = stages(in);
+    let col = s.rgb;
+    let alpha = s.a * p.colour.w;
     // additive (SRCALPHA, ONE): the stage colour times the stage alpha. Textures stored premultiplied (DXT2: the
     // snow flakes, the blast ring) are un-premultiplied first: the flakes' colour is white where they show.
     // the stage maths run in gamma space (as the original), and so does the addition: the material draws in the
@@ -81,19 +85,27 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
-// A background's pixel (opaque, `col` the stages' gamma colour): behind a depth prepass it keeps only what nothing is
-// in front of, or what is in front was far-clipped (graphics/farclip.wesl, as the sky); then the level's fog.
-fn background(in: VertexOutput, col_in: vec3<f32>) -> vec4<f32> {
+struct BackgroundOut {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+// A background's pixel (the entry point materials.rs picks for a background material, which is opaque): the stages'
+// colour as it is (no blend), behind everything as the sky (graphics/farclip.wesl): behind a depth prepass it keeps
+// only what nothing is in front of, or what is in front was far-clipped; without one it lies at the far end of the
+// depth range (depth 0, reverse Z). Then the level's fog.
+@fragment
+fn fragment_background(in: VertexOutput) -> BackgroundOut {
 @if(DEPTH_PREPASS) {
-    // reverse Z: a larger depth is nearer
+    // reverse Z, cleared to 0: a background has no prepass, so any depth there is the world in front of it
     let d = prepass_depth(in.position, 0u);
-    if (d > in.position.z * 1.0001) {
+    if (d > 0.0) {
         if (!far_clipped(-depth_ndc_to_view_z(d), p.fog_range.z, p.fog_range.w > 0.5, in.position.xy, globals.frame_count)) {
             discard;
         }
     }
 }
-    var col = col_in;
+    var col = stages(in).rgb;
     if (p.fog_col.w > 0.5 && p.fog_range.y > p.fog_range.x) {
         if (p.height_fog.x > 0.0) {
             // the Remaster's height fog, as the game material applies it
@@ -104,5 +116,8 @@ fn background(in: VertexOutput, col_in: vec3<f32>) -> vec4<f32> {
             col = mix(p.fog_col.rgb, col, clamp((p.fog_range.y - depth) / (p.fog_range.y - p.fog_range.x), 0.0, 1.0));
         }
     }
-    return vec4(srgb_to_linear(col), 1.0);
+    var out: BackgroundOut;
+    out.color = vec4(srgb_to_linear(col), 1.0);
+    out.depth = 0.0;
+    return out;
 }

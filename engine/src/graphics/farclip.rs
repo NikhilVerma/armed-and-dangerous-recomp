@@ -42,10 +42,18 @@ impl MaterialExtension for SkyBehindClip {
         ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("farclip.wesl")).with_source("embedded"))
     }
 
-    /// With a depth prepass, the colour pass draws the sky without a depth test or depth writes (the shader decides).
-    /// The prepass itself stays depth-tested: drawn there without the test, the sky wrote its normals and motion
-    /// vectors over everything drawn before it (most of the solid scenery), and the ambient occlusion read them as
-    /// surfaces facing the wrong way: hard-edged dark bands and polygons across walls and ground (2026-10-24).
+    /// The sky takes no part in the prepass: the original draws it first (ScenePass_Render 0x00489070, flag 0x10, the
+    /// sky lists before the world) and the world over it, so its depth must hide nothing. In the prepass the dome's
+    /// floor (lev_2_m2's l2_m2_sky_0 down to z -33, the dome kept at its authored height) stood above the gorge's
+    /// camera (z ~ -41) and its depth hid every wall and ridge beyond it: the gorge's top was cut by a smooth curve with
+    /// the dome's flat lavender above (2026-10-25). (Depth-tested there it had also written normals and motion vectors
+    /// over the scenery, 2026-10-24.)
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    /// With a depth prepass, the colour pass draws the sky without a depth test or depth writes (the shader decides);
+    /// without one it is depth-tested at the far end of the depth range (farclip.wesl writes depth 0, reverse Z).
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -58,9 +66,9 @@ impl MaterialExtension for SkyBehindClip {
 }
 
 /// What draws with the sky (the level's background objects here, the fx backgrounds of opcode 0x62 in
-/// fxvm/materials.rs): when a depth prepass ran (`prepass`), its colour pipeline loses the depth test and writes, and
-/// its shader keeps only the pixels nothing is in front of (farclip.wesl, fxlayer.wesl). The prepass pipeline itself
-/// is left depth-tested.
+/// fxvm/materials.rs; neither has a prepass): when a depth prepass ran (`prepass`), its colour pipeline loses the depth
+/// test and writes, and its shader keeps only the pixels nothing is in front of or whose front was far-clipped
+/// (farclip.wesl, fxlayer.wesl). Without one, the shader puts it at the far end of the depth range, behind all.
 pub(crate) fn behind_prepass(descriptor: &mut RenderPipelineDescriptor, prepass: bool) {
     if prepass && !is_prepass_pipeline(descriptor) {
         if let Some(ds) = descriptor.depth_stencil.as_mut() {
