@@ -1083,7 +1083,11 @@ Traps found on the way:
   far part of an object straddling the far plane used to show the clear (fog) colour instead of the sky in the
   Remaster: since 2026-10-15 the sky fills those pixels (graphics/farclip.rs: the sky's parts use Bevy's standard
   material with a fragment shader that, with a prepass, draws without a depth test and keeps only its own pixels and
-  the ones the game material clipped, the same test on the prepass depth; gamematerial_shared.wesl). Rejected: a twin
+  the ones the game material clipped, the same test on the prepass depth; gamematerial_shared.wesl). Only the colour
+  pass drops the depth test: until 2026-10-24 the check for Bevy's prepass compared a shader def's value ("true")
+  with its name, so the sky's prepass ran without a depth test too and wrote its normals and motion vectors over the
+  solid scenery drawn before it; XeGTAO (and ao_contact, which darkens the sun's light too) read those as surfaces
+  facing the wrong way: the hard-edged dark bands and polygons of the walk videos (work/shadowfix/). Rejected: a twin
   material with a prepass shader for just the meshes reaching the clip (~+1.8 ms render CPU, +1.2 ms main, and a 2 s
   pipeline-compile stall when the first twins appear).
   The exception, by type (2026-10-16, player feedback 30): alpha-textured materials are `GameMaterial<AlphaTested>`
@@ -1480,6 +1484,11 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
 `--background` runs are muted (master 0; playback and positions still run), so tests do not play over the desk.
 
 ## Tips and traps
+
+- **Shader defs by name.** `ShaderDefVal::value_as_string()` is the value ("true" for a flag), not the name: match
+  `ShaderDefVal::Bool(name, true)` to test for a definition such as PREPASS_PIPELINE (graphics/farclip.rs). To
+  check the prepass's normals (what SSAO reads), draw `normal_prepass_texture` against the vertex normal in the game
+  material for one run: they must agree everywhere but on alpha-blended surfaces.
 
 - **Axes.** Game space is Z up; engine is Y up: `game_to_engine()` maps (x, y, z) to (x, z, -y). Anything the game
   authored in its own frame (fx scripts, attached objects, projectiles' trails, impact fx) needs that rotation in
