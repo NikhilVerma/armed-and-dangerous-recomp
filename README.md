@@ -3,10 +3,8 @@
 A clean Rust / Bevy / Jolt remaster of *Armed and Dangerous* (Planet Moon Studios, 2003), written from a full
 decompilation of the PC game, with the original game itself as the oracle for how everything should behave.
 
-<!-- PREVIEW IMAGE: add docs/images/preview.png (a 1280x720 screenshot of the Remaster preset, taken from your own
-     copy) and replace this comment with:
-<p align="center"><img src="docs/images/preview.png" alt="Armed and Dangerous: Remaster, Remaster preset" width="800"></p>
--->
+<p align="center"><img src="docs/images/preview.jpg" alt="The original game (left) and the remaster (right) at the same camera and moment, lev_1_m1" width="900"></p>
+<p align="center"><sub>Same camera, same frame: the original 2003 executable (left), the remaster in progress (right).</sub></p>
 
 <p align="center">
   <a href="#getting-started">Getting started</a> ·
@@ -52,6 +50,20 @@ yet either; you build it from source (below).
 
 The charts are generated from the repository's own data by `python tools/progress.py` (sources listed in its
 header) and refreshed on every push to main.
+
+### Original vs remaster
+
+Each pair is the original executable and the remaster rendered at the same camera and play frame, every remaster
+feature on (motion blur off for stills).
+
+| | |
+|---|---|
+| ![lev_1_m1: the snow canyon](docs/images/compare/l1_start.jpg) | ![lev_2_m3: the farm](docs/images/compare/l2m3_farm.jpg) |
+| ![lev_1_m1: retextured house](docs/images/compare/l1_house_closeup.jpg) | ![4:3 letterbox vs 16:9 Hor+](docs/images/compare/l1_widescreen.jpg) |
+
+GPU snowfall matched to the original's amount, environment-mapped ice, cascaded soft shadows, XeGTAO ambient
+occlusion, height fog, colour-locked AI retextures and Hor+ widescreen. All pairs, the settings used, how to
+regenerate them and the known differences still open: [docs/comparisons.md](docs/comparisons.md).
 
 ### What works today
 
@@ -134,15 +146,16 @@ developer menu and the cheat codes: docs/play-guide.md.
 
 ## Roadmap
 
-- **A signed Windows release.** A downloadable build needs code signing, which needs a Microsoft developer /
-  code-signing account the project does not have yet. Until then: build from source.
-- **Trace-based accuracy verification.** Lockstep traces of the original and the engine on the same inputs
-  (`tools/oracle_diff.py`), frame by frame, for every mechanic, beyond the reading audit done so far.
-- **The deferred features:** the original behaviour not built yet, ranked in docs/port/features.csv
-  (`python tools/port_queue.py --deferred`), and the tuning pass that brings every feature to the original's feel.
-- **Enhancements (phase 2):** once the 1:1 rewrite is done, refactor and add remaster features: a level selector
-  and difficulty settings (for example more enemies), rendering upgrades, mod support (game specifics already live
-  in data).
+| Milestone | Status |
+|---|---|
+| **M0. Decompilation** of the whole game into C++, verified function by function in the running game | Done: 3,496 functions recovered, 2,254 verified ([archive/](archive/README.md)) |
+| **M1. Playable port** in Rust / Bevy / Jolt: every level, menu, weapon and mechanic | Done: all 24 levels completable by playtests |
+| **M2. Accuracy pass**: every ported function compared with the original | In progress: 1,419 functions read, 1,560 differences triaged, 606 fixed; the deferred ones next |
+| **M3. Remaster look**: the original's look first, then better | In progress: [comparisons and known differences](docs/comparisons.md) |
+| **M4. Feature complete**: the deferred features (`python tools/port_queue.py --deferred`) and a full campaign playthrough against the original | Next |
+| **M5. Signed Windows release**: a downloadable, code-signed build | Blocked: needs a Microsoft developer / code-signing account. Until then, build from source |
+| **M6. Trace-based verification**: lockstep traces of the original and the engine on the same inputs (`tools/oracle_diff.py`) for every mechanic | Planned |
+| **M7. Enhancements (phase 2)**: level selector, difficulty settings (for example more enemies), rendering upgrades, mod support (game specifics already live in data) | Planned |
 
 ## How it was made
 
