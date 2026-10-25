@@ -149,7 +149,7 @@ All offsets are relative to the object. Offsets the loader neither visits nor re
 | +0x30 + 16c | f32[2], f32[2] | uv set c (0..3): scale, then offset | VertexStream_ReadVec2 0x004efec0 via fn_004ef9e0: scale (c+3)*16, offset +8 |
 | +0x70 + 20s | {ptr data, u32 stride, 12 bytes} | Vertex streams s = 0, 1. Stream 1 exists only with tangent/binormal | 0x004fbae0 relocates +0x70 and +0x84. 0x004effa0 `stream = streams + desc[0]*20` |
 | +0x98 | 0x154 bytes | Vertex format record: +0 checksum, +4 vertex size, +8 FVF-like word (e.g. 0x8000011A), +0xc slot mask, +0x10/+0x11 bytes, +0x14 16 x 4-byte slots | 0x004fbc30 builds it |
-| +0xAC + 4k | {u8 stream, u8 offset, u8 type, u8 bytes} | Attribute slot k. Slots seen: 0 position, 1 blend weights, 2 normal, 9..12 uv0..3, 13 blend indices, 14 binormal, 15 tangent | 0x004effa0 reads slot 0, fn_004ef9e0 reads slots 9+c. The names come from matching each slot to the D3D declaration |
+| +0xAC + 4k | {u8 stream, u8 offset, u8 type, u8 bytes} | Attribute slot k. Slots seen: 0 position, 1 blend weights, 2 normal, 9..12 uv0..3, 13 blend indices, 14 binormal, 15 tangent (SHORT4 directions: dP/du and dP/dv of the normal map's uv set; the bump vertex shaders light in (L.v15, L.v14, L.normal)) | 0x004effa0 reads slot 0, fn_004ef9e0 reads slots 9+c. The names come from matching each slot to the D3D declaration |
 | +0xF0 | D3DVERTEXELEMENT9[] | Vertex declaration ending with D3DDECL_END, e.g. `POSITION SHORT4 @0, BLENDINDICES SHORT4 @8, BLENDWEIGHT SHORT4 @16, NORMAL SHORT4 @24, TEXCOORD SHORT2 @32` | survey: decoded for all meshes |
 
 Slot types (component readers): 6/7/8 = 2/3/4 shorts, 10/11/12 = shorts x 1/32767 (0x005bcb78),
@@ -171,6 +171,7 @@ numbers within `[first, first + count)` (survey: all 20261 groups).
 | +0x14 | u16 material-name id (mesh+0x70 dictionary) | survey: ids match one-to-one |
 | +0x16 | u16 texture id (mesh+0x74 dictionary). 0 = untextured | survey. The texture refcount equals the number of materials using it |
 | +0x18 | u32 0, 2 or 6 (guess: extra map flags) | survey |
+| +0x32 | u8 uv set per map, two bits each: base (bits 0-1), normal map (2-3), second texture (4-5), mask (6-7). 0x04: the plaster normal map of the village walls / boulders on set 1; 0x40: terrain mask on set 1; 0x90: second texture on set 1, mask on set 2 (snow domes, lev_3_m3 / lev_bonus_m1 ground) | RenderModes_Load 0x00489b40 -> stage addressing 0x00504ef0 (set + 1 in the vertex shader key, shaders.dat "2100212"); 2026-10-25 survey of all levels |
 | +0x34 | u32 0x02000100 (untextured) / 0x02000101 / 0x02000103 | survey |
 | +0x38..+0x4C | floats (1.0 when textured, then e.g. 0.3) | survey |
 | +0x50..+0x5C | Four 0x00RRGGBB colours (guess: emissive, ambient, diffuse, specular, in the 3ds Max standard material order) | survey |

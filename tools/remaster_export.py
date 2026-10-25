@@ -99,6 +99,26 @@ def read_normals(b, m_streams_block, n):
     return out
 
 
+def stored_tangents(m, normals):
+    """The mesh's own normal map frame per vertex (skin slots 15 tangent, 14 binormal: skin.decode_mesh), as
+    (tx, ty, tz, w): the unit tangent and w = the side of the binormal, sign((normal x tangent) . binormal), so that
+    binormal = (normal x tangent) * w as the engine rebuilds it. The bump vertex shaders take the light into this
+    frame as (L.tangent, L.binormal, L.normal) (shaders.dat, vs_00359a0adf630f5e: v15, v14). None without one, or
+    when it is degenerate (a zero tangent): the engine generates tangents from the uvs then."""
+    tan, bi = m.get("_tangent"), m.get("_binormal")
+    if not tan or not bi or len(tan) != len(normals):
+        return None
+    out = []
+    for (tx, ty, tz), (bx, by, bz), (nx, ny, nz) in zip(tan, bi, normals):
+        ln = math.sqrt(tx * tx + ty * ty + tz * tz)
+        if ln == 0.0:
+            return None
+        cx, cy, cz = ny * tz - nz * ty, nz * tx - nx * tz, nx * ty - ny * tx
+        w = 1.0 if cx * bx + cy * by + cz * bz >= 0.0 else -1.0
+        out.append((tx / ln, ty / ln, tz / ln, w))
+    return out
+
+
 def face_normals(pos, tris):
     acc = [[0.0, 0.0, 0.0] for _ in pos]
     for a, b_, c in tris:
@@ -135,6 +155,7 @@ def mesh_submeshes(ch, bone_index=None):
             continue
         uv = m.get("_uv") or [(0.0, 0.0)] * len(pos)
         uv1 = m.get("_uv1")
+        uv2 = m.get("_uv2")
         # the material records (docs/formats/big-skin.md 3.5) and the mesh's texture dictionary (id -> path): +0x16
         # base texture, +0x18 normal map, +0x1a second texture, +0x1c blend mask (ids; 0 none), +0x34 the shading
         # kind in its low byte (seen with the original's material log, [test] log_materials: 0x03 bump diffuse
@@ -170,6 +191,13 @@ def mesh_submeshes(ch, bone_index=None):
                 "emissive": rgb(col(0x50)), "ambient": rgb(col(0x54)), "diffuse": rgb(col(0x58)),
                 "specular": rgb(col(0x5C)), "power": struct.unpack_from("<f", b, p + 0x60)[0],
                 "surface": names.get(h(0x14)),
+                # the uv set of each map, two bits apiece: base (bits 0-1), normal map (2-3), second texture (4-5),
+                # mask (6-7). RenderModes_Load (0x00489b40) hands them to the stages with their textures; the stage
+                # addressing (0x00504ef0) packs set + 1 into the vertex shader key, whose shader reads TEXCOORD<set>
+                # (shaders.dat "2100212": bump, base set 0, normal set 1). E.g. 0x40 the terrain (mask on set 1), 0x04
+                # the village walls' and boulders' plaster normal map (set 1, ~5x the base's tiling), 0x90 the snow
+                # domes (second flake layer set 1, mask set 2)
+                "uv_sets": b[p + 0x32],
             })
         jw = rigid = None
         if bone_index is not None:
@@ -193,6 +221,7 @@ def mesh_submeshes(ch, bone_index=None):
             agree = sum(1 for a, c in zip(stored, computed) if a[0] * c[0] + a[1] * c[1] + a[2] * c[2] > 0.3)
             if agree > 0.8 * len(pos):
                 normals = stored
+        tangents = stored_tangents(m, normals)
         parts = []
         for mat, tris in by_mat.items():
             if rigid is None:
@@ -212,7 +241,7 @@ def mesh_submeshes(ch, bone_index=None):
             tex = stem(mats[mat]["texture"]) if 0 <= mat < len(mats) else None
             # untextured parts draw in the material's colour (guess: the third of the four colours is diffuse)
             color = int(mats[mat]["colors_50_5c"][2], 16) if 0 <= mat < len(mats) else 0xFFFFFF
-            remap, vp, vn, vt, idx, vs, vt1 = {}, [], [], [], [], [], []
+            remap, vp, vn, vt, idx, vs, vt1, vt2, vtan = {}, [], [], [], [], [], [], [], []
             for t in tris:
                 for v in t:
                     if v not in remap:
@@ -222,11 +251,17 @@ def mesh_submeshes(ch, bone_index=None):
                         vt.append(uv[v])
                         if uv1:
                             vt1.append(uv1[v])
+                        if uv2:
+                            vt2.append(uv2[v])
+                        if tangents:
+                            vtan.append(tangents[v])
                         if jw:
                             vs.append(jw[v])
                     idx.append(remap[v])
             extra = dict(mat_raw[mat]) if 0 <= mat < len(mat_raw) else {}
             extra["uv1"] = vt1 if uv1 else None
+            extra["uv2"] = vt2 if uv2 else None
+            extra["tangents"] = vtan if tangents else None
             # a mesh bound to one bone (the collision models' parts: grunt_coll_9 m_chest -> chest ...): its bone
             if len(m.get("bones") or []) == 1:
                 extra["bone"] = m["bones"][0]["name"]
@@ -252,7 +287,7 @@ def write_model(out, name, subs, texinfo, skeleton=None):
         # the material as the original shades it (mesh_submeshes): kind, extra maps, colours
         if extra:
             e["material"] = {k: (v if not (k in ("normal_map", "texture2", "mask") and v not in texinfo) else None)
-                             for k, v in extra.items() if k not in ("uv1", "bone", "rigid", "surface")}
+                             for k, v in extra.items() if k not in ("uv1", "uv2", "tangents", "bone", "rigid", "surface")}
         if extra.get("surface"):
             e["surface"] = extra["surface"]
         if extra.get("bone"):
@@ -260,9 +295,14 @@ def write_model(out, name, subs, texinfo, skeleton=None):
         for key, arr, fmt in (("positions", vp, "3f"), ("normals", vn, "3f"), ("uvs", vt, "2f")):
             e[key] = len(blob)
             blob += b"".join(struct.pack("<" + fmt, *v) for v in arr)
-        if extra.get("uv1"):
-            e["uvs1"] = len(blob)
-            blob += b"".join(struct.pack("<2f", *v) for v in extra["uv1"])
+        for k, key in (("uv1", "uvs1"), ("uv2", "uvs2")):
+            if extra.get(k):
+                e[key] = len(blob)
+                blob += b"".join(struct.pack("<2f", *v) for v in extra[k])
+        # the original's normal map frame (stored_tangents), for the parts that have a normal map
+        if extra.get("tangents") and (e.get("material") or {}).get("normal_map"):
+            e["tangents"] = len(blob)
+            blob += b"".join(struct.pack("<4f", *v) for v in extra["tangents"])
         e["index_offset"] = len(blob)
         blob += struct.pack(f"<{len(idx)}I", *idx)
         if vs:  # skinning (tools/remaster_export_anim.py): u16x4 skeleton bone indices, f32x4 weights (sum 1)

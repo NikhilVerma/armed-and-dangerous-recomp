@@ -55,11 +55,17 @@ pub struct FxLayerParams {
     pub height_fog: Vec4,
     /// toward the sun (the height fog's glow)
     pub sun_dir: Vec4,
+    /// the uv set each stage samples (the record's byte +0x32, gamematerial.rs MaterialDef::uv_sets): x t0 (the base),
+    /// y t1 (the second texture), z t2 (the mask). The snow domes: 0, 1, 2 (the second flake layer on a set 1.5 / 2x as
+    /// dense as the first, the wind-spray mask once over the whole dome)
+    pub uv_sets: UVec4,
 }
 
 impl FxLayerParams {
-    pub fn new(colour: Vec4, flags: Vec4) -> Self {
-        let mut p = FxLayerParams { colour, flags, ..default() };
+    pub fn new(colour: Vec4, flags: Vec4, def: &crate::gamematerial::MaterialDef) -> Self {
+        use crate::gamematerial::MapSlot;
+        let uv_sets = UVec4::new(def.uv_set(MapSlot::Base), def.uv_set(MapSlot::Texture2), def.uv_set(MapSlot::Mask), 0);
+        let mut p = FxLayerParams { colour, flags, uv_sets, ..default() };
         p.set_uv(0, bevy::math::Affine2::IDENTITY);
         p.set_uv(1, bevy::math::Affine2::IDENTITY);
         p
@@ -76,9 +82,17 @@ impl FxLayerParams {
     }
 }
 
+fn fxlayer_shader() -> bevy::shader::ShaderRef {
+    bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("fxlayer.wesl")).with_source("embedded"))
+}
+
 impl Material for FxLayerMaterial {
+    /// its own vertex stage: the stages read up to three uv sets (fxlayer.wesl)
+    fn vertex_shader() -> bevy::shader::ShaderRef {
+        fxlayer_shader()
+    }
     fn fragment_shader() -> bevy::shader::ShaderRef {
-        bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(bevy::asset::embedded_path!("fxlayer.wesl")).with_source("embedded"))
+        fxlayer_shader()
     }
     fn alpha_mode(&self) -> AlphaMode {
         if self.background.is_some() { AlphaMode::Opaque } else { AlphaMode::Add }
@@ -98,10 +112,22 @@ impl Material for FxLayerMaterial {
     fn specialize(
         _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         use bevy::pbr::MeshPipelineKey;
+        // the vertex stage's inputs: position, the first uv set and whichever of the second and third the mesh has
+        let mut attributes = vec![Mesh::ATTRIBUTE_POSITION.at_shader_location(0), Mesh::ATTRIBUTE_UV_0.at_shader_location(1)];
+        for (attribute, location, def) in [(Mesh::ATTRIBUTE_UV_1, 2, "LAYER_UV_1"), (crate::scene::ATTRIBUTE_UV_2, 3, "LAYER_UV_2")] {
+            if layout.0.contains(attribute.id) {
+                attributes.push(attribute.at_shader_location(location));
+                descriptor.vertex.shader_defs.push(def.into());
+                if let Some(f) = descriptor.fragment.as_mut() {
+                    f.shader_defs.push(def.into());
+                }
+            }
+        }
+        descriptor.vertex.buffers = vec![layout.0.get_layout(&attributes)?];
         let background = key.mesh_key & MeshPipelineKey::BLEND_RESERVED_BITS == MeshPipelineKey::BLEND_OPAQUE;
         // the shader has two entry points: one must be named
         if let Some(f) = descriptor.fragment.as_mut() {

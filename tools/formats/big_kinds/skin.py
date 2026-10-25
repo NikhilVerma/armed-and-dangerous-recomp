@@ -151,11 +151,19 @@ def decode_mesh(b, m, bone_names):
     n = u32(b, sb + 0xC)
     if n and descs[0][2] and streams[descs[0][0]][0]:
         info["_pos"] = _read3(b, descs[0], streams, n, floats(b, sb + 0x10, 3), floats(b, sb + 0x20, 3))
-        if descs[9][2] and streams[descs[9][0]][0]:
-            info["_uv"] = _read2(b, descs[9], streams, n, floats(b, sb + 0x30, 2), floats(b, sb + 0x38, 2))
-        # the second uv set (slot 10; scale +0x40, offset +0x48): the terrain's blend mask, lightmaps
-        if descs[10][2] and streams[descs[10][0]][0]:
-            info["_uv1"] = _read2(b, descs[10], streams, n, floats(b, sb + 0x40, 2), floats(b, sb + 0x48, 2))
+        # uv set c (slot 9 + c; scale +0x30 + 16c, offset +8 after it), as the vertex shaders read them (v9..v12 *
+        # c18..c21 .xy + .zw): "_uv" the first, "_uv1" (terrain blend masks, the bump walls' normal maps), "_uv2" (the
+        # snow domes' masks); which map takes which set is the material's byte +0x32 (remaster_export.py uv_sets)
+        for c, key in enumerate(("_uv", "_uv1", "_uv2", "_uv3")):
+            d = descs[9 + c]
+            if d[2] and streams[d[0]][0]:
+                info[key] = _read2(b, d, streams, n, floats(b, sb + 0x30 + 16 * c, 2), floats(b, sb + 0x38 + 16 * c, 2))
+        # the normal map's frame (slots 15 tangent, 14 binormal; SHORT4, directions): the bump vertex shaders take the
+        # light into it as (L.v15, L.v14, L.normal), so the normal map's x runs along the tangent, y along the binormal
+        for slot, key in ((15, "_tangent"), (14, "_binormal")):
+            d = descs[slot]
+            if d[2] and streams[d[0]][0]:
+                info[key] = _read3(b, d, streams, n, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
     return info
 
 

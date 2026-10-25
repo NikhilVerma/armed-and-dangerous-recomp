@@ -3,8 +3,9 @@
 //!
 //! The original has no weather system: a level's `camera_fx` script attaches textured cylinders around the camera
 //! (`fxo_snow`, `fxo_snow_2`, lev_1_m1's fx_camera_l1_m1) whose UV scrolling reads as falling snow. With the setting
-//! on, in a level whose camera fx attached those cylinders, they are hidden (as the fx "invisible" opcode 0x16 does:
-//! the fx script, its lifetime and the camera path run on), the camera-locked flake emitter stops emitting
+//! on, in a level whose camera fx attached those cylinders, the cylinders stay (the original's soft flakes;
+//! [`SnowTuning::keep_cylinders`], else hidden as the fx "invisible" opcode 0x16 does: the fx script, its lifetime and
+//! the camera path run on), the camera-locked flake emitter stops emitting
 //! ([`SnowTuning::mutes`]: its sprites fly at the lens as big soft blobs) and a volume of flakes around the camera
 //! falls instead:
 //! - each flake is a particle in a storage buffer, moved by a compute pass: born in the sky above the camera, falling
@@ -92,8 +93,16 @@ pub const STEPPERS: [(&str, f32, f32, usize); 1] = [("snow_amount", 0.0, 3_000_0
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub struct SnowTuning {
-    /// the fx objects the snowfall replaces (hidden while it snows); a level snows when its camera fx attach one
+    /// the fx objects the snowfall goes with: a level snows when its camera fx attach one; hidden while it snows unless
+    /// `keep_cylinders`
     pub replaces: Vec<String>,
+    /// the original's snow cylinders stay drawn under the snowfall. They are the original's falling snow: two flake
+    /// layers scrolling on different uv sets (the second 1.5 / 2x as dense) under a wind-spray mask, soft dots of a few
+    /// pixels all over the view. Until 2026-10-25 every layer read the first uv set (the second flake layer as coarse
+    /// as the first, the mask tiled 72 times), so they looked sparse and the snowfall replaced them; drawn right they
+    /// carry the original's amount and look (work/texdensity/: the snowfall alone showed a tenth of their brightening
+    /// over the near walls), and the snowfall adds depth and motion over them
+    pub keep_cylinders: bool,
     /// the camera-locked particle emitters the snowfall replaces too (they stop emitting while it snows): lev_1_m1's
     /// fx_camera_l1_m1_locked carries an invisible `fxo_glow_red` that sprays flake sprites along the view at the lens
     /// all level (docs/subsystems/weather.md "snow bubbles"); they pass the near plane as big soft blobs over the
@@ -134,6 +143,7 @@ impl Default for SnowTuning {
     fn default() -> Self {
         SnowTuning {
             replaces: vec!["fxo_snow".into(), "fxo_snow_2".into()],
+            keep_cylinders: true,
             mutes: vec!["fxo_glow_red".into()],
             radius: 150.0,
             sky: 70.0,
@@ -229,12 +239,13 @@ fn track(
     let replaced = |n: &Name| t.replaces.iter().any(|r| r.eq_ignore_ascii_case(n.as_str()));
     let level_snows = fx.iter().any(|(_, n, ..)| replaced(n));
     let active = settings.snow && settings.snow_amount > 0 && level_snows;
+    let hide = active && !t.keep_cylinders;
     let (mut hidden, mut shown) = (0, 0);
     for (e, n, vis, mark) in &fx {
         if !replaced(n) {
             continue;
         }
-        match (active, mark) {
+        match (hide, mark) {
             (true, None) => {
                 commands.entity(e).insert((Visibility::Hidden, HiddenBySnow(*vis)));
                 hidden += 1;

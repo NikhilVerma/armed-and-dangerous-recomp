@@ -45,6 +45,8 @@ pub struct GameMaterialParams {
     /// the environment cube map (graphics/env_map.rs): x 1 = the atlas holds the level's baked cube (else `env` rgb
     /// is reflected)
     pub env_map: Vec4,
+    /// the uv set each map is sampled with (MaterialDef::uv_set): x base, y normal map, z second texture, w mask
+    pub uv_sets: UVec4,
 }
 
 /// How a game material covers what lies behind it in the depth-only passes (the sun's shadow cascades): the whole
@@ -103,6 +105,9 @@ pub struct GameMaterial<C: Coverage = Solid> {
     pub coverage: std::marker::PhantomData<C>,
 }
 
+/// The vertex location of the third uv set in the main pass (past Bevy's mesh attributes, 0..7).
+const UV_C_LOCATION: u32 = 10;
+
 fn embedded_shader(path: std::path::PathBuf) -> bevy::shader::ShaderRef {
     bevy::shader::ShaderRef::Path(bevy::asset::AssetPath::from_path_buf(path).with_source("embedded"))
 }
@@ -129,10 +134,20 @@ impl<C: Coverage> Material for GameMaterial<C> {
     fn specialize(
         _pipeline: &bevy::pbr::MaterialPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
+        layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         let prepass_pipeline = descriptor.vertex.shader_defs.iter().any(|d| matches!(d, bevy::shader::ShaderDefVal::Bool(n, true) if n == "PREPASS_PIPELINE"));
+        if !prepass_pipeline {
+            // the third uv set (gamematerial.wesl `uv_c`, location UV_C_LOCATION) from the mesh's own interleaved buffer:
+            // lev_3_m3's / lev_bonus_m1's terrain masks (uv_sets 0x90) span the level once on it; a mesh without one
+            // passes its first set there (no record of it reads the third)
+            let third = if layout.0.contains(crate::scene::ATTRIBUTE_UV_2.id) { crate::scene::ATTRIBUTE_UV_2 } else { Mesh::ATTRIBUTE_UV_0 };
+            let extra = layout.0.get_layout(&[third.at_shader_location(UV_C_LOCATION)])?;
+            if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
+                buffer.attributes.extend(extra.attributes);
+            }
+        }
         if key.mesh_key.contains(bevy::pbr::MeshPipelineKey::DEPTH_PREPASS)
             && !prepass_pipeline
             && let Some(ds) = descriptor.depth_stencil.as_mut()
@@ -249,10 +264,32 @@ pub struct MaterialDef {
     /// shipped levels checked (lev_1_m1's ice and water, the bronze pipes)
     #[serde(default = "env_factor")]
     pub env_factor: f32,
+    /// the uv set each map is sampled with, two bits apiece (the record's byte +0x32): base, normal map, second
+    /// texture, mask ([`MapSlot`]). RenderModes_Load (0x00489b40) gives them to the stages with their textures and the
+    /// stage addressing (0x00504ef0) packs set + 1 into the vertex shader's key, whose shader passes TEXCOORD<set> on
+    /// (shaders.dat "2100212": bump, base on set 0, normal map on set 1). The village walls' and the boulders' plaster
+    /// normal map runs on set 1 at ~5x the base's tiling (0x04); the terrain's mask on set 1 (0x40); the snow domes'
+    /// second flake layer on set 1 and their mask on set 2 (0x90). Exports before 2026-10-25 lack it: 0x40, the rule
+    /// the engine had (the mask on set 1)
+    #[serde(default = "legacy_uv_sets")]
+    pub uv_sets: u8,
+}
+
+/// A material's maps, in the order of their uv set bits ([`MaterialDef::uv_sets`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MapSlot {
+    Base = 0,
+    Normal = 1,
+    Texture2 = 2,
+    Mask = 3,
 }
 
 fn opaque() -> f32 {
     1.0
+}
+
+fn legacy_uv_sets() -> u8 {
+    0x40
 }
 
 fn env_factor() -> f32 {
@@ -263,6 +300,16 @@ impl MaterialDef {
     /// The opacity the surface is drawn with: below 1 only for a translucent record (kind bit 0x10).
     pub fn alpha(&self) -> f32 {
         if self.kind & 0x10 != 0 { self.opacity.clamp(0.0, 1.0) } else { 1.0 }
+    }
+
+    /// The uv set (0..3) `map` is sampled with.
+    pub fn uv_set(&self, map: MapSlot) -> u32 {
+        (self.uv_sets as u32 >> (2 * map as u32)) & 3
+    }
+
+    /// The four maps' uv sets (x base, y normal map, z second texture, w mask), for a shader.
+    pub fn uv_set_vec(&self) -> UVec4 {
+        UVec4::new(self.uv_set(MapSlot::Base), self.uv_set(MapSlot::Normal), self.uv_set(MapSlot::Texture2), self.uv_set(MapSlot::Mask))
     }
 }
 
@@ -419,6 +466,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             ao_extras: g.ao_extras.material_params(ao_snow_surface),
             geometry: crate::graphics::geometry::for_material(crate::graphics::geometry::material_values(&g), alpha, def.alpha()),
             env_map: Vec4::new(if lights.env_baked { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0),
+            uv_sets: def.uv_set_vec(),
         },
         env_atlas: if lights.env_baked { lights.env_atlas.clone() } else { white.clone() },
         alpha,
