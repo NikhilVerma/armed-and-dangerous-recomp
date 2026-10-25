@@ -237,8 +237,9 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                 // 0x120, additive (SRCALPHA / ONE: fx_glow_red, the flashes, the snow), 2 -> 0x320, alpha-blended (the
                 // glass shards fxo_debri_glass_*, fx_smoke_snow, fx_impact_snow_small: they drew as additive white
                 // squares); without the bit an alpha texture blends (SRCALPHA / INVSRCALPHA: fx_white, fx_true_story),
-                // except that one whose blend byte is 0 adds too (guess: which path gives these kind-1 records the
-                // additive state is not traced): the flames, muzzle flashes and the flying keg's fire trail
+                // except that one whose blend byte is 0 adds too (traced 2026-10-25: RenderModes_Load 0x00489b40 sets
+                // the kind's bit 0x10 at load for a textured record with flags word +0x34 bit 0x200, which the stored
+                // kind byte lacks; MaterialDef::is_translucent): the flames, muzzle flashes and the flying keg's fire trail
                 // (fx_fire_trail), which the original's capture of a keg (work/shots/orig_keg, 2026-10-18) shows as a
                 // pale streak over the snow where an alpha-blended trail drew an opaque orange-red column
                 let additive = def.as_ref().map_or(textured, |d| d.blend == 0 && (d.kind & 0x10 != 0 || alpha_tex));
