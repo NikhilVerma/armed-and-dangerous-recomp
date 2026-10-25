@@ -211,7 +211,7 @@ mod tests {
         let o = GraphicsSettings::original();
         assert_eq!(material_values(&o), Vec4::new(0.0, 0.6, 0.0, 0.0));
         let r = GraphicsSettings::remaster();
-        assert_eq!(material_values(&r), Vec4::new(8.0, 0.6, 0.0, 0.55));
+        assert_eq!(material_values(&r), Vec4::new(8.0, 0.25, 0.0, 0.55));
         let msaa = GraphicsSettings { anti_aliasing: AntiAliasing::Msaa, ..GraphicsSettings::remaster() };
         assert_eq!(material_values(&msaa).z, 1.0);
         assert!(r.geometry.tessellation && r.geometry.lod_max && !o.geometry.tessellation && !o.geometry.lod_max);

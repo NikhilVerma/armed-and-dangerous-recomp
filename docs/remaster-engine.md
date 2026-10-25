@@ -1080,6 +1080,11 @@ limits_master_volume (engine/playtests); unit tests in each module (interpolatio
 cursor grab modes, the page's rows, the path budget).
 
 Traps found on the way:
+- Each material map has its own uv set (record byte +0x32, two bits per map; docs/formats/big-skin.md 3.5) and a bump
+  map its stored tangent frame (skin slots 15 / 14). Reading every map with the first set made the village walls'
+  plaster normal map (set 1, ~5x the base's tiling) a smear, tiled lev_3_m3 / lev_bonus_m1's whole-level ground mask
+  (set 2) ~7x and the snow domes' mask 72x (2026-10-25, journal 2026-10-25-texdensity). A "blurrier than the
+  original" surface: check its uv_sets first.
 - Never give the game material a prepass shader of its own: Bevy then binds the material in every depth-only pass
   and the sun's four shadow cascades lose their batching (4K bench 113 -> 64 fps, in both presets). The depth
   prepass (TAA, SSAO, soft particles) therefore has no per-pixel far clip; the camera's far plane is the original's

@@ -3,8 +3,9 @@
 //!
 //! The original has no weather system: a level's `camera_fx` script attaches textured cylinders around the camera
 //! (`fxo_snow`, `fxo_snow_2`, lev_1_m1's fx_camera_l1_m1) whose UV scrolling reads as falling snow. With the setting
-//! on, in a level whose camera fx attached those cylinders, they are hidden (as the fx "invisible" opcode 0x16 does:
-//! the fx script, its lifetime and the camera path run on), the camera-locked flake emitter stops emitting
+//! on, in a level whose camera fx attached those cylinders, the cylinders stay (the original's soft flakes;
+//! [`SnowTuning::keep_cylinders`], else hidden as the fx "invisible" opcode 0x16 does: the fx script, its lifetime and
+//! the camera path run on), the camera-locked flake emitter stops emitting
 //! ([`SnowTuning::mutes`]: its sprites fly at the lens as big soft blobs) and a volume of flakes around the camera
 //! falls instead:
 //! - each flake is a particle in a storage buffer, moved by a compute pass: born in the sky above the camera, falling
