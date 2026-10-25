@@ -1,6 +1,687 @@
 {
  "about": "Retextures (GameData/overrides/textures) judged wrong in play, for tools/remaster_textures.py until they are regenerated (docs/retexture.md). Name (lower case) -> {use, why}: use 'original' keeps the original texture, 'exact' takes the texel-exact colour lock (only detail finer than one original texel stays, as pack v1 had it) instead of the low-frequency lock.",
- "b_level1_clouds": {"use": "original", "why": "lev_4_m3's river surface (4_3_water): the override paints a cluster of white blobs with dark rims into the soft clouds; the colour lock keeps their hard edges, drawn as pale lily pads over the murky water (walk-video findings B3, 2026-10-25; work/texfix/B3_*.jpg)"},
- "2m1_ground3": {"use": "exact", "why": "the rock of lev_2_m1 / 2_m2 / 3_m1 / 3_m2: the override is long brushed streaks ('fur'); the low-frequency lock (2026-10-24) kept them, stretched along the rock faces with hard seams (findings B5; work/texfix/B5_*.jpg); the exact lock (pack v1) did not"},
- "b_stone": {"use": "exact", "why": "the boulders and stone faces of lev_3_m2 / lev_4_m3: the override's leathery folds, kept by the low-frequency lock, read as wrinkled hide (findings B5)"}
+ "b_level1_clouds": {
+  "use": "original",
+  "why": "lev_4_m3's river surface (4_3_water): the override paints a cluster of white blobs with dark rims into the soft clouds; the colour lock keeps their hard edges, drawn as pale lily pads over the murky water (walk-video findings B3, 2026-10-25; work/texfix/B3_*.jpg)"
+ },
+ "2m1_ground3": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows wavy contour/swirl lines and smeared washed-out patches not in the original."
+ },
+ "b_stone": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows invented leathery creases and veins across the stone."
+ },
+ "k_t_corrigrust": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): glyph-like marks up close (l1_courtyard same-camera crops, work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "b_level1_ground2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): melted, worm-like shapes up close (work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "n_t_bronze": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): hairy red strokes (work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "n_t_wood_planks_dark": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented V-shaped cracks (work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "n_t_metal_rust": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented bright scratch lines (work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "n_t_metal_rust_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented bright scratch lines (work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "k_t_plaster_wall_red": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): flattened to a flat cartoon fill (work/texdensity/k_retex_l1_*.jpg)"
+ },
+ "2m1_ground_dark": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Cracks turned into thick black outlined fissures; invented heavy crack lines and added contrast."
+ },
+ "2m2_ground3": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented scratchy straw/feather strokes and wavy lines; changes character of the ground."
+ },
+ "2m2_ground_dark": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds faint scratch/crack lines and feathery detail not in original; slightly lighter."
+ },
+ "a_prop_teacup_0": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Atlas decal lines altered; emblem looks thinner/greyer and edges shift with a dark band; layout detail changed."
+ },
+ "b_a_branch_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Soft glow alpha shape turned into speckled noisy fragments; changed look."
+ },
+ "b_a_grass_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows noisy multicolour speckle artifacts and ragged edges between the blades."
+ },
+ "b_a_light_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Smooth light gradient replaced by rainbow contour banding and noisy mosaic with changed shape."
+ },
+ "b_abutton": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Colour shift with purple fringe/dark edge halos and changed shading of the button."
+ },
+ "b_background_01": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented embossed engraved structures and added contrast/detail not in the blurry original; changes character."
+ },
+ "b_bbutton": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Button shading changed, darker/flattened with cartoon fill and lost the original gradient spec."
+ },
+ "b_blackbutton": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Arc ring redrawn with noisy jagged edges and different shape/thickness."
+ },
+ "b_dirty_wall": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented vertical scratch/streak lines and changed stains; lost original grain character."
+ },
+ "b_dirty_wall_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Stains repainted with different shapes and streaks; layout/character changed."
+ },
+ "b_flag_a": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Flag turned into glossy tube-like folds with red pixel artifacts; invented structures."
+ },
+ "b_fur_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Original is a soft blur; retexture invents a different sharp fur pattern with clear strands and lighter colour."
+ },
+ "b_rexus_skin": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented thick tube-like cracks and a changed layout; original was soft fine skin texture."
+ },
+ "b_scarf": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds contour-like lines, wavy creases and rough speckle not in the smooth original."
+ },
+ "b_t_level1_water": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented web-like vein/fibre lines and rings in zoom; tiled view barely changed."
+ },
+ "b_wanted": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom of the poster portrait turns into a glossy, metallic, blown-out painterly image; contrast and look changed."
+ },
+ "b_wanted_reward": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Same issue: portrait becomes glossy and blown-out with invented shapes."
+ },
+ "b_whitebutton": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Layout changed: the ring is redrawn with glyph-like text marks along the edge and the pupil shape differs."
+ },
+ "b_wildwood_ground2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows smeared, melted leaf shapes and painterly swirls."
+ },
+ "b_wildwood_ground3": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Painterly smeary streaks in zoom, not faithful to the original grain."
+ },
+ "b_wildwood_moss": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Colour shift: dark red/maroon gaps and oversaturated look compared with original."
+ },
+ "burlap": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Weave replaced by a grid of folds/creases; looks like paper or tiles instead of burlap."
+ },
+ "c_altar_jerosa_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows feathery smears and wispy fur-like marks; the surface character changed."
+ },
+ "c_ruin_pillar_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented tube-like bands, a bamboo-like fold and a different crack shape in zoom."
+ },
+ "c_ruin_stone_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented scratch lines and glyph-like marks in zoom."
+ },
+ "c_ruin_stone_2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Feathery, hairy streaks and smears not in the original."
+ },
+ "c_ruin_stone_3": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Feathery wispy smears and washed-out patches in zoom."
+ },
+ "cardboard": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds a crack line and garbled red glyph-like marks at the bottom in zoom."
+ },
+ "q112_eye": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Soft glow became a hard white core with horizontal lens-flare streaks; changed character"
+ },
+ "rosebush": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Leafy foliage replaced by invented cellular/scale cobblestone pattern with dark crack lines"
+ },
+ "rosepetals": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Soft swirl turned into hard black contour stripes; invented lines, contrast changed"
+ },
+ "sheep": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Fuzzy wool became painted strands with dark maroon streaks; layout and colour changed"
+ },
+ "shutters": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Slats recoloured to olive-green lines with smeared streaks; colour shift and altered look"
+ },
+ "sncaptain_helmet_front": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Helmet details redrawn with harsh high-contrast white edges; new invented shapes and contrast change"
+ },
+ "spoon": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Metal grain lost, surface washed out and smeared with vertical streaks"
+ },
+ "stucco_01": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented crack and wavy ridge lines in plaster; tiled look the same but zoom shows fabricated structure"
+ },
+ "stucco_03": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented contour cracks and ridges not in the original"
+ },
+ "wood_crate": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Crate text and graphics are garbled and the stencil label looks altered; wood detail is plausible but the label is damaged"
+ },
+ "woodgrain_01": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Grain pattern changed to streaky stripes and a visible horizontal seam appears when tiled"
+ },
+ "woodgrain_02": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Burl grain replaced by uniform vertical stripes, colour shifted, visible tile seam"
+ },
+ "x_brick": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Mortar turned into swirly smeared folds; invented structures"
+ },
+ "x_dirty_wall": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented glyph-like white curved marks and smeared streaks; grain lost"
+ },
+ "x_dirty_wall_k": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented white scratch/glyph marks and smeared vertical streaks"
+ },
+ "x_dirty_wall_k_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Blotches turned into melted smeared shapes with a vertical streaky band"
+ },
+ "k_glass_dark": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invents hard-edged dark smear/blotch marks and gritty contour lines; much higher contrast than the soft original."
+ },
+ "k_glass_icicle": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds scratchy line texture and speckle blotches to a smooth frosted glass; tiled look is noisier."
+ },
+ "k_glass_warm": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invents blotchy orange crust patches and streaks, more contrast than the soft original."
+ },
+ "k_grunt_bow_wood": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Creates leathery creases and dark fold lines not in the soft original grain; stronger folds when tiled."
+ },
+ "k_health": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Wood areas turn into gritty embossed noise with added edge ridges; crosses OK but the brown material changed character."
+ },
+ "k_landshark_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds wavy ripple/crease lines over the smooth surface and the tiled view has a visible oily line texture."
+ },
+ "k_landsharkgun_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Grainy noisy overlay and changed shapes in the zoom; extra dark lines and added contrast in tiled view."
+ },
+ "k_molmerpistol_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Changed layout: shapes redrawn into different crisp pipes and swirls, grille and details no longer match the original."
+ },
+ "k_monk_belt": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Turns the gritty striped texture into smooth satin folds and tube-like streaks, with a dark hole blob; lost grain."
+ },
+ "k_monk_robe_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds a regular dotted pattern and cleaner blotchy green; character of the fabric changed."
+ },
+ "k_monk_skin": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invents leathery polygon creases in the zoom, which the soft original skin does not have."
+ },
+ "k_opening": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Changes the fuzzy dark holes into a bevelled panel with borders, which adds visible grid seams when tiled."
+ },
+ "k_player_stickybomb_lock": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Adds concentric ring/stripe artifacts in the red background and a visible lines in the tiled view, though the object is sharper."
+ },
+ "n_a_turret_window_l5": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): zoom shows blocky pixelated artifacts and jagged outlined shapes not in original"
+ },
+ "n_base_homing_mortar": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): seam stitching turned into embossed leathery ridge detail; invented structure"
+ },
+ "n_base_mortar": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): faint seam dots became glyph-like '8' chain marks; changed pattern"
+ },
+ "n_doormat": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): text restyled with outlines and invented vertical stripe weave; colour and character changed"
+ },
+ "n_dragon": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): dragon shape redrawn with different anatomy and new dark blobs; layout changed"
+ },
+ "n_fx_bank_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): speckle noise in white areas, edge artifacts, atlas cells altered"
+ },
+ "n_fx_bank_2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): colour fringe artifacts and garbled atlas cell edges"
+ },
+ "n_fx_fireball": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): puffy fire changed into feathery flame streaks; different character"
+ },
+ "n_l3_m1_tree_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): colored speckle noise and lost silhouette in dark texture"
+ },
+ "n_l5_m5_grass_2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): grass became swirling combed strokes, painterly flow not in original"
+ },
+ "n_level5_sand": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented dark vein/crack network in zoom"
+ },
+ "n_sea_foam": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented thin scratch/crack lines across the foam"
+ },
+ "n_t_boulder": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented cracks and embossed scratches; tiled look changed"
+ },
+ "n_t_brick_red": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented line grid and glyph-like marks over smooth brick"
+ },
+ "n_t_cloth_black": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): weave became invented scale-like shapes"
+ },
+ "n_t_cloth_dgreen": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): weave became large fish-like leathery shapes"
+ },
+ "n_t_concrete": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): directional streaky smears and added dark creases"
+ },
+ "n_t_iron": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented orange pits and visible cross seam when tiled"
+ },
+ "n_t_metal_plates": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented wavy contour creases on plates"
+ },
+ "k_punching_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented creases and veins/leathery folds across glove; changed surface detail."
+ },
+ "k_q_chaingun": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented hard-edged swirls and grainy blotches; gear/rim details altered and contrast shifted."
+ },
+ "k_q_chaingun_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Same issue as chaingun: invented swirls and altered details in the barrel area."
+ },
+ "k_rifleclip": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented scratch/crack lines across the panels not in the original."
+ },
+ "k_rlvindaloo_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Colour and contrast shifted, darker and more saturated; shapes redrawn with invented structures."
+ },
+ "k_shrubpatrol_2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Text 'packback' garbled (reads differently) and mirrored, though layout is the same."
+ },
+ "k_sign_nature_reserve": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Lettering garbled with smeared, doubled strokes; text no longer faithful."
+ },
+ "k_stickybomb": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented cloud-like wavy contours and a tiled pattern change; original was a soft smooth blue."
+ },
+ "k_t_copper": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented long fur-like streaks; the original's blotchy pattern is replaced."
+ },
+ "k_t_firedirt_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented wood-grain or crack structures in tiled view; layout and character changed."
+ },
+ "k_t_leafy": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented bubble or blob patterns and stripes; original was soft mottled foliage."
+ },
+ "k_t_metalmottled": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented hair-like vertical scratch strokes in zoom; original was a granular mottle."
+ },
+ "k_t_panel_dark": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Layout changed to a clear brick pattern with staggered rows; the original was a subtle panel."
+ },
+ "k_t_plaster_wall_orange": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Plaster grain lost; flattened smooth fill."
+ },
+ "k_t_redbrick_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented fur or hair strands and curved crack lines; character changed."
+ },
+ "k_t_roof_tile_dark": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Tile layout changed to a high-contrast brick pattern with black gaps; contrast and character shifted."
+ },
+ "k_t_ruststeel_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented concentric ring and whorl structures; original was a mottled rust."
+ },
+ "castlewall2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): zoom shows invented stepped/zigzag brick-like blocks and smeared green patches; layout detail changed"
+ },
+ "castlewall3": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): painterly brush-stroke smears, feathery streaks instead of stone grain"
+ },
+ "cement": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented diagonal scratch/streak pattern with dark triangular marks; tiled look is changed and striped"
+ },
+ "danger": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): flat red skull turned into glossy embossed gel with glow; cartoon-like style change"
+ },
+ "fx_generic": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): tiled retex shows vertical streaky stripes and blotchy marks absent from the original noise"
+ },
+ "grunt_arrow_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): vertical streak smearing and altered arrow shape/colours; blurry garbled details"
+ },
+ "k_a_peasant_wall_wood_post_lod": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented wavy glossy contour lines and sheen on the post; character changed"
+ },
+ "k_blackhole": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): tiled retex shows invented blocky maze-like shapes on what was dark noise"
+ },
+ "k_bullet": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented scratch/scribble marks and harder contrast; tiled pattern repeats visibly with new structures"
+ },
+ "k_captain_flare": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented outlines, wavy lines and panel borders; layout of the graphics changed"
+ },
+ "k_captain_mgclip": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented mechanical detail and garbled glyph-like marks; colours and structure changed"
+ },
+ "k_captain_mgun": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): layout changed: blurry bands replaced by hard vertical stripes and new structures"
+ },
+ "k_captain_rl": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented new details (wheel, panels, stripes) and changed layout compared with the original"
+ },
+ "k_captain_rl2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): changed layout with new bands, tick marks and grey seams; zoom flat"
+ },
+ "k_captain_rl3": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): dots turned into new rectangular slots and seam bands; layout changed"
+ },
+ "k_captainsniper_gun": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): concentric swirl marks invented, grey shapes redrawn; changed character"
+ },
+ "k_t_wood_small": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows melted, fold-like leathery/drapery shapes and glossy smears instead of wood grain; invented structure."
+ },
+ "l5_m2_ground_1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom shows swirly, painterly wavy grass strokes and contour-like smears not in original."
+ },
+ "l5_m2_ground_2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Very dark texture gets speckled white specks and scratch-like marks; no real gain, lost character."
+ },
+ "l5_m4_sea": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Zoom invents eye-like shapes, folds and leathery structures; changed character from blurry underwater pattern."
+ },
+ "l5_m5_battlefield_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Dark ground gets smeared, streaky painterly texture and specks; muddier than original."
+ },
+ "lev_3_m3_cloud": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented orange blobs with dark outlines appear in the cloud texture; not in original."
+ },
+ "logs": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Bark changed to horizontal striped bands with visible stripe pattern when tiled; layout/character changed from noisy bark."
+ },
+ "mat": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Woven mat turned into smeared, feathery horizontal brush-like strokes; original brick-like weave pattern lost."
+ },
+ "n_a_t_fence_wood": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Colour fringing at edges (green/white specks) and ragged edges; added scratchy marks."
+ },
+ "n_a_t_trim_roof_top": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented dark branch-like/crack lines and changed layout with white line at top edge."
+ },
+ "b_grunt_front": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Fringing/halo around dark shapes and smeared edges; garbled text on the plate"
+ },
+ "b_health_outline": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Outline doubled/jagged with stray stepped lines in the zoom"
+ },
+ "b_l3_m1_dirt": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Noticeably darker with more contrast; colour shift and lost the original's warm brightness"
+ },
+ "b_l3_m1_rockface": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented diagonal fold/crease and smooth leathery shapes; layout altered"
+ },
+ "b_l4_m1_sky_a": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Added speckle noise and a visible seam line when tiled"
+ },
+ "b_l4_m3_sky": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented speckles and vertical streaks, lost smooth haze"
+ },
+ "b_level1_ground": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Lost crisp detail, washed out/blurry with grey patches and noise; original had sharper cracks"
+ },
+ "b_level1_ground_burned": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented blue vein/crack lines and smeared folds not in original"
+ },
+ "b_level1_m3_sky_a": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Added ripple/contour noise around the sun and grain in the smooth sky"
+ },
+ "b_level1_walls": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented black crack lines and changed bark pattern, harsher contrast"
+ },
+ "b_molmer_eye_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Eye redrawn: black iris ring, white dot, different character and colours"
+ },
+ "b_molmer_face_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented scratch/hair lines and altered shapes; different look"
+ },
+ "b_molmer_shirt_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Added cracked/moss-like noisy texture and new vertical seam relief; changed character"
+ },
+ "b_monk_face": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented wavy contour lines and folds in the face; changed pattern"
+ },
+ "b_plains_ground": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Speckled dark-red dots and cellular noise not in original; colour shifted"
+ },
+ "b_plains_ground_bright": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Added blobby dotted cellular artifacts; painterly look"
+ },
+ "b_player_blackhole": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Triangle glyph marks changed/garbled and the surface restyled"
+ },
+ "b_player_guyfawkes": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Grainy noise and altered spiral details; colour and character shifted"
+ },
+ "b_player_knockout": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Glove text garbled and invented dark fold lines; changed shading"
+ },
+ "b_q_eye_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Redrawn glossy eye with a new highlight streak and changed iris; layout differs"
+ },
+ "b_q_name": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Emblem redrawn, inscription changed and extra marks added"
+ },
+ "b_q_plume_low": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): Invented high-contrast striped feather structure and dark red edge; changed pattern"
+ },
+ "n_t_metal_rust_barreltop": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): purple veins/cracks added across the lid, text garbled (second line unreadable), ring contours altered"
+ },
+ "n_t_metal_rust_d": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): added thin scratch lines and hairline cracks not in original blotchy rust"
+ },
+ "n_t_metal_rust_grooved": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): many invented criss-cross scratch lines; extra grooves added"
+ },
+ "n_t_metal_rust_keg_danger": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): skull shape changed (teal drip shapes, outlines), scratches added in background"
+ },
+ "n_t_metal_rust_keg_dangergrv": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): skull altered with teal drips/outline, invented scratches"
+ },
+ "n_t_rockface": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): feathery combed hair-like streaks and dark crack veins invented in the zoom"
+ },
+ "n_t_roof_tile_diamond": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): colour shift to warmer/darker with strong bright edge highlights; scale/look of tiles changed"
+ },
+ "n_t_roof_tile_wood_diamond": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): colour shift and exaggerated bright edge outlines, tile character changed"
+ },
+ "n_t_shrub_bomber": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented pipe/grid structures replacing a soft panel pattern, changed layout"
+ },
+ "n_t_vdgreen": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): woven weave replaced by diagonal stripe lines and seams visible when tiled"
+ },
+ "n_t_white_wash": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): smooth wash became streaky smudged grey mottling, new vertical smear pattern"
+ },
+ "n_t_wood_planks": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): bright draped/folded fabric-like creases and melted shapes replace wood grain, brighter highlights"
+ },
+ "n_wave_strip": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): white spider-web crack lines invented, top band garbled text-like marks, brighter/washed contrast"
+ },
+ "n_zeppelin_missile": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): changed pattern: spiky white wedges and harsh streaks, visible seam when tiled"
+ },
+ "pickup_treasure1": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): face/hair region gets invented comb-like hair strands and streaks in zoom"
+ },
+ "pickup_treasure2": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): invented fold/line structures in the dark area, original was smooth"
+ },
+ "pickup_treasure3a": {
+  "use": "original",
+  "why": "retexture audit 2026-10-25 (original | retexture sheets work/retexaudit/sheets, rule: same or better than the original): horizontal glitch streaks and smeared garbled bands, shapes changed"
+ }
 }
