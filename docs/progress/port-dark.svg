@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="620" height="454" viewBox="0 0 620 454" role="img" aria-label="Engine port: game logic by subsystem: 2,361 game-logic functions: 1,427 ported, 836 replaced or not needed, 26 deferred, 72 not started" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
-<title>Engine port: game logic by subsystem: 2,361 game-logic functions: 1,427 ported, 836 replaced or not needed, 26 deferred, 72 not started</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="454" viewBox="0 0 620 454" role="img" aria-label="Engine port: game logic by subsystem: 2,361 game-logic functions: 1,430 ported, 833 replaced or not needed, 26 deferred, 72 not started" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Engine port: game logic by subsystem: 2,361 game-logic functions: 1,430 ported, 833 replaced or not needed, 26 deferred, 72 not started</title>
 <rect width="620" height="454" rx="6" fill="#1a1a19"/>
 <text x="16" y="26" font-size="15" font-weight="600" fill="#f0efec">Engine port: game logic by subsystem</text>
-<text x="16" y="46" font-size="12" fill="#c3c2b7">2,361 game-logic functions: 1,427 ported, 836 replaced or not needed,</text>
+<text x="16" y="46" font-size="12" fill="#c3c2b7">2,361 game-logic functions: 1,430 ported, 833 replaced or not needed,</text>
 <text x="16" y="62" font-size="12" fill="#c3c2b7">26 deferred, 72 not started</text>
 <text x="102" y="97" font-size="12" text-anchor="end" fill="#f0efec">ai</text>
 <rect x="110" y="82" width="420" height="22" rx="4" fill="#383835"/>
@@ -19,8 +19,8 @@
 <text x="538" y="127" font-size="12" fill="#c3c2b7">729</text>
 <text x="102" y="157" font-size="12" text-anchor="end" fill="#f0efec">ui</text>
 <rect x="110" y="142" width="420" height="22" rx="4" fill="#383835"/>
-<path d="M114.0,142 H322.7 Q322.7,142 322.7,142 V164 Q322.7,164 322.7,164 H114.0 Q110.0,164 110.0,160 V146 Q110.0,142 114.0,142 Z" fill="#3987e5"><title>ui: ported 161 of 315</title></path>
-<path d="M324.7,142 H473.3 Q473.3,142 473.3,142 V164 Q473.3,164 473.3,164 H324.7 Q324.7,164 324.7,164 V142 Q324.7,142 324.7,142 Z" fill="#199e70"><title>ui: explained 113 of 315</title></path>
+<path d="M114.0,142 H324.0 Q324.0,142 324.0,142 V164 Q324.0,164 324.0,164 H114.0 Q110.0,164 110.0,160 V146 Q110.0,142 114.0,142 Z" fill="#3987e5"><title>ui: ported 162 of 315</title></path>
+<path d="M326.0,142 H473.3 Q473.3,142 473.3,142 V164 Q473.3,164 473.3,164 H326.0 Q326.0,164 326.0,164 V142 Q326.0,142 326.0,142 Z" fill="#199e70"><title>ui: explained 112 of 315</title></path>
 <path d="M475.3,142 H476.0 Q476.0,142 476.0,142 V164 Q476.0,164 476.0,164 H475.3 Q475.3,164 475.3,164 V142 Q475.3,142 475.3,142 Z" fill="#c98500"><title>ui: deferred 2 of 315</title></path>
 <path d="M478.0,142 H526.0 Q530.0,142 530.0,146 V160 Q530.0,164 526.0,164 H478.0 Q478.0,164 478.0,164 V142 Q478.0,142 478.0,142 Z" fill="#383835"><title>ui: not started 39 of 315</title></path>
 <text x="538" y="157" font-size="12" fill="#c3c2b7">315</text>
@@ -38,8 +38,8 @@
 <text x="538" y="217" font-size="12" fill="#c3c2b7">102</text>
 <text x="102" y="247" font-size="12" text-anchor="end" fill="#f0efec">camera</text>
 <rect x="110" y="232" width="420" height="22" rx="4" fill="#383835"/>
-<path d="M114.0,232 H360.0 Q360.0,232 360.0,232 V254 Q360.0,254 360.0,254 H114.0 Q110.0,254 110.0,250 V236 Q110.0,232 114.0,232 Z" fill="#3987e5"><title>camera: ported 27 of 45</title></path>
-<path d="M362.0,232 H518.7 Q518.7,232 518.7,232 V254 Q518.7,254 518.7,254 H362.0 Q362.0,254 362.0,254 V232 Q362.0,232 362.0,232 Z" fill="#199e70"><title>camera: explained 17 of 45</title></path>
+<path d="M114.0,232 H378.7 Q378.7,232 378.7,232 V254 Q378.7,254 378.7,254 H114.0 Q110.0,254 110.0,250 V236 Q110.0,232 114.0,232 Z" fill="#3987e5"><title>camera: ported 29 of 45</title></path>
+<path d="M380.7,232 H518.7 Q518.7,232 518.7,232 V254 Q518.7,254 518.7,254 H380.7 Q380.7,254 380.7,254 V232 Q380.7,232 380.7,232 Z" fill="#199e70"><title>camera: explained 15 of 45</title></path>
 <path d="M520.7,232 H526.0 Q530.0,232 530.0,236 V250 Q530.0,254 526.0,254 H520.7 Q520.7,254 520.7,254 V232 Q520.7,232 520.7,232 Z" fill="#383835"><title>camera: not started 1 of 45</title></path>
 <text x="538" y="247" font-size="12" fill="#c3c2b7">45</text>
 <text x="102" y="277" font-size="12" text-anchor="end" fill="#f0efec">input</text>
@@ -64,8 +64,8 @@
 <path d="M114.0,352 H417.5 Q417.5,352 417.5,352 V374 Q417.5,374 417.5,374 H114.0 Q110.0,374 110.0,370 V356 Q110.0,352 114.0,352 Z" fill="#3987e5"><title>movie: ported 14 of 19</title></path>
 <path d="M419.5,352 H526.0 Q530.0,352 530.0,356 V370 Q530.0,374 526.0,374 H419.5 Q419.5,374 419.5,374 V352 Q419.5,352 419.5,352 Z" fill="#199e70"><title>movie: explained 5 of 19</title></path>
 <text x="538" y="367" font-size="12" fill="#c3c2b7">19</text>
-<rect x="16" y="392" width="10" height="10" rx="2" fill="#3987e5"/><text x="32" y="401" font-size="12" fill="#f0efec">ported <tspan fill="#c3c2b7">1,427</tspan></text>
-<rect x="221" y="392" width="10" height="10" rx="2" fill="#199e70"/><text x="237" y="401" font-size="12" fill="#f0efec">explained <tspan fill="#c3c2b7">836</tspan></text>
+<rect x="16" y="392" width="10" height="10" rx="2" fill="#3987e5"/><text x="32" y="401" font-size="12" fill="#f0efec">ported <tspan fill="#c3c2b7">1,430</tspan></text>
+<rect x="221" y="392" width="10" height="10" rx="2" fill="#199e70"/><text x="237" y="401" font-size="12" fill="#f0efec">explained <tspan fill="#c3c2b7">833</tspan></text>
 <rect x="426" y="392" width="10" height="10" rx="2" fill="#c98500"/><text x="442" y="401" font-size="12" fill="#f0efec">deferred <tspan fill="#c3c2b7">26</tspan></text>
 <rect x="16" y="410" width="10" height="10" rx="2" fill="#383835"/><text x="32" y="419" font-size="12" fill="#f0efec">not started <tspan fill="#c3c2b7">72</tspan></text>
 </svg>
