@@ -122,17 +122,17 @@ occlusion grounds the rock and the path's edges, the leaves and walls are retext
 
 ![preview](images/preview.jpg)
 
-`docs/images/preview.jpg`: the village pair at 1600 px, the same view side by side (original left, remaster right).
+`docs/images/preview.jpg`: the village pair, the same view side by side (original left, remaster right).
 
 ## Videos
 
 `tools/compare_videos.py` records Roman walking forwards for 10 s from the start of every level where he starts on
 foot (19 of 24; the five base defence levels start him in a turret), in the original and in the remaster with the
 same input (the briefing dismissed, W held), each with its own follow camera, at the gallery's settings: one
-side-by-side H.264 clip per level (1920 wide, 30 fps) and the two raw clips, in work/videos/. Too large for the
+side-by-side clip per level (1920 px a side, both games captured at 1080p or above, 30 fps; AV1 at constant quality on the GPU, so no compression artefacts) and the two raw clips, in work/videos/. Too large for the
 repository: they are hosted with the texture pack on Cloudflare R2. Original on the left, remaster on the right:
 
-[lev_1_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_1_m1.mp4) · [lev_1_m1_b](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_1_m1_b.mp4) · [lev_1_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_1_m3.mp4) · [lev_2_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_2_m1.mp4) · [lev_2_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_2_m2.mp4) · [lev_2_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_2_m3.mp4) · [lev_3_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_3_m1.mp4) · [lev_3_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_3_m2.mp4) · [lev_3_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_3_m3.mp4) · [lev_4_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_4_m1.mp4) · [lev_4_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_4_m2.mp4) · [lev_4_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_4_m3.mp4) · [lev_5_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_5_m1.mp4) · [lev_5_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_5_m2.mp4) · [lev_5_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_5_m3.mp4) · [lev_5_m4](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_5_m4.mp4) · [lev_bonus_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_bonus_m1.mp4) · [lev_bonus_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_bonus_m2.mp4) · [lev_bonus_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v1/lev_bonus_m3.mp4)
+[lev_1_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_1_m1.mp4) · [lev_1_m1_b](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_1_m1_b.mp4) · [lev_1_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_1_m3.mp4) · [lev_2_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_2_m1.mp4) · [lev_2_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_2_m2.mp4) · [lev_2_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_2_m3.mp4) · [lev_3_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_3_m1.mp4) · [lev_3_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_3_m2.mp4) · [lev_3_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_3_m3.mp4) · [lev_4_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_4_m1.mp4) · [lev_4_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_4_m2.mp4) · [lev_4_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_4_m3.mp4) · [lev_5_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_5_m1.mp4) · [lev_5_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_5_m2.mp4) · [lev_5_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_5_m3.mp4) · [lev_5_m4](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_5_m4.mp4) · [lev_bonus_m1](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_bonus_m1.mp4) · [lev_bonus_m2](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_bonus_m2.mp4) · [lev_bonus_m3](https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/videos/v2/lev_bonus_m3.mp4)
 
 ## Settings used
 
@@ -141,14 +141,14 @@ has no ray-tracing option) and motion blur off for stills. The exact changes, as
 (`tools/compare_gallery.json`, `remaster.graphics`):
 
 ```
-and_remaster.exe --background --size 1280x744 --play <shot>/remaster.json --camera <shot>/original.camera.json
+and_remaster.exe --background --size <capture size> --play <shot>/remaster.json --camera <shot>/original.camera.json
   --preset remaster --graphics remaster_textures=true,anti_aliasing=taa,alpha_coverage=true,ambient_occlusion=true,
   ao_quality=3,ao_contact=0.6,shadow_map_size=8192,shadow_cascades=4,shadow_distance=1.0,soft_shadows=true,
-  fog_modern=true,fog_density=0.6,fog_sun=0.3,tessellation=true,tessellation_level=6,terrain_detail=16,lod_max=true,
+  fog_modern=true,fog_density=0.6,fog_sun=0.3,tessellation=true,tessellation_level=6,terrain_detail=8,lod_max=true,
   lod_scale=8,aa_mip_bias=-1,tonemap_aces=true,dither=true,snow=true,snow_amount=200000,shutter_speed=0
 ```
 
-(`--size 1920x1080` and no `--camera` for the widescreen pair; `--size 1600x930` for the 1600x1200 close-ups.)
+(The capture size is the JSON's: both games at 1080p or above. No `--camera` for the widescreen pair.)
 
 | Feature | Setting |
 | --- | --- |
@@ -158,7 +158,7 @@ and_remaster.exe --background --size 1280x744 --play <shot>/remaster.json --came
 | Shadows | 4 cascades of 8192 px over the whole drawn distance, PCSS soft shadows (softness 6), shadow strength 0.55 (preset) |
 | Fog | exponential height fog, density 0.6, sun glow 0.3 (the preset's since 2026-10-23) |
 | Reflections | the environment cube maps, baked at 512 px a face (preset; `tools/bake_env_maps.py`) |
-| Geometry | tessellation level 6 (the maximum), terrain detail 16x (the maximum), finest LOD everywhere, LOD distances x8 |
+| Geometry | tessellation level 6 (the maximum), terrain detail 8x (the density at which the original's detail maps tile, 2026-10-25), finest LOD everywhere, LOD distances x8 |
 | Texture sharpness | mip bias -1 under TAA, 16x anisotropic filtering on world, decal and effect textures (preset) |
 | Post | filmic tone curve (`tonemap_aces`: since 2026-10-23 a highlight roll-off that keeps the game's range; the old ACES fit washed the image out), dither, bloom 0.08 (preset); motion blur off (`shutter_speed=0`) |
 | Snow | GPU snowfall, 200,000 flakes (the preset's since 2026-10-23, the original's visible amount) |
@@ -184,17 +184,26 @@ from the briefing as `tools/oracle_diff.py` does), the play frame, an optional w
 size, and the remaster's settings. The original runs one instance at a time in its own game instance
 (`work/instances/gallery`), off-screen and muted, and waits while the player's own game is running. Raw captures
 (PNG, camera dumps, logs) stay in `work/gallery/<shot>/` and are never committed; the composed JPEGs are kept under
-400 KB. The original very occasionally crashes on exit before its last frame is dumped (lev_3_m3, once): run the shot
+1000 KB (`budget_kb`; the repository takes files up to 1 MB). The original very occasionally crashes on exit before its last frame is dumped (lev_3_m3, once): run the shot
 again.
 
 Not in the set: an explosion pair (a blast needs a scripted moment that frames the fireball in both games).
 
 ## Known differences
 
-Open visual differences against the original, found with these tools (status in docs/player-feedback.md):
+Checked by eye against the original in every clip and still of the 2026-10-25 set (status in docs/player-feedback.md).
+Fixed for this set: texture density (the materials' second UV set, terrain detail at the original's tiling), the snow
+amount, the rain levels' domes, the sky holes, reeds and water, the HUD's opacity, subtitle size, the jetpack's
+chrome, Q's fade and the first frame's fog-coloured silhouettes.
 
-- **The rain levels (lev_5_m1, lev_5_m3)**: fixed 2026-10-25 (the camera's rain and wind-spray domes now add the original's gamma-space light over the scene, fxvm/additive.rs); the videos predate the fix. The rain streaks are a little fainter than the original's.
-- **Sky holes** on lev_5_m3 and lev_bonus_m1: bright white patches where the sky should show (the lev_5_m3 ones are lit snow in front of the rain domes; lev_bonus_m1's not examined).
-- **lev_3_m3's town through the gate**: was missing (black) for want of the level's fog; fixed, the town still reads darker than the original's.
+Style choices (intended):
+- **Characters** are lit a little darker than in the original in the non-snow levels (per-pixel sun and soft shadows).
+- **The HUD's numbers** are drawn larger and sharper than the original's tiny bitmap digits.
+- **Shadows** are cast by the sun from every object; the original has blob shadows under characters only.
+
+Remaining differences (not bugs in the remaster's rendering):
+- **Paths diverge** after a few seconds in some clips (AI timing, physics): in lev_bonus_m1 the original's Roman dies
+  in the turret fire while the remaster's survives; in lev_2_m2 the camera ends up beside the pipe.
+- **lev_4_m3's mill windows** show thin white slits in both games (the original's art).
+- **The jetpack's wing strips** are orange where the original's read teal (lev_3_m2, lev_bonus_m3; open).
 - **lev_1_m1 pub windows**: not lit as in the original (not examined).
-- **Characters** are lit a little darker than the original's in the non-snow levels (Roman in lev_2_m3, lev_4_m1).
