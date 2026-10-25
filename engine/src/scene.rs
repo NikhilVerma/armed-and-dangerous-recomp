@@ -92,15 +92,52 @@ struct SubmeshDef {
     /// the material record as the original shades it (gamematerial.rs)
     #[serde(default)]
     material: Option<crate::gamematerial::MaterialDef>,
-    /// the second uv set (terrain blend masks)
+    /// the second uv set (terrain blend masks, the bump walls' normal maps)
     #[serde(default)]
     uvs1: Option<usize>,
+    /// the third uv set (the snow domes' masks: [`ATTRIBUTE_UV_2`])
+    #[serde(default)]
+    uvs2: Option<usize>,
     /// the skin bone carrying this part (a rigid part of a multi-bone mesh, or a one-bone mesh)
     #[serde(default)]
     bone: Option<String>,
     /// the skin material's name, its physics surface (surface.rs)
     #[serde(default)]
     surface: Option<String>,
+}
+
+/// A mesh's third uv set (Bevy names two): the layered fx materials' masks (fxvm/fxlayer.wesl).
+pub const ATTRIBUTE_UV_2: bevy::mesh::MeshVertexAttribute =
+    bevy::mesh::MeshVertexAttribute::new("Vertex_Uv_2", 0x7a3c_0002, bevy::mesh::VertexFormat::Float32x2);
+
+impl SubmeshDef {
+    /// Adds the extra uv sets the submesh has (`uvs1`, `uvs2`) and, for a material with a normal map, tangents along
+    /// the uv set that map is sampled with (MaterialDef::uv_sets): the village walls' plaster normal map runs on the
+    /// second set, rotated and ~5x as dense as the first, so the first set's tangents would light it askew.
+    fn add_uv_sets_and_tangents(&self, mesh: &mut Mesh, bin: &[u8], name: &str) {
+        let uvs = |o: usize| floats(bin, o, self.vertices * 2).chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>();
+        if let Some(o) = self.uvs1 {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uvs(o));
+        }
+        if let Some(o) = self.uvs2 {
+            mesh.insert_attribute(ATTRIBUTE_UV_2, uvs(o));
+        }
+        let Some(def) = self.material.as_ref().filter(|m| m.normal_map.is_some()) else { return };
+        // tangents generated (MikkTSpace) along the normal map's set; the original stores its own (guess: they agree)
+        // (Bevy's generator reads the first set: the normal map's set stands in for it meanwhile)
+        let along = (def.uv_set(crate::gamematerial::MapSlot::Normal) == 1).then(|| mesh.attribute(Mesh::ATTRIBUTE_UV_1).cloned()).flatten();
+        let first = along.and_then(|uv| {
+            let first = mesh.attribute(Mesh::ATTRIBUTE_UV_0).cloned();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+            first
+        });
+        if let Err(e) = mesh.generate_tangents() {
+            warn!("{name}: no tangents: {e}");
+        }
+        if let Some(uv) = first {
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
+        }
+    }
 }
 
 /// How a model part follows its skeleton (when the model has one and is spawned with its rig).
@@ -258,17 +295,9 @@ impl Library {
             mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
             mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
-            if let Some(o) = s.uvs1 {
-                mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, floats(&bin, o, s.vertices * 2).chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
-            }
             mesh.insert_indices(Indices::U32(idx));
+            s.add_uv_sets_and_tangents(&mut mesh, &bin, name);
             let def = s.material.clone().unwrap_or_default();
-            // tangents for the normal map (generated, MikkTSpace; the original stores its own: guess that they agree)
-            if def.normal_map.is_some() {
-                if let Err(e) = mesh.generate_tangents() {
-                    warn!("{name}: no tangents: {e}");
-                }
-            }
             let m = crate::gamematerial::make(&def, s.texture.as_deref(), s.alpha, lights, assets, white);
             out.push((meshes.add(mesh), materials.add(m)));
         }
@@ -381,12 +410,7 @@ impl Library {
                     mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_INDEX, bevy::mesh::VertexAttributeValues::Uint16x4(j));
                     mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, w.chunks_exact(4).map(|v| [v[0], v[1], v[2], v[3]]).collect::<Vec<_>>());
                 }
-                if let Some(o) = s.uvs1 {
-                    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, floats(&bin, o, s.vertices * 2).chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
-                }
-                if s.material.as_ref().is_some_and(|m| m.normal_map.is_some()) {
-                    let _ = mesh.generate_tangents();
-                }
+                s.add_uv_sets_and_tangents(&mut mesh, &bin, name);
                 let material = self.material(s.texture.as_deref(), s.alpha, unlit, colour.unwrap_or([1.0; 3]), s.material.as_ref(), assets, materials);
                 parts.push((meshes.add(mesh), material));
                 binds.push(match (s.joints, &s.bone) {

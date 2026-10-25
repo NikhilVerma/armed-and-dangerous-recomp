@@ -7,7 +7,8 @@
 // (16 and 32 not identified):
 //   normal map           bump (ps eac78aec9a00d1cf): base * light, the normal from the normal map
 //   texture2 + mask      terrain (ps 98a72838035bad82) / shore blend: sat(base * (1 - mask) + texture2 * mask) * light,
-//                        mask on uv set 1
+//                        (the terrain's mask on uv set 1)
+// Each map is sampled with the uv set its record names (p.uv_sets: the record's byte +0x32).
 //   texture2, no mask    environment (stages: cube * TFACTOR, then MULTIPLYADD texture * diffuse): env * factor +
 //                        base * light (texture2 is the cube's slot; the game binds its own cube map there)
 //   otherwise            fixed function: base * light (plus a specular highlight with flag 16: guess)
@@ -65,10 +66,12 @@ struct GameOut {
     @location(3) uv_b: vec2<f32>,
     @location(4) world_tangent: vec4<f32>,
     @location(5) fog: f32,
+    @location(6) uv_c: vec2<f32>,
 }
 
 @vertex
-fn vertex(vertex_in: Vertex) -> GameOut {
+// uv_c: the mesh's third uv set (gamematerial.rs specialize binds it at location 10; its first set when it has none)
+fn vertex(vertex_in: Vertex, @location(10) uv_c: vec2<f32>) -> GameOut {
     var out: GameOut;
     let v = decompress_vertex(vertex_in, vertex_in.instance_index);
 @if(SKINNED)
@@ -85,6 +88,7 @@ fn vertex(vertex_in: Vertex) -> GameOut {
     out.uv_b = v.uv;
 @if(VERTEX_UVS_B)
     out.uv_b = v.uv_b;
+    out.uv_c = uv_c;
     out.world_tangent = vec4(0.0);
 @if(VERTEX_TANGENTS)
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(world_from_local, v.tangent, vertex_in.instance_index);
@@ -110,6 +114,12 @@ fn to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(pow((x + 0.055) / 1.055, vec3(2.4)), x / 12.92, x <= vec3(0.04045));
 }
 
+// The texture coordinates of uv set `uv_set` (MaterialDef::uv_sets): the first, the second (uv_b) or the third (uv_c;
+// a set the mesh lacks reads its first)
+fn uv_of(in: GameOut, uv_set: u32) -> vec2<f32> {
+    return select(select(in.uv, in.uv_b, uv_set == 1u), in.uv_c, uv_set >= 2u);
+}
+
 @fragment
 fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // the original's far plane clips (Bevy's projection is infinite): beyond it the sky shows
@@ -120,19 +130,21 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // every map sampled with the view's mip bias (remaster aa_mip_bias under TAA, graphics/geometry; 0 otherwise),
     // as the old remaster biased every mipmapped sampler (vk_pipeline.cpp)
     let bias = view.mip_bias;
-    let base_s = textureSampleBias(base_tex, base_smp, in.uv, bias);
+    let base_s = textureSampleBias(base_tex, base_smp, uv_of(in, p.uv_sets.x), bias);
     let base = vec4(to_gamma(base_s.rgb), base_s.a);
     let n_geo = normalize(in.world_normal);
     var n = n_geo;
     {
         if (p.has_normal != 0u && dot(in.world_tangent.xyz, in.world_tangent.xyz) > 0.0) {
-            // the normal map in tangent space (_bx2: 2 * t - 1)
-            var tn = textureSampleBias(normal_tex, normal_smp, in.uv, bias).xyz * 2.0 - 1.0;
+            // the normal map in tangent space (_bx2: 2 * t - 1), on its own uv set (the tangents follow that set:
+            // scene.rs add_tangents)
+            let uv_n = uv_of(in, p.uv_sets.y);
+            var tn = textureSampleBias(normal_tex, normal_smp, uv_n, bias).xyz * 2.0 - 1.0;
             // remaster terrain_detail (graphics/geometry; the old remaster's vk_shader_translate.cpp, terrain pixel
             // shader 98a72838035bad82 only): the terrain's normal map sampled again at geometry.x times its tiling,
             // its slope added at geometry.y; mip filtering fades it with distance
             if (p.geometry.x > 1.0 && p.has_texture2 != 0u && p.has_mask != 0u) {
-                let tdd = textureSampleBias(normal_tex, normal_smp, in.uv * p.geometry.x, bias).xyz * 2.0 - 1.0;
+                let tdd = textureSampleBias(normal_tex, normal_smp, uv_n * p.geometry.x, bias).xyz * 2.0 - 1.0;
                 tn = normalize(vec3(tn.xy + tdd.xy * p.geometry.y, tn.z));
             }
             let t = normalize(in.world_tangent.xyz - n_geo * dot(n_geo, in.world_tangent.xyz));
@@ -146,9 +158,8 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     let blend = p.has_texture2 != 0u && p.has_mask != 0u;
     let env = p.has_texture2 != 0u && p.has_mask == 0u;
     if (blend) {
-        let uv1 = in.uv_b;
-        let m = to_gamma(textureSampleBias(mask_tex, mask_smp, uv1, bias).rgb);
-        let t2 = to_gamma(textureSampleBias(tex2, tex2_smp, in.uv, bias).rgb);
+        let m = to_gamma(textureSampleBias(mask_tex, mask_smp, uv_of(in, p.uv_sets.w), bias).rgb);
+        let t2 = to_gamma(textureSampleBias(tex2, tex2_smp, uv_of(in, p.uv_sets.z), bias).rgb);
         albedo = clamp(base.rgb * (vec3(1.0) - m) + t2 * m, vec3(0.0), vec3(1.0));
         alpha = 1.0;
     }

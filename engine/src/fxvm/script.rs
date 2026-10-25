@@ -220,6 +220,7 @@ fn create_object(vm: &mut FxVm, ctx: &mut Ctx<'_, '_, '_>, idx: usize, template:
                         params: FxLayerParams::new(
                             Vec4::new(def.emissive[0], def.emissive[1], def.emissive[2], def.alpha()),
                             Vec4::new(premultiplied(&ctx.lib.dir, &tex) as u8 as f32, premultiplied(&ctx.lib.dir, &tex2) as u8 as f32, premultiplied(&ctx.lib.dir, &mask) as u8 as f32, 0.0),
+                            &def,
                         ),
                         opacity: def.alpha(),
                         background: None,

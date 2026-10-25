@@ -1,24 +1,65 @@
-"""Adds the material fields a newer tools/remaster_export.py writes ("blend", "opacity": the translucency of kind bit
-0x10) to an existing export's models/*.json, without exporting the level again (the textures, meshes and every other
-file are left as they are).
+"""Adds what a newer tools/remaster_export.py writes per submesh to an existing export's models/*.json, without
+exporting the level again (the textures, meshes and every other file are left as they are):
+  - material fields: "blend", "opacity" (the translucency of kind bit 0x10), "uv_sets" (byte +0x32: the uv set each
+    map is sampled with)
+  - "uvs2", the third uv set (the snow domes' masks), appended to the model's .bin (earlier offsets unchanged)
 
     python tools/remaster_patch_materials.py [LEVEL ...]     (default: every work/remaster/lev_* with models/)
 
 Each model's submeshes are decoded again from the level's skin bank (remaster_export.mesh_submeshes, the same order
-as the export) and their material records' new fields copied over. Prints one line per level.
+as the export; the landscape from the land bank) and the new fields copied over. Prints one line per level.
 """
 import json
 import os
+import struct
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "formats"))
 import remaster_export as rx  # noqa: E402
 import remaster_export_anim  # noqa: E402
-from big_kinds import objchunk  # noqa: E402
+from big_kinds import land, objchunk  # noqa: E402
 
-NEW = ("blend", "opacity")
+NEW = ("blend", "opacity", "uv_sets")
 work = rx.ROOT / "work" / "remaster"
+
+
+def replace(path, data):
+    """Replaced in one step: a game loading the level meanwhile never reads half a file."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    (tmp.write_bytes if isinstance(data, bytes) else tmp.write_text)(data)
+    os.replace(tmp, path)
+
+
+def patch(f, subs):
+    """Copies the new fields of `subs` (mesh_submeshes) into the model file `f`; None when the submeshes differ."""
+    m = json.loads(f.read_text())
+    extras = [(s[7] if len(s) > 7 else {}) for s in subs]
+    if len(extras) != len(m.get("submeshes", [])):
+        return None
+    changed = False
+    blob = None
+    for e, x in zip(m["submeshes"], extras):
+        mat = e.get("material")
+        if mat is not None and x:
+            for k in NEW:
+                if k in x and mat.get(k) != x[k]:
+                    mat[k] = x[k]
+                    changed = True
+        if x.get("uv2") and "uvs2" not in e and len(x["uv2"]) == e["vertices"]:
+            bin_path = f.with_suffix(".bin")
+            blob = bytearray(bin_path.read_bytes()) if blob is None else blob
+            e["uvs2"] = len(blob)
+            blob += b"".join(struct.pack("<2f", *v) for v in x["uv2"])
+            changed = True
+    if not changed:
+        return False
+    if blob is not None:  # the .bin first: its old offsets stay valid for the old .json meanwhile
+        replace(f.with_suffix(".bin"), bytes(blob))
+    replace(f, json.dumps(m, indent=1))
+    return True
+
+
 levels = sys.argv[1:] or sorted(d.name for d in work.iterdir() if d.name.startswith("lev_") and (d / "models").is_dir())
 for level in levels:
     _, chunks = objchunk.split_bank(rx.payload(level, "big05_skin"), padded=True)
@@ -26,29 +67,18 @@ for level in levels:
     patched = skipped = 0
     for f in sorted((work / level / "models").glob("*.json")):
         name = f.stem
-        if name not in skins:
+        if name == "landscape":
+            land_skin, _ = land.parse(rx.payload(level, "big04_land"))
+            subs = rx.mesh_submeshes(objchunk.parse_chunk(land_skin))
+        elif name in skins:
+            # (skinned models split by bone as the export does: the same skeleton lookup, export_model)
+            bone_index = remaster_export_anim.skeleton_for(level, skins[name], work / level)
+            subs = rx.mesh_submeshes(skins[name], bone_index)
+        else:
             continue
-        m = json.loads(f.read_text())
-        # (skinned models split by bone as the export does: the same skeleton lookup, export_model)
-        bone_index = remaster_export_anim.skeleton_for(level, skins[name], work / level)
-        subs = rx.mesh_submeshes(skins[name], bone_index)
-        extras = [(s[7] if len(s) > 7 else {}) for s in subs]
-        if len(extras) != len(m.get("submeshes", [])):
+        r = patch(f, subs)
+        if r is None:
             skipped += 1
-            continue
-        changed = False
-        for e, x in zip(m["submeshes"], extras):
-            mat = e.get("material")
-            if mat is None or not x:
-                continue
-            for k in NEW:
-                if k in x and mat.get(k) != x[k]:
-                    mat[k] = x[k]
-                    changed = True
-        if changed:
-            # replaced in one step: a game loading the level meanwhile never reads half a file
-            tmp = f.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(m, indent=1))
-            os.replace(tmp, f)
+        elif r:
             patched += 1
     print(f"{level}: {patched} models patched, {skipped} skipped (submesh count differs)")

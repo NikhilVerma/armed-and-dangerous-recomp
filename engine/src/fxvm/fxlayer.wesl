@@ -7,7 +7,12 @@
 // Gamma space as the original (samples back to gamma); the result summed and composited by additive.rs (see the end).
 // A background (opcode 0x62, Fx_SetBackground 0x0041fe00: lev_5's sea and cloud dome; entry point fragment_background)
 // is an opaque record: the same stages, no blend, the level's fog (fixed-function table fog: per pixel on view depth), drawn with the sky.
-import bevy_pbr::render::forward_io::VertexOutput;
+// Each stage reads the uv set its record names (p.uv_sets, the record's byte +0x32; the original's vertex shader key
+// holds set + 1 per stage): the snow domes' t0 on set 0 (0..12 x 0..6 over the dome), t1 on set 1 (fxo_snow 0..18 x
+// 0..9, fxo_snow_2 0..24 x 0..14: smaller, denser flakes than the first layer's) and the wind-spray mask on set 2
+// (0..1: once over the whole dome). Hence a vertex stage of its own: Bevy's mesh vertex passes on two sets only.
+import bevy_pbr::render::mesh_functions;
+import bevy_pbr::render::view_transformations::position_world_to_clip;
 import bevy_pbr::render::mesh_view_bindings::{view, globals};
 import bevy_pbr::render::view_transformations::depth_ndc_to_view_z;
 @if(DEPTH_PREPASS)
@@ -31,6 +36,48 @@ struct FxLayerParams {
     fog_range: vec4<f32>,
     height_fog: vec4<f32>,
     sun_dir: vec4<f32>,
+    // the uv set of t0, t1, t2 (0..2)
+    uv_sets: vec4<u32>,
+}
+
+// The mesh's uv sets (materials.rs specialize binds the ones it has: a set it lacks reads the first)
+struct LayerIn {
+    @builtin(instance_index) instance_index: u32,
+    @location(0) position: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+@if(LAYER_UV_1)
+    @location(2) uv_1: vec2<f32>,
+@if(LAYER_UV_2)
+    @location(3) uv_2: vec2<f32>,
+}
+
+struct LayerOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_position: vec4<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) uv_1: vec2<f32>,
+    @location(3) uv_2: vec2<f32>,
+}
+
+@vertex
+fn vertex(v: LayerIn) -> LayerOut {
+    var out: LayerOut;
+    let world_from_local = mesh_functions::get_world_from_local(v.instance_index);
+    out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4(v.position, 1.0));
+    out.position = position_world_to_clip(out.world_position.xyz);
+    out.uv = v.uv;
+    out.uv_1 = v.uv;
+    out.uv_2 = v.uv;
+@if(LAYER_UV_1)
+    out.uv_1 = v.uv_1;
+@if(LAYER_UV_2)
+    out.uv_2 = v.uv_2;
+    return out;
+}
+
+// The texture coordinates of uv set `uv_set`
+fn uv_of(in: LayerOut, uv_set: u32) -> vec2<f32> {
+    return select(select(in.uv, in.uv_1, uv_set == 1u), in.uv_2, uv_set >= 2u);
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var t0: texture_2d<f32>;
@@ -52,11 +99,13 @@ fn colour_of(s: vec4<f32>, premultiplied: f32) -> vec3<f32> {
 }
 
 // The three stages' colour (gamma) and alpha
-fn stages(in: VertexOutput) -> vec4<f32> {
-    let uv = vec3(in.uv, 1.0);
-    let s0 = textureSample(t0, s0, vec2(dot(p.uv1_x.xyz, uv), dot(p.uv1_y.xyz, uv)));
-    let s1 = textureSample(t1, s1, vec2(dot(p.uv2_x.xyz, uv), dot(p.uv2_y.xyz, uv)));
-    let m = textureSample(t2, s2, in.uv);
+fn stages(in: LayerOut) -> vec4<f32> {
+    // the stage transforms (texture animation) apply to each stage's own set
+    let uv_a = vec3(uv_of(in, p.uv_sets.x), 1.0);
+    let uv_b = vec3(uv_of(in, p.uv_sets.y), 1.0);
+    let s0 = textureSample(t0, s0, vec2(dot(p.uv1_x.xyz, uv_a), dot(p.uv1_y.xyz, uv_a)));
+    let s1 = textureSample(t1, s1, vec2(dot(p.uv2_x.xyz, uv_b), dot(p.uv2_y.xyz, uv_b)));
+    let m = textureSample(t2, s2, uv_of(in, p.uv_sets.z));
     let a = colour_of(s0, p.flags.x) * p.colour.rgb;
     let b = colour_of(s1, p.flags.y) * p.colour.rgb;
     // stage 2 LERP(mask, CURRENT (t1), TEMP (t0)) by the mask's colour
@@ -66,7 +115,7 @@ fn stages(in: VertexOutput) -> vec4<f32> {
 }
 
 @fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fragment(in: LayerOut) -> @location(0) vec4<f32> {
     let s = stages(in);
     let col = s.rgb;
     let alpha = s.a * p.colour.w;
@@ -95,7 +144,7 @@ struct BackgroundOut {
 // only what nothing is in front of, or what is in front was far-clipped; without one it lies at the far end of the
 // depth range (depth 0, reverse Z). Then the level's fog.
 @fragment
-fn fragment_background(in: VertexOutput) -> BackgroundOut {
+fn fragment_background(in: LayerOut) -> BackgroundOut {
 @if(DEPTH_PREPASS) {
     // reverse Z, cleared to 0: a background has no prepass, so any depth there is the world in front of it
     let d = prepass_depth(in.position, 0u);

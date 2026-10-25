@@ -37,6 +37,9 @@ struct GameMaterialParams {
     geometry: vec4<f32>,
     // the environment cube map (graphics/env_map.rs): x 1 = env_tex holds the level's baked cube (3 x 2 faces)
     env_map: vec4<f32>,
+    // the uv set each map is sampled with (gamematerial.rs MaterialDef::uv_sets): x base, y normal map, z second
+    // texture, w mask; 0 the first set, 1 the second (no world record uses a third)
+    uv_sets: vec4<u32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;
