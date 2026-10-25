@@ -158,6 +158,12 @@ def decode_mesh(b, m, bone_names):
             d = descs[9 + c]
             if d[2] and streams[d[0]][0]:
                 info[key] = _read2(b, d, streams, n, floats(b, sb + 0x30 + 16 * c, 2), floats(b, sb + 0x38 + 16 * c, 2))
+        # the normal map's frame (slots 15 tangent, 14 binormal; SHORT4, directions): the bump vertex shaders take the
+        # light into it as (L.v15, L.v14, L.normal), so the normal map's x runs along the tangent, y along the binormal
+        for slot, key in ((15, "_tangent"), (14, "_binormal")):
+            d = descs[slot]
+            if d[2] and streams[d[0]][0]:
+                info[key] = _read3(b, d, streams, n, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0))
     return info
 
 

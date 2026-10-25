@@ -98,6 +98,10 @@ struct SubmeshDef {
     /// the third uv set (the snow domes' masks: [`ATTRIBUTE_UV_2`])
     #[serde(default)]
     uvs2: Option<usize>,
+    /// the original's normal map frame per vertex, f32x4: the unit tangent and the binormal's side
+    /// (tools/remaster_export.py stored_tangents); parts with a normal map only, exports since 2026-10-25
+    #[serde(default)]
+    tangents: Option<usize>,
     /// the skin bone carrying this part (a rigid part of a multi-bone mesh, or a one-bone mesh)
     #[serde(default)]
     bone: Option<String>,
@@ -111,9 +115,10 @@ pub const ATTRIBUTE_UV_2: bevy::mesh::MeshVertexAttribute =
     bevy::mesh::MeshVertexAttribute::new("Vertex_Uv_2", 0x7a3c_0002, bevy::mesh::VertexFormat::Float32x2);
 
 impl SubmeshDef {
-    /// Adds the extra uv sets the submesh has (`uvs1`, `uvs2`) and, for a material with a normal map, tangents along
-    /// the uv set that map is sampled with (MaterialDef::uv_sets): the village walls' plaster normal map runs on the
-    /// second set, rotated and ~5x as dense as the first, so the first set's tangents would light it askew.
+    /// Adds the extra uv sets the submesh has (`uvs1`, `uvs2`) and, for a material with a normal map, its tangents:
+    /// the stored ones, else generated along the uv set that map is sampled with (MaterialDef::uv_sets): the village
+    /// walls' plaster normal map runs on the second set, rotated and ~5x as dense as the first, so the first set's
+    /// tangents would light it askew.
     fn add_uv_sets_and_tangents(&self, mesh: &mut Mesh, bin: &[u8], name: &str) {
         let uvs = |o: usize| floats(bin, o, self.vertices * 2).chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>();
         if let Some(o) = self.uvs1 {
@@ -123,7 +128,15 @@ impl SubmeshDef {
             mesh.insert_attribute(ATTRIBUTE_UV_2, uvs(o));
         }
         let Some(def) = self.material.as_ref().filter(|m| m.normal_map.is_some()) else { return };
-        // tangents generated (MikkTSpace) along the normal map's set; the original stores its own (guess: they agree)
+        // the original's own frame (skin slots 15 / 14: the tangent along the normal map's set's u, the binormal along
+        // its v). Generated ones differ where neighbouring triangles' uvs turn (lev_1_m3's off-path snow: per triangle
+        // rotated uvs, whose tangents MikkTSpace averages at the shared vertices into harsh facets)
+        if let Some(o) = self.tangents {
+            let t = floats(bin, o, self.vertices * 4).chunks_exact(4).map(|v| [v[0], v[1], v[2], v[3]]).collect::<Vec<_>>();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_TANGENT, t);
+            return;
+        }
+        // older exports: tangents generated (MikkTSpace) along the normal map's set
         // (Bevy's generator reads the first set: the normal map's set stands in for it meanwhile)
         let along = (def.uv_set(crate::gamematerial::MapSlot::Normal) == 1).then(|| mesh.attribute(Mesh::ATTRIBUTE_UV_1).cloned()).flatten();
         let first = along.and_then(|uv| {

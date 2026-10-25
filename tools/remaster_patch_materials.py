@@ -2,7 +2,8 @@
 exporting the level again (the textures, meshes and every other file are left as they are):
   - material fields: "blend", "opacity" (the translucency of kind bit 0x10), "uv_sets" (byte +0x32: the uv set each
     map is sampled with)
-  - "uvs2", the third uv set (the snow domes' masks), appended to the model's .bin (earlier offsets unchanged)
+  - "uvs2", the third uv set (the snow domes' and some terrains' masks), and "tangents", the stored normal map frame
+    of the parts with a normal map, appended to the model's .bin (earlier offsets unchanged)
 
     python tools/remaster_patch_materials.py [LEVEL ...]     (default: every work/remaster/lev_* with models/)
 
@@ -46,11 +47,14 @@ def patch(f, subs):
                 if k in x and mat.get(k) != x[k]:
                     mat[k] = x[k]
                     changed = True
-        if x.get("uv2") and "uvs2" not in e and len(x["uv2"]) == e["vertices"]:
-            bin_path = f.with_suffix(".bin")
-            blob = bytearray(bin_path.read_bytes()) if blob is None else blob
-            e["uvs2"] = len(blob)
-            blob += b"".join(struct.pack("<2f", *v) for v in x["uv2"])
+        # appended vertex data: (submesh key, mesh_submeshes extra, format); tangents only where a normal map reads them
+        for key, k, fmt in (("uvs2", "uv2", "<2f"), ("tangents", "tangents", "<4f")):
+            data = x.get(k)
+            if not data or key in e or len(data) != e["vertices"] or (key == "tangents" and not (mat or {}).get("normal_map")):
+                continue
+            blob = bytearray(f.with_suffix(".bin").read_bytes()) if blob is None else blob
+            e[key] = len(blob)
+            blob += b"".join(struct.pack(fmt, *v) for v in data)
             changed = True
     if not changed:
         return False
