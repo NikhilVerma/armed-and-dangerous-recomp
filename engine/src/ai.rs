@@ -6267,12 +6267,13 @@ fn companions(
         Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
         ResMut<AiForce>,
     ),
-    (path, topsy, glove, mounted, held_q): (
+    (path, topsy, glove, mounted, held_q, ids): (
         Res<crate::campath::CameraPath>,
         Res<crate::topsy::Topsy>,
         Res<crate::weapons::glove::Glove>,
         Res<crate::turret::Mounted>,
         Query<&Companion, Or<(With<tower::OnTask>, With<carried::Knocked>, With<close_kill::Killing>)>>,
+        Query<&crate::level::InstanceId>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -6327,7 +6328,16 @@ fn companions(
     let mut lead_changes: Vec<(Entity, bool)> = Vec::new();
     let mut regroup_reqs: Vec<Entity> = Vec::new();
     let mut silent_return = false;
-    for (e, mut c, mut t, ca, ch) in &mut q {
+    // The pair in the original's update order: the object list, i.e. the level's placement order (InstanceId; lev_4_m2:
+    // Jonesy 147, Q 148). Each one's turn draws from the shared random stream (search timers, lines) and sees what the
+    // other did before it, so the order decides who takes a target first and who joins. Bevy's query order follows
+    // the archetypes, which shift with unrelated components elsewhere: a HUD-only change (ElementScale on the chat
+    // lines, 2026-10-25) swapped the pair, Q joined Jonesy's fight instead of the reverse, and monk_hang /
+    // vehicles_rocket_tower failed.
+    let mut order: Vec<(u32, Entity)> = q.iter().map(|(e, ..)| (ids.get(e).map_or(u32::MAX, |i| i.0), e)).collect();
+    order.sort_unstable();
+    for (_, e) in order {
+        let Ok((e, mut c, mut t, ca, ch)) = q.get_mut(e) else { continue };
         // what the partner set on him earlier this frame (0x004837e0's lead flag, 0x004837b0's flag 0x80: set at once
         // in the original)
         if let Some(&(_, lead)) = lead_changes.iter().rev().find(|x| x.0 == e) {

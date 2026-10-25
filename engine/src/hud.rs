@@ -118,8 +118,7 @@ struct IconAtlas {
     icons: HashMap<String, [f32; 4]>,
 }
 
-/// An extra scale on an element (the pub's award icon growing, Object_SetScale 0x004535d0; the chat lines,
-/// [`CHAT_TEXT_SCALE`]); 1 when absent.
+/// An extra scale on an element (the pub's award icon growing, Object_SetScale 0x004535d0); 1 when absent.
 #[derive(Component, Clone, Copy)]
 pub struct ElementScale(pub f32);
 
@@ -127,9 +126,10 @@ pub struct ElementScale(pub f32);
 /// pixels (one layout unit a pixel): at 1024 x 768 a chat line's glyph box (20 units at the element's 0.8) is 16 px,
 /// 2.1 % of the screen's height (its captures: a 15-row line in the 1116-row strip of the walk videos, lev_2_m2). The
 /// remaster scales text with the HUD band (window height / 372), 4.3 % of the height: big cyan lines that crowded
-/// the compass (review r3, lev_2_m2 / lev_4_m2). At 0.6 a line is 2.6 % of the height, a little larger than the
-/// original's for readability; the lines keep their layout positions, so their spacing to glyph size is the
-/// original's at 1024 x 768. The player's text size setting still multiplies it; `fit_chat` keeps the layout.
+/// the compass (review r3, lev_2_m2 / lev_4_m2). At 0.6 (the lines' HudText scale) a line is 2.6 % of the height, a
+/// little larger than the original's for readability; the lines keep their layout positions, so their spacing to
+/// glyph size is the original's at 1024 x 768. The player's text size setting still multiplies it; `fit_chat` keeps
+/// the layout.
 const CHAT_TEXT_SCALE: f32 = 0.6;
 
 /// One drawn HUD element and how to place it.
@@ -356,17 +356,17 @@ pub fn spawn(
         };
         let el = HudElement { name: e.name.clone(), pos: Vec2::from(e.pos.unwrap_or([320.0, 240.0])), anchor, full: false };
         if e.kind == "text" {
-            let chat = e.name.starts_with("ui_chat_");
-            let mut c = commands.spawn((
+            // the chat lines' glyphs at CHAT_TEXT_SCALE of the element's size (in the text's own scale, not an
+            // ElementScale: a component on these entities alone moved the gameplay queries' archetype order, which
+            // draws the shared random stream in another order, see ai.rs `companions`)
+            let k = if e.name.starts_with("ui_chat_") { CHAT_TEXT_SCALE } else { 1.0 };
+            commands.spawn((
                 el,
-                HudText { text: String::new(), built: None, scale: e.scale.unwrap_or(1.0), colour: parse_colour(e.colour.as_deref()), fit: 0.0 },
+                HudText { text: String::new(), built: None, scale: e.scale.unwrap_or(1.0) * k, colour: parse_colour(e.colour.as_deref()), fit: 0.0 },
                 Transform::default(),
                 Visibility::default(),
                 RenderLayers::layer(HUD_LAYER),
             ));
-            if chat {
-                c.insert(ElementScale(CHAT_TEXT_SCALE));
-            }
             continue;
         }
         let Some(quads) = e.model.as_ref().and_then(|m| hud.layout.models.get(m)) else { continue };
@@ -1601,9 +1601,9 @@ fn fit_chat(
             rects.push(r);
         }
     }
-    // the lines' nominal height (a 20-unit glyph at the element's 0.8 scale and its text scale): the block's shift
-    // does not depend on what the lines say
-    let nominal = |t: &Transform| 20.0 * 0.8 * t.scale.y;
+    // the lines' nominal height (a 20-unit glyph at the element's 0.8 scale, CHAT_TEXT_SCALE and its text scale): the
+    // block's shift does not depend on what the lines say
+    let nominal = |t: &Transform| 20.0 * 0.8 * CHAT_TEXT_SCALE * t.scale.y;
     let top = lines
         .iter()
         .filter(|(el, _, _)| el.name.starts_with("ui_chat_0"))

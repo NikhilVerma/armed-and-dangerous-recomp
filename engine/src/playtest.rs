@@ -223,7 +223,8 @@ pub struct Event {
     /// seconds: {"until": "message", "wait": 400} waits out a long mission); or until no movie plays: "movie_done", max
     /// 600 s; or until a restarted level has left its loading screen: "loaded", max 30 s; or until a mission trigger
     /// has been sent: "trigger:456", max the step's "wait" (default 600 s); or until a placed AI or object is dead or
-    /// gone: "dead:286", max the step's "wait" (default 60 s)
+    /// gone: "dead:286", max the step's "wait" (default 60 s); or until a state-log field is nonzero or true:
+    /// "state:topsy.monks_hanging", max the step's "wait" (default 30 s)
     #[serde(default)]
     pub until: Option<String>,
     /// steps only: wait this many seconds
@@ -811,6 +812,14 @@ pub(crate) fn drive(
             let dead = ai.is_some_and(|g| g.get("mind").and_then(|m| m.as_str()) == Some("Dead"))
                 || obj.is_some_and(|o| o.get("husk").and_then(|h| h.as_bool()) == Some(true) || o.get("removed").is_some());
             dead || pt.step_t > st.wait.unwrap_or(60.0)
+        } else if let Some(key) = st.until.as_deref().and_then(|u| u.strip_prefix("state:")) {
+            // a state-log field turns nonzero / true (a dotted key, as expect reads it); max the step's "wait" (default
+            // 30 s): a test of what follows an event whose time is random (a monk's teleport flight) waits for it
+            let on = field(&state.0, key).is_some_and(|v| v.as_f64().map_or(v.as_bool() == Some(true), |n| n != 0.0));
+            if on {
+                info!("EVENT playtest: {key} after {:.2} s", pt.step_t);
+            }
+            on || pt.step_t > st.wait.unwrap_or(30.0)
         } else if let Some(t) = st.until.as_deref().and_then(|u| u.strip_prefix("trigger:")) {
             // a mission trigger has been sent (the state log's "triggers"); max the step's "wait" (default 600 s)
             let sent = state.0.get("triggers").and_then(|m| m.get(t)).is_some();
