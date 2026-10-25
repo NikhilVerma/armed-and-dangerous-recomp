@@ -202,7 +202,7 @@ fn spawn_turret(
     let model = tpl.model.clone()?;
     if let Some(m) = lib.load_model(&model, false, assets, meshes, materials) {
         let mut ctx = crate::level::SkinCtx { lib: anim_lib, binds };
-        let _ = crate::level::attach_model(commands, holder, m, true, Some(&mut ctx), "ref_rhand");
+        let _ = crate::level::attach_model(commands, holder, m, crate::level::Shadowing::casting(true), Some(&mut ctx), "ref_rhand");
         let bounds = crate::fx::Bounds { center: (m.min + m.max) * 0.5, radius: (m.max - m.min).length() * 0.5 };
         commands.entity(e).insert((bounds, crate::weapons::targeting::HudSphere::from_box(m.min, m.max)));
     }

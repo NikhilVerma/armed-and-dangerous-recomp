@@ -238,7 +238,7 @@ fn spawn(
     let world = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw) * crate::level::game_to_engine(), at);
     let e = commands.spawn((Transform::from_matrix(world), GlobalTransform::from(Transform::from_matrix(world)), Visibility::default(), Name::new(template.to_owned()))).id();
     let mut ctx = crate::level::SkinCtx { lib: anim_lib, binds };
-    let (_, _, center) = crate::level::attach_model(commands, e, &model, true, Some(&mut ctx), "center");
+    let (_, _, center) = crate::level::attach_model(commands, e, &model, crate::level::Shadowing::casting(true), Some(&mut ctx), "center");
     let chair = data.templates.get("prop_peasant_chair").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials));
     let chair = match (center, chair) {
         (Some(c), Some(m)) => Some(crate::level::attach_weapon(commands, c, m, Transform::IDENTITY)),

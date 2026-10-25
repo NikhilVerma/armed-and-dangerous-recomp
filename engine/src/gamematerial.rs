@@ -47,6 +47,9 @@ pub struct GameMaterialParams {
     pub env_map: Vec4,
     /// the uv set each map is sampled with (MaterialDef::uv_set): x base, y normal map, z second texture, w mask
     pub uv_sets: UVec4,
+    /// how the surface meets what is behind it: x 1 = added (SRCALPHA / ONE, [`MaterialDef::additive`]; gamma-space
+    /// colour times alpha, composited by fxvm/additive.rs), 0 = alpha-blended or opaque
+    pub blend: UVec4,
 }
 
 /// How a game material covers what lies behind it in the depth-only passes (the sun's shadow cascades): the whole
@@ -100,6 +103,8 @@ pub struct GameMaterial<C: Coverage = Solid> {
     #[sampler(10)]
     pub env_atlas: Handle<Image>,
     pub alpha: bool,
+    /// added to the scene rather than blended over it ([`MaterialDef::additive`])
+    pub additive: bool,
     /// a snow surface by name (graphics.rs `ao_exempt`): keeps only `ao_snow` of the ambient occlusion
     pub ao_snow_surface: bool,
     pub coverage: std::marker::PhantomData<C>,
@@ -159,6 +164,10 @@ impl<C: Coverage> Material for GameMaterial<C> {
         Ok(())
     }
     fn alpha_mode(&self) -> AlphaMode {
+        // a translucent record with blend byte 0 adds (0x004897d0: state 0x120, blend table 0x0057d9e0 entry 1)
+        if self.additive {
+            return AlphaMode::Add;
+        }
         // alpha textures blend (the material log: flags bits 8-11 = 3 -> blend table 0x0057d9e0 entry 3 = SRCALPHA,
         // INVSRCALPHA, ADD, with alpha test on), not a hard 0.5 cut: thin soft twigs as in the original
         // objects the camera fades (camfade.rs: emissive.w > 0) blend too
@@ -171,6 +180,10 @@ impl<C: Coverage> Material for GameMaterial<C> {
             return AlphaMode::Opaque;
         }
         if self.params.geometry.z > 0.5 { AlphaMode::AlphaToCoverage } else { AlphaMode::Blend }
+    }
+    /// an added surface is drawn in the transmissive pass and composited in gamma space (fxvm/additive.rs)
+    fn reads_view_transmission_texture(&self) -> bool {
+        self.additive
     }
 }
 
@@ -273,6 +286,12 @@ pub struct MaterialDef {
     /// the engine had (the mask on set 1)
     #[serde(default = "legacy_uv_sets")]
     pub uv_sets: u8,
+    /// translucent at run time (the exporter's `translucent_at_run_time`): RenderModes_Load (0x00489b40) sets the
+    /// kind's bit 0x10 for a textured record whose flags word +0x34 has 0x200, which the stored `kind` byte lacks
+    /// (lev_4_m3's river 4_3_water, the light beams b_beam, the reeds). Exports before 2026-10-25 lack it: the
+    /// stored bit alone
+    #[serde(default)]
+    pub translucent: bool,
 }
 
 /// A material's maps, in the order of their uv set bits ([`MaterialDef::uv_sets`]).
@@ -299,7 +318,18 @@ fn env_factor() -> f32 {
 impl MaterialDef {
     /// The opacity the surface is drawn with: below 1 only for a translucent record (kind bit 0x10).
     pub fn alpha(&self) -> f32 {
-        if self.kind & 0x10 != 0 { self.opacity.clamp(0.0, 1.0) } else { 1.0 }
+        if self.is_translucent() { self.opacity.clamp(0.0, 1.0) } else { 1.0 }
+    }
+
+    /// Drawn translucent: the kind's bit 0x10 as the original has it at run time.
+    pub fn is_translucent(&self) -> bool {
+        self.kind & 0x10 != 0 || self.translucent
+    }
+
+    /// Added to the scene (SRCALPHA / ONE): a translucent record with blend byte 0 (0x004897d0: state 0x120). The
+    /// river surfaces of lev_4_m3 / bonus_m3 / 3_m2: the bed shows through at full strength under the pale water.
+    pub fn additive(&self) -> bool {
+        self.is_translucent() && self.blend == 0
     }
 
     /// The uv set (0..3) `map` is sampled with.
@@ -432,7 +462,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
     // debug (render investigations): AND_DEBUG_NOFOG=1 draws without fog and far clip
     let (fog_col, fog_range) = if std::env::var("AND_DEBUG_NOFOG").is_ok() { (Vec4::ZERO, Vec4::ZERO) } else { (fog_col, fog_range) };
     // a translucent record blends as an alpha texture does (fn_004897d0: kind bit 0x10, blend mode 2)
-    let alpha = alpha || def.alpha() < 1.0;
+    let alpha = alpha || def.alpha() < 1.0 || def.additive();
     let ao_snow_surface = crate::graphics::ao_exempt(&[texture, def.texture2.as_deref(), def.normal_map.as_deref()]);
     let g = crate::graphics::current();
     GameMaterial {
@@ -467,9 +497,11 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             geometry: crate::graphics::geometry::for_material(crate::graphics::geometry::material_values(&g), alpha, def.alpha()),
             env_map: Vec4::new(if lights.env_baked { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0),
             uv_sets: def.uv_set_vec(),
+            blend: UVec4::new(def.additive() as u32, 0, 0, 0),
         },
         env_atlas: if lights.env_baked { lights.env_atlas.clone() } else { white.clone() },
         alpha,
+        additive: def.additive(),
         ao_snow_surface,
         coverage: std::marker::PhantomData,
     }

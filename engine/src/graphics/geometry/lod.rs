@@ -45,13 +45,13 @@ pub struct LodSource {
     pub cutoffs: Vec<f64>,
     /// the collision and shadow LODs, never drawn by the selection
     pub skipped: [Option<usize>; 2],
-    /// whether the parts cast shadows (as the finest LOD's do)
-    pub casts: bool,
+    /// whether the parts cast and receive shadows (as the finest LOD's do)
+    pub shadowing: crate::level::Shadowing,
 }
 
 impl LodSource {
     /// From an object's template and property set; None when there is nothing to switch between.
-    pub fn new(template: &crate::gamedata::Template, props: &crate::gamedata::Props, casts: bool) -> Option<Self> {
+    pub fn new(template: &crate::gamedata::Template, props: &crate::gamedata::Props, shadowing: crate::level::Shadowing) -> Option<Self> {
         let n = template.lods.len();
         let index = |k: &str| props.has(k).then(|| props.i(k, -1)).filter(|i| *i >= 0 && (*i as usize) < n).map(|i| i as usize);
         let skipped = [index("collision_lod_index"), index("shadow_lod_index")];
@@ -63,7 +63,7 @@ impl LodSource {
             })
             .collect();
         let models: Vec<Option<String>> = template.lods.iter().map(|m| Some(m.clone()).filter(|m| !m.is_empty())).collect();
-        let s = LodSource { models, cutoffs, skipped, casts };
+        let s = LodSource { models, cutoffs, skipped, shadowing };
         let drawn: std::collections::HashSet<&str> = (0..n).filter(|i| !s.is_skipped(*i)).filter_map(|i| s.models[i].as_deref()).collect();
         (drawn.len() > 1).then_some(s)
     }
@@ -158,8 +158,11 @@ fn attach_lods(
                     }
                     for ((mesh, mat), bind) in model.parts.iter().zip(&model.binds) {
                         let mut c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Visibility::Hidden));
-                        if !src.casts {
+                        if !src.shadowing.casts {
                             c.insert(NotShadowCaster);
+                        }
+                        if !src.shadowing.receives {
+                            c.insert(bevy::light::NotShadowReceiver);
                         }
                         if let (PartBind::Skinned, Some(a)) = (bind, animator) {
                             c.insert((crate::skin::skinned_mesh(a), NoFrustumCulling));
@@ -234,16 +237,16 @@ mod tests {
     fn selects_as_the_original() {
         let pine = template(&["pine_tree_0", "pine_tree_1", "pine_tree_2", "pine_tree_3", "pine_tree_4", "pine_tree_5", "pine_tree_6", "pine_tree_7", "pine_tree_coll"]);
         let p = props(&[("lodcutoff_0", 20), ("lodcutoff_1", 60), ("lodcutoff_2", 120), ("lodcutoff_3", 170), ("lodcutoff_4", 220), ("lodcutoff_5", 270), ("lodcutoff_6", 320), ("lodcutoff_7", 10000), ("lodcutoff_8", 20000), ("collision_lod_index", 8)]);
-        let s = LodSource::new(&pine, &p, true).expect("switching");
+        let s = LodSource::new(&pine, &p, crate::level::Shadowing::casting(true)).expect("switching");
         assert_eq!([0.0, 19.9, 20.0, 59.0, 60.0, 319.0, 320.0, 1e6].map(|m| s.select(m)), [0, 0, 1, 1, 2, 6, 7, 7]);
         let grunt = template(&["grunt_1", "grunt_2", "grunt_6", "grunt_coll_9"]);
-        let g = LodSource::new(&grunt, &props(&[("lodcutoff_0", 30), ("lodcutoff_1", 70), ("lodcutoff_2", 100000), ("lodcutoff_3", 800000), ("collision_lod_index", 3)]), true).expect("switching");
+        let g = LodSource::new(&grunt, &props(&[("lodcutoff_0", 30), ("lodcutoff_1", 70), ("lodcutoff_2", 100000), ("lodcutoff_3", 800000), ("collision_lod_index", 3)]), crate::level::Shadowing::casting(true)).expect("switching");
         assert_eq!([10.0, 30.0, 70.0, 1e7].map(|m| g.select(m)), [0, 1, 2, 2]);
         // no cutoffs in the set: the finest LOD's default cutoff 0 hands over at once, the last (-1) never
         let house = template(&["h_0", "h_1", "h_coll"]);
-        let h = LodSource::new(&house, &props(&[("collision_lod_index", 2)]), true).expect("switching");
+        let h = LodSource::new(&house, &props(&[("collision_lod_index", 2)]), crate::level::Shadowing::casting(true)).expect("switching");
         assert_eq!([0.0, 5.0].map(|m| h.select(m)), [1, 1]);
         // one model only: nothing to switch
-        assert!(LodSource::new(&template(&["a_0", "a_0", "a_coll"]), &props(&[("collision_lod_index", 2)]), true).is_none());
+        assert!(LodSource::new(&template(&["a_0", "a_0", "a_coll"]), &props(&[("collision_lod_index", 2)]), crate::level::Shadowing::casting(true)).is_none());
     }
 }

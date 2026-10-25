@@ -15,6 +15,8 @@
 // then the level's linear fog (global_settings fog_near / fog_far / colour).
 import bevy_pbr::render::forward_io::{Vertex, decompress_vertex};
 import bevy_pbr::render::mesh_functions;
+import bevy_pbr::render::mesh_bindings::mesh;
+import bevy_pbr::render::mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT;
 import bevy_pbr::render::skinning;
 import bevy_pbr::render::view_transformations::position_world_to_clip;
 import bevy_pbr::render::mesh_view_bindings::view;
@@ -67,6 +69,8 @@ struct GameOut {
     @location(4) world_tangent: vec4<f32>,
     @location(5) fog: f32,
     @location(6) uv_c: vec2<f32>,
+    // 1 when the object receives the sun's shadows (NotShadowReceiver clears Bevy's flag: level.rs Shadowing)
+    @location(7) @interpolate(flat) shadow_receiver: u32,
 }
 
 @vertex
@@ -89,6 +93,7 @@ fn vertex(vertex_in: Vertex, @location(10) uv_c: vec2<f32>) -> GameOut {
 @if(VERTEX_UVS_B)
     out.uv_b = v.uv_b;
     out.uv_c = uv_c;
+    out.shadow_receiver = select(0u, 1u, (mesh[vertex_in.instance_index].flags & MESH_FLAGS_SHADOW_RECEIVER_BIT) != 0u);
     out.world_tangent = vec4(0.0);
 @if(VERTEX_TANGENTS)
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(world_from_local, v.tangent, vertex_in.instance_index);
@@ -120,6 +125,16 @@ fn uv_of(in: GameOut, uv_set: u32) -> vec2<f32> {
     return select(select(in.uv, in.uv_b, uv_set == 1u), in.uv_c, uv_set >= 2u);
 }
 
+// The unit vertex normal, or zero for a mesh authored without normals (lev_4_m3's reeds: every normal (0, 0, 0)).
+// The original's lighting vertex shader takes N . L of the normal as stored (Renderer_UpdateLightConstants 0x004ff2e0
+// loads the light directions and colours as constants, c3 = ambient light * material ambient + emissive), so a zero
+// normal gets no sun, no fill and no specular, only the emissive + ambient term. normalize(0) is NaN on the GPU and
+// turned such surfaces black.
+fn unit_or_zero(v: vec3<f32>) -> vec3<f32> {
+    let len2 = dot(v, v);
+    return select(vec3(0.0), v * inverseSqrt(len2), len2 > 1e-12);
+}
+
 @fragment
 fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // the original's far plane clips (Bevy's projection is infinite): beyond it the sky shows
@@ -132,10 +147,10 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     let bias = view.mip_bias;
     let base_s = textureSampleBias(base_tex, base_smp, uv_of(in, p.uv_sets.x), bias);
     let base = vec4(to_gamma(base_s.rgb), base_s.a);
-    let n_geo = normalize(in.world_normal);
+    let n_geo = unit_or_zero(in.world_normal);
     var n = n_geo;
     {
-        if (p.has_normal != 0u && dot(in.world_tangent.xyz, in.world_tangent.xyz) > 0.0) {
+        if (p.has_normal != 0u && dot(in.world_tangent.xyz, in.world_tangent.xyz) > 0.0 && dot(n_geo, n_geo) > 0.0) {
             // the normal map in tangent space (_bx2: 2 * t - 1), on its own uv set (the tangents follow that set:
             // scene.rs add_tangents)
             let uv_n = uv_of(in, p.uv_sets.y);
@@ -209,14 +224,15 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     }
     // shadows (shadows.md: each caster's silhouette projected along the sun onto the world, drawn in the level's
     // shadow colour (mission shadow_color_red/green/blue/blend: (0, 0.125, 0.25) at 0.3), alpha-blended); here the
-    // sun's shadow map. Characters receive none (the original projects onto world geometry only)
+    // sun's shadow map. Characters receive none (the original projects onto world geometry only), nor do objects
+    // whose set clears shadow_receive (the river surfaces, grass: object +0x3ec bit 0x10, 0x00451360)
 @if(!SKINNED)
-    {
+    if (in.shadow_receiver != 0u) {
         let vz = (view.view_from_world * vec4(in.world_position.xyz, 1.0)).z;
         var lit = 1.0;
         for (var i = 0u; i < view_bindings::lights.n_directional_lights; i = i + 1u) {
             if ((view_bindings::lights.directional_lights[i].flags & mesh_view_types::DIRECTIONAL_LIGHT_FLAGS_SHADOWS_ENABLED_BIT) != 0u) {
-                lit = min(lit, fetch_directional_shadow(i, in.world_position, normalize(in.world_normal), vz, in.position.xy));
+                lit = min(lit, fetch_directional_shadow(i, in.world_position, n_geo, vz, in.position.xy));
             }
         }
         if (p.geometry.w > 0.0) {
@@ -242,5 +258,11 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // diffuse.w: the record's opacity (a translucent record, kind bit 0x10: the draw state's constant alpha that the
     // texture's alpha is multiplied by, fn_004897d0; 1 otherwise)
     // (remaster alpha_coverage, graphics/geometry: with MSAA the pipeline turns this alpha into the samples' coverage)
-    return vec4(to_linear(col), alpha * p.diffuse.w * (1.0 - p.emissive.w));
+    let a = alpha * p.diffuse.w * (1.0 - p.emissive.w);
+    if (p.blend.x != 0u) {
+        // added (SRCALPHA / ONE): the gamma-space colour times alpha, summed in the transmissive pass and composited in
+        // gamma space as the original adds to its back buffer (fxvm/additive.rs)
+        return vec4(col * a, 0.0);
+    }
+    return vec4(to_linear(col), a);
 }

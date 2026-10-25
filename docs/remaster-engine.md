@@ -510,6 +510,16 @@ work/remaster/play/compare/.
 - Alpha textures blend (blend table 0x0057d9e0 entry 3: SRCALPHA / INVSRCALPHA, alpha test on): the bare snowy
   trees look right only with blending, not a 0.5 alpha cut.
 - LOD: always the finest (the human's decision, docs/decision.md).
+- **Translucency is decided at load, not by the stored kind byte** (2026-10-25, journal 2026-10-25-reeds): RenderModes_Load
+  0x00489b40 sets the kind's bit 0x10 for a textured record whose flags word +0x34 has 0x200 (exports: material
+  `translucent`; MaterialDef::is_translucent). With blend byte +0x37 = 0 the record is *added* (0x004897d0 state
+  0x120, SRCALPHA / ONE): lev_4_m3's / bonus_m3's rivers (pale teal foam over the bed), b_beam. An additive game
+  material draws in the transmissive pass and is composited in gamma space like the fx (fxvm/additive.rs).
+- **Zero normals**: the lighting vertex shader takes N . L of the stored normal, so a zero normal gets emissive +
+  ambient only (gamematerial.wesl unit_or_zero; normalize(0) is NaN and drew black). Double-sided cards (reeds,
+  grass) sum to zero face normals: the exporter keeps their stored normals (mesh_submeshes).
+- **shadow_receive** (object +0x3ec bit 0x10, Object_LoadBaseProps 0x00451360; off in p_water, p_grass,
+  p_invisible_walls, p_bigredarrow): level.rs `Shadowing`, NotShadowReceiver, honoured by the game material.
 - Environment cube maps (ice, water, metal; 2026-10-23): the level's env map marker renders the scene into
   "cubemap_texture" once at load (EnvMapFreq 0 in every shipped marker; EnvMap_Render 0x00418c80, CubeMap_RenderScene
   0x00489320); environment materials draw `cube * TFACTOR + base * lighting` (stage words 0x03020184 / 0x00020199,

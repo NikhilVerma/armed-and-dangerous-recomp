@@ -40,6 +40,8 @@ struct GameMaterialParams {
     // the uv set each map is sampled with (gamematerial.rs MaterialDef::uv_sets): x base, y normal map, z second
     // texture, w mask; 0 the first set, 1 the second (no world record uses a third)
     uv_sets: vec4<u32>,
+    // x 1 = added to the scene (SRCALPHA / ONE): gamma-space colour times alpha, composited by fxvm/additive.rs
+    blend: vec4<u32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;
