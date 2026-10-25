@@ -258,5 +258,11 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
     // diffuse.w: the record's opacity (a translucent record, kind bit 0x10: the draw state's constant alpha that the
     // texture's alpha is multiplied by, fn_004897d0; 1 otherwise)
     // (remaster alpha_coverage, graphics/geometry: with MSAA the pipeline turns this alpha into the samples' coverage)
-    return vec4(to_linear(col), alpha * p.diffuse.w * (1.0 - p.emissive.w));
+    let a = alpha * p.diffuse.w * (1.0 - p.emissive.w);
+    if (p.blend.x != 0u) {
+        // added (SRCALPHA / ONE): the gamma-space colour times alpha, summed in the transmissive pass and composited in
+        // gamma space as the original adds to its back buffer (fxvm/additive.rs)
+        return vec4(col * a, 0.0);
+    }
+    return vec4(to_linear(col), a);
 }

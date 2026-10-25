@@ -137,6 +137,17 @@ def face_normals(pos, tris):
     return out
 
 
+def translucent_at_run_time(b, p):
+    """Whether the material record at `p` draws translucent (kind bit 0x10 after RenderModes_Load 0x00489b40)."""
+    word = struct.unpack_from("<H", b, p + 0x34)[0]
+    if b[p + 0x34] & 0x10:
+        return True
+    if word & 0x6000:
+        return bool(b[p + 0x35] & 0x10)
+    # the base texture's id (+0x16): the 0x200 test is made only for a textured record
+    return bool(struct.unpack_from("<H", b, p + 0x16)[0] and word & 0x200)
+
+
 def mesh_submeshes(ch, bone_index=None):
     """Decoded render meshes of one skin chunk -> [(texture stem, positions, normals, uvs, triangles, colour,
     skin)], one entry per material, vertices remapped to the ones that material uses. With `bone_index` (bone name
@@ -198,6 +209,12 @@ def mesh_submeshes(ch, bone_index=None):
                 # the village walls' and boulders' plaster normal map (set 1, ~5x the base's tiling), 0x90 the snow
                 # domes (second flake layer set 1, mask set 2)
                 "uv_sets": b[p + 0x32],
+                # translucent at run time: RenderModes_Load (0x00489b40) sets the kind's bit 0x10 (which `kind`, the
+                # stored byte, may lack) for a textured record whose flags word +0x34 has 0x200 (no 0x6000 blend kind),
+                # or one with a 0x6000 kind whose byte +0x35 has 0x10; the draw state (0x004897d0) then blends by
+                # `blend`: lev_4_m3's / bonus_m3's river surfaces and lev_3_m2's (blend 0: added, SRCALPHA / ONE),
+                # the reeds and grass cards (2), the light beams b_beam (0), the bullet trails and muzzle flashes (0)
+                "translucent": translucent_at_run_time(b, p),
             })
         jw = rigid = None
         if bone_index is not None:
