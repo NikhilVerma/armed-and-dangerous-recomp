@@ -1061,7 +1061,7 @@ writes only differences, a preset choice clears them). Settings and what they us
 | far_fade | off | on | the far clip (the original's far plane) dissolves over its last 15 % (moving dither, smoothed by TAA) instead of a hard cut; draw distance stays the original's maximum, LOD always the finest |
 | bloom | 0 | 0.08 | HDR target; only what is brighter than white blooms (threshold 1: stacked additive fire and flashes; the game's surfaces are clamped to white), added on top. Tonemapping stays off (the game's colours) |
 | tessellation (+ _level / _shape / _smooth_angle / _sharp_angle) | off | on, 3, 0.75, 25, 50 | the old remaster's Phong tessellation of skinned meshes, refined once at load, crack-free across UV seams (graphics/geometry/tessellation.rs; "Ported from the old remaster" below) |
-| terrain_detail (+ _strength) | 0 | 8, 0.6 | the terrain's normal map sampled again at 8x its tiling, its slope added (gamematerial.wesl) |
+| terrain_detail (+ _strength) | 0 | 8, 0.25 (0.6 until 2026-10-25: it buried the snow's own ripples) | the terrain's normal map sampled again at 8x its tiling, its slope added (gamematerial.wesl) |
 | lod_max, lod_scale | off, 1 | on, 2 | the original's LOD switching (Object_SelectLod 0x00452f50) in the Original; the finest everywhere in the Remaster (graphics/geometry/lod.rs) |
 | alpha_coverage | off | on | alpha textures use MSAA's alpha-to-coverage (with MSAA only; TAA keeps the blend) |
 | aa_mip_bias | 0 | -1 | the camera's MipBias under TAA, now read by the game material's samples |

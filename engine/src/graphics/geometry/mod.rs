@@ -90,6 +90,10 @@ impl GeometrySettings {
         GeometrySettings {
             tessellation: true,
             terrain_detail: 8.0,
+            // a hint of relief, not a second surface: at the old 0.6 (and the gallery's 16x) the detail layer's slope
+            // outweighed the snow's own ripples, which then read as soft lumps with an embossed grain over them, the
+            // original's crisp dark troughs filled in (same-camera l1_courtyard, work/texdensity/g_floor_rvar.jpg)
+            terrain_detail_strength: 0.25,
             lod_max: true,
             lod_scale: 2.0,
             alpha_coverage: true,
