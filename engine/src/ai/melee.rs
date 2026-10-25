@@ -102,7 +102,8 @@ pub fn close_hits(
         if !(roman.is_some() && shield.is_some_and(|mut s| s.absorb(h.damage))) {
             hp.0 -= h.damage * scale;
         }
-        stats.hits += 1;        if let (Some(mut r), true) = (roman, hp.0 > 0.0) {
+        stats.hits += 1;
+        if let (Some(mut r), true) = (roman, hp.0 > 0.0) {
             r.close_hit(h.damage, h.impact, h.dir);
         }
         if let Some(mut c) = companion {
