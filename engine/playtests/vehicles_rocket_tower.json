@@ -8,6 +8,7 @@
  {"tap": "Enter"},
  {"wait": 1.0},
  {"expect": {"vehicles.11t.in_range": false, "vehicles.11t.spin": [0.04, 0.06], "vehicles.11t.volleys": 0, "vehicles.11t.health": 750}},
+ {"ai_force": "grunts_hold"},
  {"warp": [-97, 330, 846, 0]},
  {"wait": 2.0},
  {"expect": {"vehicles.11t.in_range": true, "vehicles.11t.spin": 0, "vehicles.11t.seen": true, "vehicles.11t.volleys": 1, "vehicles.8t.in_range": false}},

@@ -475,6 +475,7 @@ fn fly(
                 // HitsIgnored); half while on a mounted gun
                 if !topsy.active() && !hits_ignored.contains(o) {
                     h.0 -= if mounted.0.is_some() { direct * 0.5 } else { direct };
+                    if std::env::var("AIDBG").is_ok() { info!("AIDBG romandmg rocket {direct:.0} kind {:?} owner {:?} health {:.0}", r.kind, r.owner, h.0); }
                     rm.hit_from = Some(r.vel.normalize_or(Vec3::Z));
                 }
             } else if let Ok((_, mut c, _, mut h)) = companions.get_mut(o) {

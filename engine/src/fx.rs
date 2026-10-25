@@ -316,6 +316,13 @@ fn damage(
             if !b.kind.hurts_ai() && (grunt.is_some() || companion.is_some()) {
                 continue;
             }
+            // a companion in an IC anim has his physics off (0x0042c410 -> 0x004577b0(0)) and is out of the area query,
+            // as he is out of the bullets' (player.rs): the tower task's Jonesy takes no damage while he plants, as the
+            // original's (tuning item T1; guess: AreaDamage_Apply 0x0047f020 finds characters through their physics).
+            // Until 2026-10-25 the alarm troops' grenades hurt him there (tower_l4m2, once the AI order changed)
+            if companion.as_ref().is_some_and(|c| c.ic) {
+                continue;
+            }
             let (dist, n) = surface(t, bounds, b.at);
             if dist <= b.radius_outer {
                 let amount = b.area_damage * falloff(dist, b.radius_inner, b.radius_outer) * companion.map_or(1.0, |c| c.damage_scale(b.kind));
