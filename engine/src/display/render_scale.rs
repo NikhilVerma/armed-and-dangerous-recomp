@@ -5,9 +5,13 @@
 //! SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) only when it was on). Bevy's window is always DPI aware, so
 //! the off case is reproduced the same way: a further scale of 1 / the monitor's scale factor.
 //!
-//! At an effective scale of 1 nothing changes (the game view draws to the window). Otherwise the game view draws into
-//! an image of the scaled size and the HUD camera shows that image under the HUD, filtered bilinearly (as Present's
-//! stretch), over the whole window.
+//! The game view draws into an image of the scaled size and the HUD camera shows that image under the HUD, filtered
+//! bilinearly (as Present's stretch; at scale 1 copied pixel for pixel), over the whole window. At scale 1 too: the
+//! original blends its HUD in gamma space (D3D9 blends the stored bytes), and Bevy composites a stack of 2D cameras
+//! in gamma space (`CompositingSpace::Srgb`, hud.rs) only when no 3D camera shares their target. Blended in linear
+//! light, the translucent HUD parts let ~20 levels more of a bright background through (the green player figure at
+//! opacity 0.65 read pale, docs/journal/2026-10-25-r5.md). Without a HUD camera (tools) the game view draws to the
+//! window at scale 1.
 
 use super::GameView;
 use bevy::camera::visibility::RenderLayers;
@@ -59,6 +63,7 @@ fn apply(
     mut views: Query<(&Camera, &mut RenderTarget, &mut Projection), With<GameView>>,
     mut pictures: Query<(Entity, &mut Transform, &MeshMaterial2d<ColorMaterial>, &mut Visibility), With<ScaledPicture>>,
     (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<ColorMaterial>>),
+    hud_cameras: Query<(), With<crate::hud::HudCamera>>,
 ) {
     let Some(window) = windows.iter().next() else { return };
     let win = UVec2::new(window.physical_width(), window.physical_height());
@@ -68,13 +73,21 @@ fn apply(
     // a tool's window is in physical pixels by request: DPI aware (mod.rs GameView docs)
     let dpi_aware = settings.display.dpi_aware || tool.is_some();
     let scale = effective_scale(settings.display.render_scale, dpi_aware, window.resolution.base_scale_factor());
-    let want = if (scale - 1.0).abs() < 1e-3 { None } else { Some(scaled_size(win, scale)) };
+    // at scale 1 a picture too while the HUD camera draws: the HUD blends over it in gamma space (module docs)
+    let want = if (scale - 1.0).abs() >= 1e-3 {
+        Some(scaled_size(win, scale))
+    } else if !hud_cameras.is_empty() {
+        Some(win)
+    } else {
+        None
+    };
 
-    // the image: made (or remade at a new size) when needed, dropped at scale 1
+    // the image: made (or remade at a new size) when needed, dropped when the game view can draw to the window
     match want {
         Some(size) if state.image.is_none() || state.size != size => {
             let mut img = Image::new_target_texture(size.x, size.y, TextureFormat::Rgba8UnormSrgb, None);
-            img.sampler = ImageSampler::linear();
+            // at the window's size each pixel is copied as it is; scaled, filtered as Present's stretch
+            img.sampler = if size == win { ImageSampler::nearest() } else { ImageSampler::linear() };
             state.image = Some(images.add(img));
             state.size = size;
             info!("display: game view drawn at {}x{} for a {}x{} window (scale {scale:.2})", size.x, size.y, win.x, win.y);

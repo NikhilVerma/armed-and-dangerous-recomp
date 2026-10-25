@@ -259,6 +259,10 @@ pub struct HudState {
 
 pub const HUD_LAYER: usize = 1;
 
+/// The camera that draws the HUD layer over the game view's picture (display/render_scale.rs).
+#[derive(Component)]
+pub struct HudCamera;
+
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
@@ -312,6 +316,10 @@ pub fn spawn(
     commands.spawn((
         Camera2d,
         Camera { order: 1, clear_color: ClearColorConfig::None, ..default() },
+        // blended in gamma space as the original's D3D9 blends its stored bytes (SRCALPHA / INVSRCALPHA on the
+        // encoded colour): the player figure's 0.65 is as solid as the original's (display/render_scale.rs)
+        bevy::camera::CompositingSpace::Srgb,
+        HudCamera,
         RenderLayers::layer(HUD_LAYER),
     ));
     let icons: Option<IconAtlas> = std::fs::read_to_string(ui.join("icons.json")).ok().and_then(|s| serde_json::from_str(&s).map_err(|e| warn!("hud: icons.json: {e}")).ok());
