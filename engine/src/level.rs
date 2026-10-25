@@ -8,7 +8,7 @@ use crate::gamedata::{GameData, Props};
 use crate::physics::Physics;
 use crate::player::BombAssets;
 use crate::scene::{self, ClonedParts, Library, PartBind, SceneFile};
-use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster};
+use bevy::light::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 use oxijolt::prelude::*;
 
@@ -467,9 +467,30 @@ pub struct SkinCtx<'a> {
     pub binds: &'a mut Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>,
 }
 
+/// How a model's parts take part in the sun's shadows: its property set's shadow_enable (casts: object +0x3ec bits
+/// 1-2) and shadow_receive (receives: bit 0x10, on unless the set clears it: p_water's river surfaces, p_grass),
+/// both read by Object_LoadBaseProps 0x00451360.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shadowing {
+    pub casts: bool,
+    pub receives: bool,
+}
+
+impl Shadowing {
+    /// Casting or not, receiving (the default of every set but those that clear shadow_receive).
+    pub const fn casting(casts: bool) -> Self {
+        Shadowing { casts, receives: true }
+    }
+
+    /// An object's, from its property set.
+    pub fn of(p: &crate::gamedata::Props, casts: bool) -> Self {
+        Shadowing { casts, receives: p.f("shadow_receive", 1.0) != 0.0 }
+    }
+}
+
 /// Spawns one model's parts under `e`; a skinned model also gets its joint entities and an Animator on `e`
 /// (upper/lower body split at "belly", the bone the _t / _b anim halves divide at). Returns (draws, triangles).
-pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: bool, skin: Option<&mut SkinCtx>, hand_bone: &str) -> (usize, usize, Option<Entity>) {
+pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Model, shadows: Shadowing, skin: Option<&mut SkinCtx>, hand_bone: &str) -> (usize, usize, Option<Entity>) {
     let mut inverse_bind: Vec<Mat4> = Vec::new();
     let rig = match (model.skeleton.as_deref(), skin) {
         (Some(name), Some(ctx)) => ctx.lib.skeleton(name, ctx.binds).map(|sk| {
@@ -480,8 +501,11 @@ pub(crate) fn attach_model(commands: &mut Commands, e: Entity, model: &scene::Mo
     };
     for (i, (mesh, mat)) in model.parts.iter().enumerate() {
         let mut c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone())));
-        if !shadows {
+        if !shadows.casts {
             c.insert(NotShadowCaster);
+        }
+        if !shadows.receives {
+            c.insert(NotShadowReceiver);
         }
         // the part's owner: the model's entity, or (a rigid part) its bone's joint, the part placed at the bone's
         // inverse bind so that it follows the bone as the original's one-matrix blend does (joint world * inverse
@@ -860,7 +884,7 @@ pub fn spawn(
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
         if !skip_visual {
             let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
-            let (d, t, _) = attach_model(commands, e, model, true, None, "ref_rhand");
+            let (d, t, _) = attach_model(commands, e, model, Shadowing::casting(true), None, "ref_rhand");
             info.draws += d;
             info.triangles += t;
         }
@@ -1010,11 +1034,11 @@ pub fn spawn(
         }
         if !invisible {
             // shadow casters: objects whose property set has shadow_enable (shadows.md, object +0x3ec bits 1-2)
-            let casts = !background && p.f("shadow_enable", 0.0) != 0.0;
+            let shadowing = Shadowing::of(&p, !background && p.f("shadow_enable", 0.0) != 0.0);
             let hand_bone = ai::Kind::from_template(&inst.template).map_or("ref_rhand", ai::Kind::weapon_bone);
-            let (d, t, hand) = attach_model(commands, e, model, casts, Some(&mut *skin), hand_bone);
+            let (d, t, hand) = attach_model(commands, e, model, shadowing, Some(&mut *skin), hand_bone);
             // its template's other LODs, switched by distance unless lod_max (graphics/geometry/lod.rs)
-            if let Some(lods) = tpl.and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, casts)) {
+            if let Some(lods) = tpl.and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, shadowing)) {
                 commands.entity(e).insert(lods);
             }
             // weapons: grunts' rifle or bow; Roman's guns (weapons/arsenal.rs: every player gun this level has a
@@ -1256,7 +1280,7 @@ pub fn spawn(
                 let ww = world * at;
                 let we = commands.spawn((Transform::from_matrix(ww), Visibility::default(), Name::new("village_window"), Window { building: e, index: i as u8 })).id();
                 if let Some(m) = wt.model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials)) {
-                    let _ = attach_model(commands, we, m, false, None, "ref_rhand");
+                    let _ = attach_model(commands, we, m, Shadowing::casting(false), None, "ref_rhand");
                     if m.skeleton.is_none() && wp.f("decal_receive", 1.0) != 0.0 {
                         decal_world.add_object(we, m, to_game * ww);
                     }
@@ -1288,7 +1312,7 @@ pub fn spawn(
             let model = data.templates.get("prop_rewardposter").and_then(|t| t.model.clone());
             if let (Some(at), Some(m)) = (ref_node(&lib_dir, &anim, node), model.as_ref().and_then(|m| lib.load_model(m, false, assets, meshes, materials))) {
                 let poster = commands.spawn((Transform::from_matrix(at), Visibility::default(), Name::new("prop_rewardposter"), RewardPoster)).id();
-                let _ = attach_model(commands, poster, m, false, None, "ref_rhand");
+                let _ = attach_model(commands, poster, m, Shadowing::casting(false), None, "ref_rhand");
                 commands.entity(e).add_child(poster);
             }
         }
@@ -1511,7 +1535,7 @@ impl StageSwap<'_, '_> {
         let mut model_name = None;
         if let Some(m) = ht.model.as_ref().and_then(|m| self.lib.load_model(m, false, &self.assets, &mut self.meshes, &mut self.materials)) {
             model_name = ht.model.clone();
-            let _ = attach_model(&mut self.commands, e, m, true, None, "ref_rhand");
+            let _ = attach_model(&mut self.commands, e, m, Shadowing::casting(true), None, "ref_rhand");
             // the husk is a new object: a receiver like any other (decal_receive of its template)
             if m.skeleton.is_none() && hp.f("decal_receive", 1.0) != 0.0 {
                 if let Some(w) = self.decal_world.as_mut() {
@@ -1720,8 +1744,8 @@ fn spawn_grunts(
         }
         let mut ctx = SkinCtx { lib: &mut anim_lib, binds: &mut binds };
         let hand_bone = ai::Kind::from_template(&ev.template).map_or("ref_rhand", ai::Kind::weapon_bone);
-        let (_, _, hand) = attach_model(&mut commands, e, &model, true, Some(&mut ctx), hand_bone);
-        if let Some(lods) = data.templates.get(&ev.template).and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, true)) {
+        let (_, _, hand) = attach_model(&mut commands, e, &model, Shadowing::casting(true), Some(&mut ctx), hand_bone);
+        if let Some(lods) = data.templates.get(&ev.template).and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, Shadowing::casting(true))) {
             commands.entity(e).insert(lods);
         }
         if let (Some(h), Some(w)) = (hand, ai::weapon_template(&ev.template).and_then(|w| data.templates.get(w)).and_then(|t| t.model.clone())) {
