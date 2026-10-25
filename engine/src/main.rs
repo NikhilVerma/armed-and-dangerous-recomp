@@ -368,6 +368,8 @@ fn main() {
         devices: audiooutput::DeviceSource::System,
     })
     .add_plugins(EguiPlugin::default())
+    // the egui context goes on the game view's camera only (setup, levelreset.rs), not on whichever camera came first
+    .insert_resource(bevy_egui::EguiGlobalSettings { auto_create_primary_context: false, ..default() })
     // a window resize (the Resolution / Fullscreen options) leaves the HUD camera's depth one frame behind its
     // colour target: wgpu reports "Attachments have differing sizes" for that frame. Bevy's default handler quits
     // on any render error; this one renders on through that transient (at most 120 times, then it quits as before)
@@ -705,6 +707,10 @@ fn setup(
         bevy::core_pipeline::tonemapping::Tonemapping::None,
         // the view that snows (graphics/snow.rs)
         graphics::snow::SnowCamera,
+        // the debug overlays' egui context (levelreset.rs moves it to the next level's camera). Never the HUD camera:
+        // bevy_egui's pipeline assumes an sRGB main texture, and the HUD's gamma-space compositing gives its stack a
+        // linear-format one (hud.rs), which wgpu refused ("incompatible color attachments")
+        bevy_egui::PrimaryEguiContext,
     )).id();
     // playing as Roman: the camera follows him; the free camera stays for the benchmark and fx tests
     if info.player.is_some() && launch.bench.is_none() && !launch.fx_test {
