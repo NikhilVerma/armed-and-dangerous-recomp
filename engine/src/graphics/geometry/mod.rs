@@ -15,6 +15,8 @@
 //! - `aa_mip_bias`: the texture mip bias while TAA runs (vk_pipeline.cpp), Bevy's `MipBias` read by the game material.
 //! - `shadow_strength`: how dark a full shadow is, tinted by the sky (vk_shadows.cpp), in place of the level's flat
 //!   shadow colour.
+//! - `solid_fade` (new, not the old remaster's): an object the follow camera fades shows only its nearest surface
+//!   (camfade.rs), not its insides through it.
 //!
 //! Not ported: `cull_radius` (shadows.cpp, "Shadow caster range"). The old shadow maps replayed the main scene's draws,
 //! so a caster the camera's frustum culled lost its shadow; the setting kept casters within that range. Bevy culls
@@ -62,6 +64,10 @@ pub struct GeometrySettings {
     pub aa_mip_bias: f32,
     /// how dark a full shadow is, the sky's blue left in it (0 = the level's shadow colour and blend, the original's)
     pub shadow_strength: f32,
+    /// objects the follow camera fades show only their nearest surface (a depth copy drawn first, camfade.rs); the
+    /// original draws them blended without depth writes (guess: 0x004897d0 state bit 0x20 -> ZWRITEENABLE off), so their
+    /// insides show through them: a hollow pipe's bore, a house's inner walls
+    pub solid_fade: bool,
 }
 
 impl GeometrySettings {
@@ -80,6 +86,7 @@ impl GeometrySettings {
             alpha_coverage: false,
             aa_mip_bias: 0.0,
             shadow_strength: 0.0,
+            solid_fade: false,
         }
     }
 
@@ -99,6 +106,7 @@ impl GeometrySettings {
             alpha_coverage: true,
             aa_mip_bias: -1.0,
             shadow_strength: 0.55,
+            solid_fade: true,
             ..Self::original()
         }
     }

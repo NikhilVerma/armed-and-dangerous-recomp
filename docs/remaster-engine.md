@@ -1076,6 +1076,7 @@ writes only differences, a preset choice clears them). Settings and what they us
 | alpha_coverage | off | on | alpha textures use MSAA's alpha-to-coverage (with MSAA only; TAA keeps the blend) |
 | aa_mip_bias | 0 | -1 | the camera's MipBias under TAA, now read by the game material's samples |
 | shadow_strength | 0 (the level's shadow colour) | 0.55 | a full shadow multiplies by (1 - strength) tinted sky blue (the old remaster's shadow apply pass) |
+| solid_fade | off | on | an object the follow camera fades draws a depth copy first (camfade.rs `DepthCopy`), so only its nearest surface blends; off, every front face blends without depth writes, as the original (guess), and a hollow pipe shows its bore through itself (lev_2_m2 walk, docs/journal/2026-10-25-cam.md) |
 
 Engine limits and input (2026-10-19, agent-port-limits): the old remaster's `[limits]` / `[persistence]` / `[input]`
 options are settings of the same presets, each group in its own module with its presets (physicsstep.rs: fixed step,

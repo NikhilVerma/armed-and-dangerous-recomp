@@ -161,7 +161,7 @@ pub struct GraphicsSettings {
     pub ragdoll_limit: u32,
 
     // ---- geometry, surface detail and shadow tone, ported from the old remaster (geometry/mod.rs) ----
-    /// tessellation*, terrain_detail*, lod_max, lod_scale, alpha_coverage, aa_mip_bias, shadow_strength
+    /// tessellation*, terrain_detail*, lod_max, lod_scale, alpha_coverage, aa_mip_bias, shadow_strength, solid_fade
     #[serde(flatten)]
     pub geometry: geometry::GeometrySettings,
     // --- engine limits and input (the old remaster's [limits] / [persistence] / [input] options; each group's
