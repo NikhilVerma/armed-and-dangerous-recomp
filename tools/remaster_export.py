@@ -218,8 +218,12 @@ def mesh_submeshes(ch, bone_index=None):
         stored = read_normals(b, objchunk.u32(b, mptr + 0x44), len(pos))
         normals = computed
         if stored:  # use the stored normals when they agree with the geometry (else they are not plain shorts)
-            agree = sum(1 for a, c in zip(stored, computed) if a[0] * c[0] + a[1] * c[1] + a[2] * c[2] > 0.3)
-            if agree > 0.8 * len(pos):
+            # only where the geometry gives a normal: a double-sided card (both windings over the same vertices: lev_4_m3's
+            # reeds, the b_grass / b_beam cards) sums to zero there, and those vertices used to fail the test, so the
+            # whole mesh got the zero normals (black, NaN in the game material) instead of its stored ones
+            comparable = [(a, c) for a, c in zip(stored, computed) if c != (0.0, 0.0, 0.0)]
+            agree = sum(1 for a, c in comparable if a[0] * c[0] + a[1] * c[1] + a[2] * c[2] > 0.3)
+            if not comparable or agree > 0.8 * len(comparable):
                 normals = stored
         tangents = stored_tangents(m, normals)
         parts = []
