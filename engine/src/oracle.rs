@@ -451,7 +451,8 @@ fn trace(
         line.insert(
             "roman".into(),
             serde_json::json!({"pos": g(t.translation()), "heading": r2(facing.x.atan2(facing.y).to_degrees()), "look_yaw": r2(rm.yaw.to_degrees()), "health": r2(p.health),
-                "max_health": r2(p.max_health), "weapon": p.weapon, "clip": p.clip, "ammo": p.ammo, "stickies": p.stickies}),
+                "max_health": r2(p.max_health), "weapon": p.weapon, "clip": p.clip, "ammo": p.ammo, "stickies": p.stickies,
+                "on_ground": rm.on_ground, "floor_nz": if rm.touching { Some(r2(rm.floor.y)) } else { None }}),
         );
     }
     // the 5th element: the update's mode as the original's +0xb5c (MolmerObject_Slot47 0x00485910), the tower task's

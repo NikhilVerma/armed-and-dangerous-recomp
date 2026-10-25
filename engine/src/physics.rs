@@ -516,7 +516,9 @@ pub struct Walker {
 }
 
 impl Physics {
-    /// `max_slope`: the steepest walkable ground (radians); steeper ground slides the walker down.
+    /// `max_slope`: the steepest walkable ground (radians); Jolt treats steeper ground as a wall the walker cannot
+    /// move up. 0 turns the limit off: every slope is ground the velocity is projected along (the caller then
+    /// decides what is too steep, from `walker_floor`).
     pub fn add_walker(&mut self, feet: Vec3, radius: f32, height: f32, max_slope: f32) -> Option<Walker> {
         let k = self.meters_per_unit;
         let r = radius * k;
@@ -546,6 +548,24 @@ impl Physics {
         let c = self.world.character(w.id).ok()?;
         let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);
         Some((br(c.position()) / k, on))
+    }
+
+    /// The walker's floor after its last update: the most upward normal (engine axes) of the contacts it touched
+    /// that face up at all, None when it touched none. (The original's player contact callback 0x00477c90 counts
+    /// only contacts whose normal points up, +0x584, and keeps the most upward one as the ground normal, +0x574.)
+    /// The normal is the contact's (from the touched point toward the shape), as Havok's sphere contact gives it: on a
+    /// step's edge it leans, so the edge counts as ground the shape rolls over.
+    pub fn walker_floor(&self, w: &Walker) -> Option<Vec3> {
+        let c = self.world.character(w.id).ok()?;
+        // touching: Jolt's collision this update, or within the game world's collision tolerance 0.2 (world cinfo
+        // +0x40; Havok reports contacts that close, where Jolt keeps them as predictive ones)
+        let tolerance = 0.2 * self.meters_per_unit;
+        c.active_contacts()
+            .iter()
+            .filter(|c| (c.had_collision || c.distance <= tolerance) && !c.was_discarded && !c.is_sensor)
+            .map(|c| bv(c.contact_normal))
+            .filter(|n| n.y > 0.0)
+            .max_by(|a, b| a.y.total_cmp(&b.y))
     }
 
     /// Whether a walker touches nothing below it (not even ground too steep to stand on).
