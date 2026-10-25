@@ -1593,7 +1593,9 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
   the look point (to the eye and the eye +-5 along the view's right / up) pass through objects, which fade to
   camera_falloff 0.3 at camera_fade_out_rate 3/s and back at camera_fade_in_rate 3/s (p_globalsettings); only the
   landscape (`Physics::landscape`) shortens the arm. The old engine version stopped on any collider with a 3-unit
-  minimum and put the camera inside buildings, ahead of Roman (level1b win shot).
+  minimum and put the camera inside buildings, ahead of Roman (level1b win shot). Characters never fade: the rays'
+  include list is World+0xea0 (0x00413dc0 / 0x00413a90), which holds no character; fading Q and Jonesy drew them as
+  pale shells beside the camera (lev_5_m3 walk, docs/journal/2026-10-25-l5m3-quad.md).
 - **No tonemapping, near plane 1** (main.rs camera): Bevy's default tonemapping darkened the pale colours (sky at
   the horizon 216 -> 175); the original's near plane of 1 also clips the radius-1 fxo_snow dome (with Bevy's 0.1 it
   drew an extra layer of dense fine flakes).

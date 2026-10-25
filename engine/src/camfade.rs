@@ -121,7 +121,7 @@ pub struct ObjectAlpha(pub f32);
 
 /// On an object attached to a character outside its hierarchy (Q's cape, cloth.rs): it takes that character's alpha.
 /// Character_SetFade 0x0042eb60 sets the alpha of the character's attachments (+0x61c) with its own, so Q's cape
-/// fades with him when the camera fades him.
+/// fades with him. (The camera never fades a character: camera.rs follow_camera, 0x00413a90.)
 #[derive(Component, Clone, Copy, Debug)]
 pub struct AlphaFollows(pub Entity);
 
