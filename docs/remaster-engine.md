@@ -1542,6 +1542,21 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
   alpha, summed by the blend; `composite` then writes (scene's gamma + sum, at most 1)^2.2 from Bevy's pre-pass copy
   of the scene. A new additive material must do the same (gamma output, transmissive), or it adds gamma values as
   linear light. A plain `StandardMaterial` with `AlphaMode::Add` (the camera-locked overlays) still adds linearly.
+- **The HUD blends in gamma space** (2026-10-25, r5). The HUD camera has `CompositingSpace::Srgb` (D3D9 blended the
+  stored bytes; in linear light the 0.65 player figure let ~45 levels more of the snow through). Bevy only honours it
+  for a stack of 2D cameras, so the game view always draws into its picture while a HUD camera exists
+  (display/render_scale.rs, at scale 1 copied pixel for pixel), and the stack's main texture is Rgba8Unorm: a 2D
+  material must handle `SRGB_OUTPUT` (hudblend.wesl, sdffont.wesl do), and bevy_egui must never sit on the HUD camera
+  (its pipeline assumes Rgba8UnormSrgb and wgpu quits the app): the egui context is put on the game view's camera,
+  automatic creation off (main.rs).
+- **Pipelines compile synchronously** (main.rs RenderPlugin, 2026-10-25). Compiled in the background, a mesh's depth
+  prepass could be ready a frame before its colour pass: the clear (fog) colour then shows in its shape (lev_4_m2's
+  first frame: Roman's head and gloves flat 180 197 213). A flat silhouette in exactly the level's fog colour is this.
+- **Specular power is 8** (RenderModes_Load 0x00489b40 replaces every record's power; MaterialDef::specular_power),
+  and the fixed-function specular is lit per vertex (gamematerial.wesl fixed_specular). The records' own powers (25,
+  30) made the jump pack's chrome a dark rust dome with a pin-point highlight.
+- **The camera's rays fade characters too** (camera.rs follow_camera): grunts by their hit volumes, the companions
+  (walkers outside the physics world) by their collision parts; Q's cape takes his alpha (camfade::AlphaFollows).
 - **Model index buffers** in work/remaster/*/models/*.bin are u32.
 - **Bevy 0.20**: shaders are WESL; meshes built with `RenderAssetUsages::RENDER_WORLD` cannot be read on the CPU
   later (the skinning check needs MAIN_WORLD: skinned meshes keep it); `Mesh::attribute` panics after extraction,
