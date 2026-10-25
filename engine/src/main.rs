@@ -351,6 +351,11 @@ fn main() {
                 ..default()
             })
             .set(AssetPlugin { file_path: scene_dir.to_string_lossy().into_owned(), ..default() })
+            // a pipeline is ready the frame it is first needed: compiled in the background, a mesh's depth prepass could
+            // draw a frame before its colour pass, and the clear (fog) colour showed in its shape (lev_4_m2's first play
+            // frame: Roman's head, gloves and boots flat 180 197 213, the level's fog colour; without a prepass the mesh
+            // would be missing instead). The original never draws a model without its shading.
+            .set(bevy::render::RenderPlugin { synchronous_pipeline_compilation: true, ..default() })
             // bevy_audio's output opens the default device once: audiooutput.rs plays the same components and
             // follows the system's default device
             .disable::<bevy::audio::AudioPlugin>(),
