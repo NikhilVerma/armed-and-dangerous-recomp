@@ -1,6 +1,6 @@
 {"load": "states/after_pub.json", "preset": "remaster", "steps": [
  {"wait": 4.0},
- {"expect": {"snow.active": true, "snow.flakes": [100000, 4000000], "snow.cylinders_hidden": 3, "snow.cylinders_shown": 0,
+ {"expect": {"snow.active": true, "snow.flakes": [100000, 4000000], "snow.cylinders_hidden": 0, "snow.cylinders_shown": 3,
              "snow.frames_drawn": [10, 1000000], "fx.by_template.fxo_snow": 2, "fx.by_template.fxo_snow_2": 1,
              "snow.emitters_muted": 1, "fx.by_template.fxo_glow_red": [1, 30], "fx.near_camera": [0, 40]}},
  {"shot": "snow"},
@@ -9,7 +9,7 @@
  {"tap": "Escape"}, {"wait": 1.0},
  {"warp": [-210, 380, 25, 0]},
  {"wait": 3.0},
- {"expect": {"snow.active": true, "snow.cylinders_hidden": 3, "snow.cylinders_shown": 0, "snow.emitters_muted": 1, "fx.near_camera": [0, 40]}},
+ {"expect": {"snow.active": true, "snow.cylinders_hidden": 0, "snow.cylinders_shown": 3, "snow.emitters_muted": 1, "fx.near_camera": [0, 40]}},
  {"shot": "snow_warp"},
  {"quit": true}
 ]}
