@@ -1510,8 +1510,15 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
   only the pixels nothing unclipped covers. Prepassed, lev_2_m2's dome floor (z -33, above the gorge camera) hid every
   ridge beyond that plane (2026-10-25). A material whose WESL module has two `@fragment` entry points must name one in
   `specialize` (wgpu refuses the pipeline otherwise, and it silently draws nothing).
-- **DXT2 is sampled as stored.** D3D9 never un-premultiplies DXT2 (it decodes as DXT3): an additive record adds the
-  stored colour times alpha again. Dividing by alpha first made the turret trails fat white spindles (fxadd.wesl).
+- **Check a trail against several original frames.** The turret trails of lev_bonus_m1 are broad white-hot spindles
+  near the camera in the original (work/review/bonus_tracers.jpg, f100 / f150) and thin orange lines far away;
+  judging from one far frame, fxadd.wesl once sampled DXT2 as stored (c a^2) and the trails all but vanished
+  (2026-10-25, reverted). The un-premultiplied texel matches the captures.
+- **The playtests' shared random stream follows query order.** A component inserted on unrelated entities (an
+  ElementScale on the HUD chat lines) shifted Bevy's archetype order, which reordered the grunts' and the companions'
+  draws from FxStats: monk_hang and vehicles_rocket_tower failed (2026-10-25). Keep per-entity state out of new
+  components where a field will do, and iterate order-sensitive AI in a fixed order (ai.rs `companions`: placement
+  order, the original's ObjectList_Link 0x004546d0 push-back).
 - **A custom vertex shader against Bevy's prepass depth.** With a depth prepass (TAA, SSAO, SMAA + AO) the game
   material's colour pass tests GreaterEqual against the depth Bevy's own prepass shader wrote for the same triangles;
   the two programs need not round the clip position alike, and where ours came out a hair farther whole triangles
