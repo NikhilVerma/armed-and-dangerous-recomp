@@ -261,6 +261,19 @@ z > 0.7, or when ((vz - prev vz) / dt)^2 < 200 (0x005bcda8) and vz > -5 (0x005bc
 while touching something, so on a steep face he slides under gravity with no drive. The drive 0x00471810 weakens an
 uphill push by about cos^5 of its angle. The remaster: Jolt walker max slope acos(0.7) (engine/src/player.rs).
 
+Since 2026-10-25 (docs/journal/2026-10-25-move.md): Jolt's slope limit turned every face steeper than 45.6 degrees
+into a vertical wall (CharacterVirtual's steep-slope constraint), so Roman slid back down hills the original climbs
+(lev_1_m3, lev_2_m3) and stuck at faces (lev_4_m3, lev_2_m2). The wanted velocity of the drive is not horizontal on
+the ground: 0x004798c5 turns the stick's velocity by the rotation from up to the ground normal +0x574
+(Quat_FromTwoVectors 0x004f1830), so it lies along the slope and points up a hill, where 0x00471810's s^5 weakens it.
+With the remaster's drive gain that leaves about 60 degrees as the steepest climb at full stick (lev_1_m3's hill,
+normal z 0.53, is climbed, as in the original). The remaster now: no slope limit in Roman's walker; grounded,
+friction, gravity and the drive's release follow 0x00477c90 / 0x00478200 / 0x004799d5 from the walker's contacts
+(`Physics::walker_floor`, contacts within the world tolerance 0.2); walkable ground (normal z > 0.7) keeps the
+verified walker behaviour. The jump idle (mode 0x12) plays only in the jump state (+0xa34 & 0xc0,
+game_05.cpp:1885-1899), not whenever he is off the ground. Open: the drive gain on steep ground is the flat-ground fit
+(DRIVE_GAIN); the original's force action through Havok is not decoded, so the exact climb limit is unmeasured.
+
 ## Landing and falling (traced 2026-10-14, static: 0x00478100 / 0x00478200 not executed in recorded runs)
 
 Flags +0xa34: 0x1000 grounded this frame, 0x200 falling, 0x400 fall_into, 0x100 landing, 0x80 / 0x40 jump, 0x20 jump

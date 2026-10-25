@@ -40,6 +40,12 @@ pub struct Roman {
     pub fall_fast_t: f32,
     pub falling: bool,
     pub landing: Option<(&'static str, f32, f32)>,
+    /// the ground normal (+0x574, engine axes): the most upward normal of the last step's contacts that face up
+    /// (0x00477c90; kept while he touches none), and whether he touched one (their count +0x584 above 0)
+    pub floor: Vec3,
+    pub touching: bool,
+    /// the body's vertical speed after the last step (+0x4c8; the grounded test compares it with the step before's)
+    pub body_vy: f32,
     /// remaster safety net (not in the original): the last place where Roman moved freely, and how long he has
     /// been pushing without moving (wedged in a collider)
     pub free_trail: std::collections::VecDeque<Vec3>,
@@ -534,6 +540,22 @@ pub use crate::camera::FollowCam;
 /// on the drive's power, with the ground friction modelled after it (control), reproduces the measured profile.
 const DRIVE_GAIN: f32 = 15.0;
 
+/// The steepest ground Roman stands on by its normal alone: normal z above 0.7 (0x005bcd48, about 45.6 degrees). The
+/// contact callback 0x00477c90 gives steeper contacts no friction.
+const WALKABLE_NZ: f32 = 0.7;
+
+/// Whether Roman counts as grounded after a step (0x00478200, the flag 0x1000 that restarts the 0.5 s grace +0x570):
+/// he touches ground facing up (`floor`, the most upward contact normal) above normal z -0.1 (0x005bcd14), and either
+/// it is walkable or his vertical speed is steady (its change per second squared under 200, 0x005bcda8) and not
+/// dropping faster than 5 (0x005bce74): climbing or standing on a steep face counts, sliding down it does not.
+fn grounded(floor: Vec3, vy: f32, prev_vy: f32, dt: f32) -> bool {
+    if floor.y <= -0.1 {
+        return false;
+    }
+    let rate = (vy - prev_vy) / dt;
+    floor.y > WALKABLE_NZ || (rate * rate < 200.0 && vy > -5.0)
+}
+
 /// The movement input's response (PlayerObject_Update, game_06.cpp:2479-2501): the two axes' vector, longer than 1
 /// cut to 1 (two keys at once: a diagonal at full speed, not faster); its length through the control curve 0x00414c00
 /// (fmod by control_exponent 2 with control_bias 0: the length itself) and above 0.225 (0x005bcfc4) raised by 0.4
@@ -629,9 +651,10 @@ fn apply_loadout(mut q: Query<&mut Roman, Added<Roman>>, mission: Option<ResMut<
 /// Builds Roman from his property set at a placed trotter instance (feet at `feet`, engine space).
 pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3, yaw: f32) -> Option<Roman> {
     let radius = p.f("collision_radius", 4.0).clamp(2.0, 5.0);
-    // steep ground: the player's contact callback 0x00477c90 zeroes the friction of contacts with normal z <= 0.7
-    // (0x005bcd48, about 45.6 degrees) and 0x00478200 stops counting them as ground, so Roman slides down them
-    let walker = physics.add_walker(feet, radius, 11.0, 0.7f32.acos())?;
+    // no slope limit in the walker: the original's body is a Havok sphere with no max slope (PlayerObject_BuildCollision
+    // 0x00475220), so steep ground is not a wall to it. What is too steep is the update's (`WALKABLE_NZ`): no friction
+    // there and the drive weakens uphill, so he slides down what he cannot climb
+    let walker = physics.add_walker(feet, radius, 11.0, 0.0)?;
     Some(Roman {
         walker,
         yaw,
@@ -646,6 +669,9 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         fall_fast_t: 0.0,
         falling: false,
         landing: None,
+        floor: Vec3::Y,
+        touching: false,
+        body_vy: 0.0,
         free_trail: std::collections::VecDeque::from([feet]),
         free_t: 0.0,
         wedged: 0.0,
@@ -990,16 +1016,28 @@ pub(crate) fn control(
                 r.vel += a * dt;
             }
         }
-        let d = Vec3::new(wish.x - r.vel.x, if r.on_ground { 0.0 } else { -r.vel.y }, wish.z - r.vel.z);
+        // Steep ground (touching only contacts with normal z <= 0.7): the contact callback 0x00477c90 gives them no
+        // friction, and the wanted velocity lies along the slope (0x004798c5: the stick's velocity turned by the
+        // rotation from up to the ground normal +0x574, Quat_FromTwoVectors 0x004f1830), so the drive's uphill
+        // weakening (s^5 of the angle from up) holds him back on the steep part: about 60 degrees is the most he climbs
+        // at full stick, and steeper he slides down. The body keeps its vertical speed there (gravity and the contact),
+        // where on walkable ground the walker keeps him on the floor.
+        let steep = r.touching && r.floor.y <= WALKABLE_NZ;
+        let walkable = r.on_ground && !steep;
+        let want = if steep { Quat::from_rotation_arc(Vec3::Y, r.floor) * wish } else { wish };
+        let d = Vec3::new(want.x - r.vel.x, if walkable { 0.0 } else { want.y - r.vel.y }, want.z - r.vel.z);
         let dist = d.length();
-        if dist > 1e-4 && !r.jumping && !(r.falling && !r.on_ground) {
+        // (the drive's force action is released once the grounded grace has run out while he touches something,
+        // 0x004799d5: sliding down a steep face, nothing pushes)
+        let released = r.touching && r.grace <= 0.0;
+        if dist > 1e-4 && !r.jumping && !(r.falling && !r.on_ground) && !released {
             let strength = if max_speed > 0.0 && dist > max_speed { power * max_speed / dist } else { power };
             let c = (d.y / dist).clamp(0.0, 1.0);
             let s5 = (1.0 - c * c).max(0.0).sqrt().clamp(0.0, 1.0).powi(5);
             let k = 1.0 - (-strength * DRIVE_GAIN * s5 * dt).exp();
             r.vel.x += d.x * k;
             r.vel.z += d.z * k;
-            if !r.on_ground {
+            if !walkable {
                 r.vel.y += d.y * k;
             }
         }
@@ -1009,7 +1047,7 @@ pub(crate) fn control(
         // measured walk: 0.653 units a frame, stop.json / the intro). The blend is taken on the speed the drive leaves
         // (the step solves drive and friction together; on the speed before it the first frame from rest would be 31
         // units/s, the original's is 36.6)
-        if r.on_ground && !r.jumping && !r.dead {
+        if walkable && !r.jumping && !r.dead {
             let h = Vec2::new(r.vel.x, r.vel.z);
             let speed = h.length();
             if speed > 1e-4 {
@@ -1072,7 +1110,7 @@ pub(crate) fn control(
             // the jump's breath (0x0047aaf0: 0x00493b70 with table 0x005fb99c, 2 sounds)
             const JUMP_BREATH: [&str; 2] = ["fol_breath_light_short_1", "fol_breath_light_short_2"];
             sounds.write(crate::audio::PlaySound::at(JUMP_BREATH[breaths[0].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
-        } else if r.on_ground && !r.jumping {
+        } else if walkable && !r.jumping {
             r.vel.y = r.vel.y.max(-5.0);
         } else {
             // (in the jump state gravity acts even when the walker reports ground: wedged under an overhang or on a
@@ -1100,8 +1138,23 @@ pub(crate) fn control(
         if r.dead {
             r.vel = Vec3::ZERO;
         }
-        if let Some((feet, on)) = physics.move_walker(&r.walker, vel, dt) {
-            if on && r.vel.y <= 0.0 {
+        if let Some((feet, _)) = physics.move_walker(&r.walker, vel, dt) {
+            // (no time, no step: a paused game keeps the state)
+            let on = if dt > 0.0 {
+                let floor = physics.walker_floor(&r.walker);
+                let vy_now = (feet.y - before.y) / dt;
+                let on = floor.is_some_and(|n| grounded(n, vy_now, r.body_vy, dt));
+                r.touching = floor.is_some();
+                r.floor = floor.unwrap_or(r.floor);
+                r.body_vy = vy_now;
+                on
+            } else {
+                r.on_ground
+            };
+            if r.touching && r.floor.y <= WALKABLE_NZ && dt > 0.0 && !r.dead {
+                // on steep ground the body keeps the velocity the contact left it (Havok's, after the solve)
+                r.vel = (feet - before) / dt;
+            } else if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
             }
             r.on_ground = on;

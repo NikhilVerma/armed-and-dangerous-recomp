@@ -587,7 +587,9 @@ fn roman(
             } else {
                 mode::TURBO_IDLE
             }
-        } else if !r.on_ground {
+        } else if r.jumping {
+            // only the jump state (+0xa34 & 0xc0, game_05.cpp:1885-1899): off the ground otherwise (a short drop, a
+            // steep face) the gait plays on until the fall state takes over
             mode::JUMP_IDLE
         } else if speed < 3.0 {
             mode::STANCE

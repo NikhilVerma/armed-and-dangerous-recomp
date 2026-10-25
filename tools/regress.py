@@ -35,7 +35,7 @@ SUITE = ['save_write', 'save_read', 'topsyhit2', 'turn_in_place', 'turret1', 'de
          'infantry_l2m1', 'infantry_l3m1', 'infantry_l4m2', 'infantry_l2m2', 'squad_goliath', 'squad_sees_companion', 'twiglets', 'monk_summon', 'tower_l4m2', 'tower_l4m2_fail',
          'peasants_l2m3', 'peasants_bonus_m2', 'peasants_lost_l4m2', 'peasants_cage_l3m1',
          'mission_start', 'volumes', 'ticker', 'ticker_goliath', 'ticker_goliath_l4m1', 'pickups', 'pubflow', 'winfail',
-         'player_move', 'player_fall', 'player_weapons', 'player_special', 'player_topsy', 'player_banter', 'jetpack_l3m1', 'jetpack_l4m3',
+         'player_move', 'player_fall', 'player_slope_l1m3', 'player_weapons', 'player_special', 'player_topsy', 'player_banter', 'jetpack_l3m1', 'jetpack_l4m3',
          'audio_distance', 'audio_groups', 'audio_voice', 'audio_ear', 'audio_music', 'audio_stopall', 'audio_ambient', 'audio_mg_bursts',
          'anim_blend', 'anim_notes', 'camera_follow', 'camera_death', 'camera_lookup', 'input_pad', 'foot_ik',
          'fx_particles', 'fx_debris', 'fx_emit', 'fx_lights', 'fx_screen', 'fx_hits', 'keg_launch', 'keg_blast', 'debris_settle', 'overpass_l1m1',
