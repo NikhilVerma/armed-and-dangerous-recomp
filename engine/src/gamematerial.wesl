@@ -71,6 +71,29 @@ struct GameOut {
     @location(6) uv_c: vec2<f32>,
     // 1 when the object receives the sun's shadows (NotShadowReceiver clears Bevy's flag: level.rs Shadowing)
     @location(7) @interpolate(flat) shadow_receiver: u32,
+    // the fixed-function specular (fixed_specular), lit per vertex as the original lights it
+    @location(8) specular: vec3<f32>,
+}
+
+// The fixed-function specular of a material without a normal map (D3DRS_SPECULARENABLE: 0x00505320 sets renderer
+// flags +0x48 bit 1 exactly for the materials with a specular colour, material log), as the original computes it: per
+// vertex, D3D9's lighting for the static meshes and the same sum in the skinned meshes' vertex shaders (shaders.dat
+// vs_0002cde5b3229591: per light `lit` of N.L and N.H with the power c6, times c13/c14 = the material's specular x
+// the light's), Blinn's half vector with a local viewer, only where N.L > 0; both directional lights affect specular
+// (LightObject_Load 0x0044add0: AffectSpecular), interpolated across the triangle and added after the texture stages.
+// Per vertex is what makes the jump pack's and Q's chrome read as chrome: a coarse dome's vertex highlights spread
+// over its large triangles (a per-pixel highlight was a small dot on a dark rust dome, lev_3_m1).
+fn fixed_specular(n: vec3<f32>, world_position: vec3<f32>) -> vec3<f32> {
+    if (p.has_normal != 0u || (p.kind & 16u) != 0u || p.specular.w <= 0.0 || dot(p.specular.rgb, vec3(1.0)) <= 0.0 || dot(n, n) <= 0.0) {
+        return vec3(0.0);
+    }
+    let to_eye = normalize(view.world_position.xyz - world_position);
+    let to_sun = normalize(p.sun_dir.xyz);
+    let to_fill = normalize(p.fill_dir.xyz);
+    let s_sun = select(0.0, pow(clamp(dot(n, normalize(to_sun + to_eye)), 0.0, 1.0), p.specular.w), dot(n, to_sun) > 0.0);
+    let s_fill = select(0.0, pow(clamp(dot(n, normalize(to_fill + to_eye)), 0.0, 1.0), p.specular.w), dot(n, to_fill) > 0.0);
+    // a vertex colour output saturates (oD1)
+    return clamp(p.specular.rgb * (p.sun_col.rgb * s_sun + p.fill_col.rgb * s_fill), vec3(0.0), vec3(1.0));
 }
 
 @vertex
@@ -97,6 +120,7 @@ fn vertex(vertex_in: Vertex, @location(10) uv_c: vec2<f32>) -> GameOut {
     out.world_tangent = vec4(0.0);
 @if(VERTEX_TANGENTS)
     out.world_tangent = mesh_functions::mesh_tangent_local_to_world(world_from_local, v.tangent, vertex_in.instance_index);
+    out.specular = fixed_specular(unit_or_zero(out.world_normal), out.world_position.xyz);
     out.fog = 1.0;
     if (p.fog_range.y > p.fog_range.x) {
         let depth = -(view.view_from_world * vec4(out.world_position.xyz, 1.0)).z;
@@ -212,15 +236,10 @@ fn fragment(in: GameOut) -> @location(0) vec4<f32> {
         // the bump + specular pixel shader (characters): the sun's highlight through the normal map
         let h = normalize(to_sun + to_eye);
         col = col + p.specular.rgb * p.sun_col.rgb * pow(clamp(dot(n, h), 0.0, 1.0), p.specular.w);
-    } else if (p.has_normal == 0u && p.specular.w > 0.0 && dot(p.specular.rgb, vec3(1.0)) > 0.0) {
-        // fixed function with D3DRS_SPECULARENABLE (0x00505320: renderer flags +0x48 bit 1, set exactly for the
-        // materials with a specular colour, material log): each light's specular (both lights affect specular),
-        // added after the texture stages, before fog (Blinn half vector, local viewer)
-        let hs = normalize(to_sun + to_eye);
-        let hf = normalize(normalize(p.fill_dir.xyz) + to_eye);
-        let s_sun = select(0.0, pow(clamp(dot(n_geo, hs), 0.0, 1.0), p.specular.w), dot(n_geo, to_sun) > 0.0);
-        let s_fill = select(0.0, pow(clamp(dot(n_geo, hf), 0.0, 1.0), p.specular.w), dot(n_geo, p.fill_dir.xyz) > 0.0);
-        col = col + p.specular.rgb * (p.sun_col.rgb * s_sun + p.fill_col.rgb * s_fill);
+    } else {
+        // fixed function with D3DRS_SPECULARENABLE: the per-vertex specular (fixed_specular; zero for the other
+        // materials), added after the texture stages, before fog
+        col = col + in.specular;
     }
     // shadows (shadows.md: each caster's silhouette projected along the sun onto the world, drawn in the level's
     // shadow colour (mission shadow_color_red/green/blue/blend: (0, 0.125, 0.25) at 0.3), alpha-blended); here the

@@ -337,6 +337,15 @@ impl MaterialDef {
         (self.uv_sets as u32 >> (2 * map as u32)) & 3
     }
 
+    /// The specular power the original draws with: RenderModes_Load (0x00489b40, loader_01.cpp:1910) replaces the
+    /// record's power +0x60 with 8.0 for every material that has one and a specular colour (the draw state's +0x40, the
+    /// vertex shaders' c6, D3D's Power), and turns specular off for the rest (0: none). The records' own powers (25 on
+    /// the jump pack's chrome, 30 on Q's armour) made pin-point highlights where the original spreads a broad sheen.
+    pub fn specular_power(&self) -> f32 {
+        const DRAWN_POWER: f32 = 8.0;
+        if self.power > 0.0 && self.specular.iter().any(|c| *c > 0.0) { DRAWN_POWER } else { 0.0 }
+    }
+
     /// The four maps' uv sets (x base, y normal map, z second texture, w mask), for a shader.
     pub fn uv_set_vec(&self) -> UVec4 {
         UVec4::new(self.uv_set(MapSlot::Base), self.uv_set(MapSlot::Normal), self.uv_set(MapSlot::Texture2), self.uv_set(MapSlot::Mask))
@@ -479,7 +488,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             ambient: v4(def.ambient, 0.0),
             // w: the record's opacity (translucent records; 1 otherwise)
             diffuse: v4(def.diffuse, def.alpha()),
-            specular: v4(def.specular, if def.specular.iter().any(|c| *c > 0.0) { def.power } else { 0.0 }),
+            specular: v4(def.specular, def.specular_power()),
             // the cube * TFACTOR stage: the record's +0x40 grey (MaterialDef::env_factor)
             // a level without an env map marker binds no cube at all (fn_00487e30: EnvMap_FindNearest finds none,
             // the stage's texture is 0) and the stage adds black: lev_2_m2's bronze pipes are rust, not pale cream
