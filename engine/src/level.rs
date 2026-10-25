@@ -5,6 +5,7 @@ use crate::levelreset::LevelAppExt;
 use crate::ai;
 use crate::fx::{Bounds, DClass, Destructible, Died, Health};
 use crate::gamedata::{GameData, Props};
+use crate::navgrid::{Mark as NavMark, NavGrid};
 use crate::physics::Physics;
 use crate::player::BombAssets;
 use crate::scene::{self, ClonedParts, Library, PartBind, SceneFile};
@@ -755,6 +756,50 @@ pub(crate) fn hidden_by_class(behavior: &str) -> bool {
     matches!(behavior, "alarm_generator")
 }
 
+/// How a placed object marks the AI's grid as it loads (its load slot's vt+0xfc(1, mode)): the mark, whether only
+/// the cell under it (a default object with a body: DefaultGameObject_MarkGrid 0x004509a0 with 0x004531e0 true),
+/// and whether the mark stays when the object goes (a default object marked with mode 1). None for classes that do
+/// not mark:
+/// - buildings unless invisible (BuildingObject 0x0040ad80: vt+0xfc(1, 1));
+/// - default objects with block_path (default on), neither collide_barrier nor no_collide (DefaultGameObject_Load
+///   0x0044fd20): mode 1 unless object_block (+0x4d0 bit 0x4000 when it is off), mode 2 with it;
+/// - powder kegs with block_path (default on; FxExplosion 0x0041c180: vt+0xfc(1, 2));
+/// - the pub (0x0046a200), anim players (AnimPlayer_Load 0x0040a700) and the turrets (their emitter part
+///   0x00497d00): vt+0xfc(1, 2);
+/// - trees: vt+0xfc(1, 1) (0x00496e90, which reads the IC_tree_slide_N grunts: the tree's load, guess).
+/// (Characters mark the cell they stand on as they stop and start, ai_03.cpp / ai_08.cpp: not ported yet.)
+pub(crate) fn grid_mark(p: &Props, movable: bool) -> Option<(NavMark, bool, bool)> {
+    let flag = |k: &str, d: f32| p.f(k, d) != 0.0;
+    match p.s("behavior").unwrap_or("") {
+        "building" => (!flag("invisible", 0.0)).then_some((NavMark::Static, false, false)),
+        b if is_default_object(b) => {
+            if !flag("block_path", 1.0) || flag("collide_barrier", 0.0) || flag("no_collide", 0.0) {
+                None
+            } else if movable {
+                Some((NavMark::Dynamic, true, false))
+            } else if flag("object_block", 0.0) {
+                Some((NavMark::Dynamic, false, false))
+            } else {
+                Some((NavMark::Static, false, true))
+            }
+        }
+        "fx_explosion" => flag("block_path", 1.0).then_some((NavMark::Dynamic, false, false)),
+        "pub" | "anim_player" | "stig_mgun_turret" | "forge_cannon" | "rocket_tower_turret" | "rocket_bud_turret" => Some((NavMark::Dynamic, false, false)),
+        "tree" => Some((NavMark::Static, false, false)),
+        _ => None,
+    }
+}
+
+/// Marks an object's footprint on the AI's grid by its class (`grid_mark`): the cells under its collision model's
+/// low triangles (Object_MarkGrid 0x004552f0), or the one under its position. `place` is its game matrix.
+fn mark_footprint(grid: &mut NavGrid, e: Entity, p: &Props, movable: bool, model: &scene::Model, place: Mat4) {
+    match grid_mark(p, movable) {
+        Some((mark, true, _)) => grid.mark_cell(e, place.w_axis.truncate().truncate(), mark),
+        Some((mark, false, permanent)) => grid.mark_mesh(e, &model.vertices, &model.tris, place, mark, permanent),
+        None => {}
+    }
+}
+
 /// Whether a behaviour makes a DefaultGameObject (DefaultGameObject_Load 0x0044fd20): no behaviour (the template name
 /// hashes to no class in the behaviour table, 0x0045df60), or "defaultgameobject" by name (the lev_4 trees and logs'
 /// p_l4_trees; molmer's make_tnt creates one by it, game_02.cpp:2806). Both read the default object's keys: the
@@ -880,6 +925,8 @@ pub fn spawn(
     // landscape: its own mesh is its collision
     let skip_visual = lib.skip_landscape_visual;
     let mut decal_world = crate::decals::DecalWorld::new(&[], &[]);
+    // the AI's grid (PathGrid_Build 0x0046ed30 at the landscape's load), then the objects' footprints as they load
+    let mut nav_grid = NavGrid::new(Vec2::from_slice(&scene.bounds[0]), Vec2::from_slice(&scene.bounds[1]));
     let to_game = axes.inverse();
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
         if !skip_visual {
@@ -890,7 +937,11 @@ pub fn spawn(
         }
         physics.landscape = static_collider(physics, model, axes);
         decal_world = crate::decals::DecalWorld::new(&model.vertices, &model.tris);
+        let (min, max) = (Vec2::from_slice(&scene.bounds[0]), Vec2::from_slice(&scene.bounds[1]));
+        nav_grid = NavGrid::from_landscape(min, max, &model.vertices, &model.tris, &model.surfaces);
     }
+    let (cells, blocked) = nav_grid.stats();
+    info!("nav grid: {} x {} cells, {blocked} blocked by the landscape", cells.x, cells.y);
 
     for inst in &scene.instances {
         let p = data.instance_props(&inst.template, &inst.props);
@@ -1224,8 +1275,13 @@ pub fn spawn(
             }
             other => other,
         };
+        let movable = default_object && crate::movable::Movable::new(&p, coll_name.clone()).is_some();
         let collider = match coll_name {
-            Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| static_collider(physics, m, world)),
+            Some(n) => lib.load_model(&n, false, assets, meshes, materials).and_then(|m| {
+                let c = static_collider(physics, m, world)?;
+                mark_footprint(&mut nav_grid, e, &p, movable, m, to_game * world);
+                Some(c)
+            }),
             None => None,
         };
         if let Some(c) = collider {
@@ -1356,6 +1412,15 @@ pub fn spawn(
     let (receivers, receiver_tris) = decal_world.receiver_stats();
     info!("decal receivers: {receivers} objects, {receiver_tris} triangles");
     commands.insert_resource(decal_world);
+    let (_, blocked) = nav_grid.stats();
+    info!("nav grid: {blocked} cells blocked with the objects' footprints");
+    // debug: NAVGRID_DUMP=x,y,radius (game units, cells) prints the grid round that point
+    if let Some(v) = std::env::var("NAVGRID_DUMP").ok().map(|s| s.split(',').filter_map(|n| n.trim().parse::<f32>().ok()).collect::<Vec<_>>()) {
+        if let [x, y, r] = v[..] {
+            info!("{}", nav_grid.ascii(Vec2::new(x, y), r as i32));
+        }
+    }
+    commands.insert_resource(nav_grid);
     info.models = lib.models.len();
     info.static_bodies = physics.static_bodies;
     info.static_triangles = physics.static_triangles;
@@ -1479,6 +1544,7 @@ pub struct StageSwap<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     decal_world: Option<ResMut<'w, crate::decals::DecalWorld>>,
+    nav_grid: Option<ResMut<'w, NavGrid>>,
     /// the next stage's husk pick (Object_LoadBaseProps 0x00451360 of the new object); each level starts it over
     rng: crate::levelreset::PerLevel<'w, 's, crate::fxvm::CrtRand>,
 }
@@ -1497,6 +1563,10 @@ impl StageSwap<'_, '_> {
         }
         if let Some(w) = self.decal_world.as_mut() {
             w.remove_object(e);
+        }
+        // its footprint off the AI's grid (vt+0xfc(0, ..) at the death, game_03.cpp:621)
+        if let Some(g) = self.nav_grid.as_mut() {
+            g.unmark(e);
         }
     }
 
@@ -1549,13 +1619,22 @@ impl StageSwap<'_, '_> {
         let coll_name = ht.collision.clone().or_else(|| (hp.i("collide_poly", 0) != 0).then_some(model_name).flatten());
         // a movable husk (boulder_large -> boulder_medium ...): a new object, unpinned unless its template pins it
         let default_object = is_default_object(hp.s("behavior").unwrap_or(""));
+        let mut movable = false;
         if default_object {
             if let Some(m) = crate::movable::Movable::new(&hp, coll_name.clone()) {
                 self.commands.entity(e).insert(m);
+                movable = true;
             }
         }
         let collider = match coll_name {
-            Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| static_collider(&mut self.physics, m, world)),
+            Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| {
+                let c = static_collider(&mut self.physics, m, world)?;
+                // the husk is a new object: it marks the grid as its class does at load
+                if let Some(g) = self.nav_grid.as_mut() {
+                    mark_footprint(g, e, &hp, movable, m, Mat4::from_quat(game_to_engine()).inverse() * world);
+                }
+                Some(c)
+            }),
             None => None,
         };
         if let Some(c) = collider {

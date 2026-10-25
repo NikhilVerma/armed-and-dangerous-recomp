@@ -75,6 +75,7 @@ mod movie;
 mod mission;
 mod mouselook;
 mod nav;
+mod navgrid;
 mod physics;
 mod physicsstep;
 mod peasant;

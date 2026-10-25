@@ -42,6 +42,7 @@ pub use jumper::{JumpMarker, Jumper};
 
 use crate::levelreset::LevelAppExt;
 use crate::fx::{FxStats, Health};
+use crate::navgrid::NavGrid;
 use crate::physics::{Body, Physics, bv, jv};
 use bevy::prelude::*;
 use oxijolt::prelude::*;
@@ -5630,9 +5631,12 @@ pub struct Companion {
     delay_t: f32,
     muzzle: Option<Entity>,
     p: CompanionFire,
-    /// the route to the slot (0x0046f6d0, re-planned every 0.25 s while moving: nav.rs A*)
+    /// the route to the slot on the AI's grid (0x0046f6d0, navgrid.rs), asked again every 0.25 s while moving
     route: Vec<Vec3>,
-    replan: f32,
+    /// the route's last point is the slot still to be planned (a plan puts at most five points in front of it)
+    target_pending: bool,
+    /// the slot the route was built to (+0xb70): a new route only once the slot moves more than 1 unit from it
+    anchor: Option<Vec3>,
     /// Q's healthy tea (0x004857e0, mode 9): the drop anim's time left, and given once (+0xbcc 0x20000)
     pub tea: f32,
     tea_given: bool,
@@ -5816,7 +5820,8 @@ impl Companion {
             muzzle: None,
             p: fire,
             route: Vec::new(),
-            replan: 0.0,
+            target_pending: false,
+            anchor: None,
             tea: 0.0,
             tea_given: false,
             spawned: false,
@@ -6018,14 +6023,15 @@ impl Companion {
     /// Sets out for the formation point `goal` (0x00483d60 with "move", `formation_route`): on success the route, the
     /// goal and mode 2 (moving, the 0.25 s re-pick timer +0xb68); false when there is no way (he keeps his mode). A
     /// failed try waits for the re-plan timer before the next (the engine's A* costs more than the original's grid).
-    fn set_out(&mut self, physics: &Physics, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> bool {
+    fn set_out(&mut self, grid: &mut NavGrid, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> bool {
         if self.route_retry > 0.0 {
             return false;
         }
-        match formation_route(physics, me, goal, avoid) {
-            Some(route) => {
+        match formation_route(grid, me, goal, avoid) {
+            Some((route, pending)) => {
                 self.route = route;
-                self.replan = 0.25;
+                self.target_pending = pending;
+                self.anchor = Some(goal);
                 self.goal = Some(goal);
                 self.moving = true;
                 self.swap_timer = 0.25;
@@ -6069,44 +6075,30 @@ impl Companion {
     }
 }
 
-/// The route to a formation point (0x00483d60 with "move"): the point must stand on walkable ground (its nav cell
-/// 0x0046f320, a lookup in the plane: here a floor anywhere in its column below his height) and a route must lead there
-/// with Roman's and the partner's places blocked for the search (0x0046ece0(.., 2, 1) / (.., 2, 0) round 0x0046f6d0:
-/// `avoid`); None when either fails. A point within reach in the open needs no route search. The route is never empty:
-/// its end is where the walk ends (0x00470c30). (Roman's ref bones need not lie on the ground: only their x / z
-/// count.)
-fn formation_route(physics: &Physics, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> Option<Vec<Vec3>> {
-    // down from just above his own height (as nav.rs samples), through the undersides of what overhangs
-    let mut top = me.y + 20.0;
-    let mut floor = false;
-    for _ in 0..4 {
-        match physics.raycast(goal.with_y(top), -Vec3::Y, 600.0) {
-            Some(h) if h.2.y > 0.55 => {
-                floor = true;
-                break;
-            }
-            Some(h) => top = h.1.y - 0.5,
-            None => break,
-        }
+/// A position on the AI's grid (game x / y) from engine space, and back at the height `y` (the grid's routes have
+/// none: their nodes' z is 0, AIRoute_Build 0x0046f6d0).
+fn to_grid(v: Vec3) -> Vec2 {
+    let g = crate::level::game_to_engine().inverse() * v;
+    Vec2::new(g.x, g.y)
+}
+
+fn from_grid(p: Vec2, y: f32) -> Vec3 {
+    (crate::level::game_to_engine() * p.extend(0.0)).with_y(y)
+}
+
+/// The route to a formation point on the AI's grid (0x00483d60 with "move"): the point must lie on the grid (its cell,
+/// 0x0046f320) and a route must lead there (AIRoute_Build 0x0046f6d0 without a start node; navgrid.rs) with Roman's
+/// and the partner's places kept out of the search (0x0046ece0(.., 2, 1) / (.., 2, 0): `avoid`); None when either
+/// fails. The route's points at his height, and whether its last is the point still to be planned (`Route`).
+fn formation_route(grid: &mut NavGrid, me: Vec3, goal: Vec3, avoid: &[Vec3]) -> Option<(Vec<Vec3>, bool)> {
+    grid.cell(to_grid(goal))?;
+    let avoid: Vec<Vec2> = avoid.iter().map(|a| to_grid(*a)).collect();
+    let route = grid.plan_avoiding(to_grid(me), to_grid(goal), &avoid, crate::nav::node_budget());
+    if std::env::var("AIDBG").is_ok() {
+        info!("AIDBG formation route from {} to {} avoiding {avoid:?}: {route:?}", to_grid(me), to_grid(goal));
     }
-    if !floor {
-        return None;
-    }
-    // a straight walk at knee height from `from` to the point (only x / z of the point count)
-    let clear = |from: Vec3| {
-        let (a, b) = (from + Vec3::Y * 5.0, goal.with_y(from.y + 5.0));
-        physics.raycast(a, (b - a).normalize_or(Vec3::X), (b - a).length()).is_none()
-    };
-    // a point within reach in the open needs no route search: the point itself
-    if (goal - me).with_y(0.0).length() < 9.0 && clear(me) {
-        return Some(vec![goal]);
-    }
-    // else the grid's route, which ends at the nearest cell it reaches; the point itself last when open from there
-    let mut route = crate::nav::path(physics, me, goal, avoid)?;
-    if route.last().is_some_and(|&l| (goal - l).with_y(0.0).length() < 9.0 && clear(l)) {
-        route.push(goal);
-    }
-    Some(route)
+    let route = route?;
+    Some((route.points.iter().map(|p| from_grid(*p, me.y)).collect(), route.target_unplanned))
 }
 
 pub struct CompanionPlugin;
@@ -6267,18 +6259,21 @@ fn companions(
         Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
         ResMut<AiForce>,
     ),
-    (path, topsy, glove, mounted, held_q, ids): (
+    (path, topsy, glove, mounted, held_q, ids, nav): (
         Res<crate::campath::CameraPath>,
         Res<crate::topsy::Topsy>,
         Res<crate::weapons::glove::Glove>,
         Res<crate::turret::Mounted>,
         Query<&Companion, Or<(With<tower::OnTask>, With<carried::Knocked>, With<close_kill::Killing>)>>,
         Query<&crate::level::InstanceId>,
+        Option<ResMut<NavGrid>>,
     ),
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let Ok((rt, r, ra, rh)) = roman.single() else { return };
+    // the AI's grid (Game+0xaa4), made with the level
+    let Some(mut nav) = nav else { return };
     let bone = |a: &crate::skin::Animator, n: &str| a.skeleton.index.get(n).and_then(|&i| joints.get(a.joints[i]).ok()).map(|t| t.translation());
     // Roman's aim point (Game+0xa6c): where the crosshair ray meets the world, else far along it
     let aim_point = cam.single().ok().map(|c| {
@@ -6412,7 +6407,6 @@ fn companions(
             }
         }
         c.search -= dt;
-        c.replan -= dt;
         c.route_retry -= dt;
         let live_at = |t: Entity| grunts.get(t).ok().filter(|(_, g, _, _)| g.mind != Mind::Dead).map(|(_, _, gt, _)| gt.translation());
         // at each search tick a held target is tested as Slot96 0x004853a0 does at 2 x scan_distance (vt+0x180 of the
@@ -6612,16 +6606,16 @@ fn companions(
                 let force = roman_dir.dot(c.roman_dir) < 0.0;
                 leader_pick(c, e, me, force, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
-            c.set_out(&physics, me, point(c), &avoid);
+            c.set_out(&mut nav, me, point(c), &avoid);
         } else if c.target.is_none() && std::mem::take(&mut c.return_req) {
             // the return order (0x00484290): the pick unless the partner idles, the route
             if !partner_idle {
                 leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
-            c.set_out(&physics, me, point(c), &avoid);
+            c.set_out(&mut nav, me, point(c), &avoid);
         } else if back_to_formation {
             // the fight's end (mode 3 -> 2: 0x00483d60(1, 0, 0))
-            c.set_out(&physics, me, point(c), &avoid);
+            c.set_out(&mut nav, me, point(c), &avoid);
         }
         // the attack order's target gone and the fight over: the first update with the held target +0xbb0 out of the
         // fight (Q111Object_Slot139 0x00485490, mode 1 / 2) drops it and the pair returns to Defend Me without a line
@@ -6646,26 +6640,46 @@ fn companions(
                 c.swap_timer = 0.25;
                 if !partner_idle {
                     leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
-                    // and the route to the new formation point (0x00483d60(1, 0, 1))
-                    c.goal = Some(point(c));
+                    // and the route to the new formation point (0x00483d60(1, 0, 1)), built again only once the point
+                    // has moved more than 1 unit from the one routed to (+0xb70); none to be had: the route cleared
+                    // (0x0046f440), so the walk ends
+                    let to = point(c);
+                    c.goal = Some(to);
+                    if c.anchor.is_none_or(|a| (a - to).with_y(0.0).length() > 1.0) {
+                        match formation_route(&mut nav, me, to, &avoid) {
+                            Some((route, pending)) => {
+                                c.route = route;
+                                c.target_pending = pending;
+                                c.anchor = Some(to);
+                            }
+                            None => c.route.clear(),
+                        }
+                    }
                 }
             }
         }
         if c.moving {
-            // the route followed (0x00470aa0), re-planned every 0.25 s; none to be had: the walk ends where he stands
-            // (0x00470c30 false -> mode 1)
-            if c.replan <= 0.0 {
-                c.replan = 0.25;
-                match formation_route(&physics, me, goal, &avoid) {
-                    Some(route) => c.route = route,
+            // the route followed (AIRoute_Update 0x00470aa0): the points reached pop (within 2.5 units,
+            // AIRoute_CheckReached 0x0046f900); the slot next and still to be planned is planned from here
+            // (AIRoute_Plan 0x0046fa80, at most twice an update); none to be had: the route cleared, the walk ends
+            // where he stands (0x00470c30 false -> mode 1)
+            for _ in 0..2 {
+                while c.route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < 2.5) {
+                    c.route.remove(0);
+                }
+                if !(c.target_pending && c.route.len() == 1) {
+                    break;
+                }
+                match nav.plan(to_grid(me), to_grid(c.route[0]), crate::nav::node_budget()) {
+                    Some(r) => {
+                        c.target_pending = r.target_unplanned;
+                        c.route = r.points.iter().map(|p| from_grid(*p, me.y)).collect();
+                    }
                     None => {
-                        c.moving = false;
+                        c.target_pending = false;
                         c.route.clear();
                     }
                 }
-            }
-            while c.route.first().is_some_and(|w| (*w - me).with_y(0.0).length() < 4.0) {
-                c.route.remove(0);
             }
             // arrival (mode 2 -> 1, ai_08.cpp:2056-2081): the route used up (AIRoute_HasRoute 0x00470c30 false after
             // AIRoute_Update popped its last node), wherever that left him: a pick unless the partner idles, and +0xb68
