@@ -1117,6 +1117,13 @@ Traps found on the way:
   depth path; the alpha-tested ones are Blend (never in the depth prepass) and the shadow pass binds their material
   anyway (MAY_DISCARD). 4K Remaster bench unchanged within noise (~110 fps avg before and after). Systems that touch
   game materials are generic over `Coverage` and registered for both types (camfade.rs, graphics apply_game_materials).
+- The camera's depth prepass must cull the faces the colour pass culls. Bevy's prepass pipeline draws both faces by
+  default, its colour pass only the front ones: an open surface seen from its back (Roman's jump pack wing blades)
+  got the back face's depth in the prepass, the colour pass culled it and failed everything behind against that
+  depth, and the pixels kept the clear (fog) colour: lev_3_m2's "orange jagged fragments" (2026-10-25,
+  gamematerial.rs specialize; the original draws one-sided, D3DCULL_CW via 0x004fd000 / 0x00504940 / 0x005ca798).
+  The sun's shadow views still draw both faces. Diagnosis tip: a defect that vanishes with no prepass (MSAA, no AO,
+  snow off, soft_particles 0) and keeps its colour whatever the material's colours are is a prepass mismatch.
 - Never assume a material plugin can load another plugin's embedded shader before that plugin's build ran: the load
   fails ("Path not found: and_remaster\gamematerial.wesl") and the failed handle is shared, so the game material
   drew nothing at all.

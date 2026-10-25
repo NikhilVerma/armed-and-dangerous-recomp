@@ -167,6 +167,20 @@ impl<C: Coverage> Material for GameMaterial<C> {
         key: bevy::pbr::MaterialPipelineKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         let prepass_pipeline = descriptor.vertex.shader_defs.iter().any(|d| matches!(d, bevy::shader::ShaderDefVal::Bool(n, true) if n == "PREPASS_PIPELINE"));
+        // The faces drawn: the colour pass and the camera's depth prepass both draw only the front faces, as the
+        // original draws every material one-sided (a draw state starts with cull index 1, Renderer_CreateDrawState
+        // 0x004fd000, which Renderer_ApplyDrawState 0x00504940 maps through table 0x005ca798 {NONE, CW, CCW} to
+        // D3DRS_CULLMODE = D3DCULL_CW). Bevy's prepass pipeline draws both faces unless told otherwise, and the
+        // colour pass only the front ones: where an open surface showed its back (Roman's jump pack's wing blades,
+        // single-sided strips), the prepass wrote the back face's depth, the colour pass culled that face and then
+        // failed every surface behind it against that depth, and the pixel kept the clear (fog) colour: the wings
+        // drew as jagged orange fragments in lev_3_m2's sunset fog instead of dark blades. The sun's shadow views
+        // (the prepass pipeline with a projection in the key: Bevy's light views; the camera's prepass key has none)
+        // keep both faces, so a thin card or blade casts from either side.
+        let shadow_view = prepass_pipeline && key.mesh_key.intersects(bevy::pbr::MeshPipelineKey::VIEW_PROJECTION_RESERVED_BITS);
+        if !shadow_view {
+            descriptor.primitive.cull_mode = Some(bevy::render::render_resource::Face::Back);
+        }
         if !prepass_pipeline {
             // the third uv set (gamematerial.wesl `uv_c`, location UV_C_LOCATION) from the mesh's own interleaved buffer:
             // lev_3_m3's / lev_bonus_m1's terrain masks (uv_sets 0x90) span the level once on it; a mesh without one
