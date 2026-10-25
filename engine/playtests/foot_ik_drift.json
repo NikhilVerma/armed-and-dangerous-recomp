@@ -1,0 +1,9 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"warp": [190.68, -69.44, 13.76, 90]},
+ {"wait": 1.5},
+ {"expect": {"ref_q_z": [-5, 5]}},
+ {"wait": 11.0},
+ {"expect": {"ref_q_z": [-5, 5], "foot_drop": [-0.11, -0.09]}},
+ {"quit": true}
+]}
