@@ -132,6 +132,18 @@ pub struct ElementScale(pub f32);
 /// the layout.
 const CHAT_TEXT_SCALE: f32 = 0.6;
 
+/// The original's text shadow (flag 0x200 of every ui_text, init 0x004651a0; drawn by the text renderer 0x005078c0):
+/// a black copy 2 px right and 2 px down, in the pixels the glyphs are drawn in (2 units of the 640 x 480 layout).
+const TEXT_SHADOW: f32 = 2.0;
+
+/// The remaster's own size factor on a layout text element, over the layout's scale: [`CHAT_TEXT_SCALE`] for the
+/// chat lines, 1 otherwise. The whole text is drawn at this size, its shadow offset included: the original's
+/// shadow is 2 px at the size its glyphs are drawn (review 2026-10-25: at the full 2 units under 0.6-size chat
+/// glyphs the shadow sat apart from the letters, a doubled black copy below-right).
+fn text_size_factor(name: &str) -> f32 {
+    if name.starts_with("ui_chat_") { CHAT_TEXT_SCALE } else { 1.0 }
+}
+
 /// One drawn HUD element and how to place it.
 #[derive(Component, Clone)]
 pub struct HudElement {
@@ -367,7 +379,7 @@ pub fn spawn(
             // the chat lines' glyphs at CHAT_TEXT_SCALE of the element's size (in the text's own scale, not an
             // ElementScale: a component on these entities alone moved the gameplay queries' archetype order, which
             // draws the shared random stream in another order, see ai.rs `companions`)
-            let k = if e.name.starts_with("ui_chat_") { CHAT_TEXT_SCALE } else { 1.0 };
+            let k = text_size_factor(&e.name);
             commands.spawn((
                 el,
                 HudText { text: String::new(), built: None, scale: e.scale.unwrap_or(1.0) * k, colour: parse_colour(e.colour.as_deref()), fit: 0.0 },
@@ -1306,9 +1318,10 @@ fn texts(
         }
         // fitted to its box (UiText_FitToBox 0x004656f0 / UiText_FitScale 0x00465720: the prompts' 576 units)
         let scale = fit_scale(&hud.font, &t.text, t.scale, t.fit);
-        // shadow 2 px right and down (of 480), drawn first
+        // shadow 2 px right and down (of 480) at the text's drawn size, drawn first
         let (front_mesh, size, icon_mesh) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, scale, Vec2::ZERO, t.colour);
-        let (shadow_mesh, _, _) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, scale, Vec2::new(2.0, -2.0), Color::BLACK);
+        let shadow_offset = Vec2::new(1.0, -1.0) * TEXT_SHADOW * text_size_factor(&el.name);
+        let (shadow_mesh, _, _) = text_mesh(&hud.font, hud.icons.as_ref(), &t.text, scale, shadow_offset, Color::BLACK);
         let dx = -align.map(|a| a.0).unwrap_or(0.0) * size.x / 2.0;
         let shadow = commands
             .spawn((Mesh2d(meshes.add(shadow_mesh)), MeshMaterial2d(hud.shadow_material.clone()), Transform::from_xyz(dx, 0.0, 20.0), layer.clone()))
