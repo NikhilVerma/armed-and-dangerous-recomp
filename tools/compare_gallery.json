@@ -1,14 +1,15 @@
 {
  "about": "Shot list for tools/compare_gallery.py. keys: the hook's keys_frames form counted in play frames (frame 0 = play_delay frames after the briefing appears; 0:ENTER*3 dismisses it); frame: the play frame captured; warp: Roman's feet at play frame -10 (game space); crop: fractions of the 3D strip [x0, y0, x1, y1]; before: omitted = the original exe, \"preset\" = the engine's Original preset (fallback). widescreen: the remaster runs its own follow camera at widescreen_size (no --camera) and the whole 4:3 original frame is shown. original_size per shot overrides the capture size (close-up crops).",
  "original_size": [
-  1280,
-  960
+  2560,
+  1920
  ],
  "play_delay": 30,
- "side_width": 1920,
- "stack_width": 1280,
- "hero_width": 1600,
- "budget_kb": 400,
+ "side_width": 3844,
+ "stack_width": 1920,
+ "hero_width": 3844,
+ "budget_kb": 1000,
+ "widescreen_height": 1080,
  "layout": "side",
  "remaster": {
   "preset": "remaster",
@@ -99,8 +100,8 @@
    ],
    "hold_health": true,
    "original_size": [
-    1600,
-    1200
+    3840,
+    2880
    ],
    "crop": [
     0.12,
@@ -122,8 +123,8 @@
    ],
    "hold_health": true,
    "original_size": [
-    1600,
-    1200
+    3840,
+    2880
    ],
    "crop": [
     0.33,

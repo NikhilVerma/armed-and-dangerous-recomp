@@ -49,7 +49,7 @@ PACK_STORE = WORK / "textures_pack"
 TRUSTED_MANIFEST = ROOT / "tools" / "data" / "remaster_textures.manifest.json"
 # Where the texture pack will be published: not decided yet (README "Getting started"). Until then pass a local
 # archive. When it is published, put its URL here and commit its manifest as TRUSTED_MANIFEST.
-PACK_URL = "https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/textures/v1/remaster_textures.zip"
+PACK_URL = "https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/textures/v2/remaster_textures.zip"
 
 KNOWN_EXES = {
     "960df24c70d788a34946fa5984685ef69bf2c0cacf04a275769472ce302f5b45": "Steam, app 6090, build 251748 (tested)",

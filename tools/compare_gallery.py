@@ -76,9 +76,7 @@ def capture_original(shot, cfg, d):
         test["play_warp"] = ",".join(str(v) for v in shot["warp"])
     if shot.get("hold_health"):
         test["play_hold_health"] = 1
-    # the shipped code, except the recovered Camera_SetupProjection 0x0040f6e0 (S2, verified equal by
-    # tools/compare.py): its projection callback is where the hook records the camera it dumps
-    hooks = {n: n == "Camera_SetupProjection" for n in compare.hook_names()}
+    hooks = {n: n in CAPTURE_HOOKS for n in compare.hook_names()}
     compare.write_ini(hooks, shot["level"], 0, shot.get("keys", ""), test, None,
                       {"display": {"width": w, "height": h}}, gd)
     opt = os.path.join(gd, "SavedGames", "options.opt")
@@ -165,6 +163,13 @@ def strip_size(cfg, shot):
     return w, round(h * 0.775)
 
 
+# The shipped code, except two recovered functions: Camera_SetupProjection 0x0040f6e0 (S2, verified equal by
+# tools/compare.py), whose projection callback is where the hook records the camera it dumps, and
+# Renderer_EnumerateDisplayModes 0x005089d0 (S3), whose mode filter the hook widens: the shipped one offers modes
+# at most 1600 wide, so a larger capture size fell back to 1600x1280.
+CAPTURE_HOOKS = {"Camera_SetupProjection", "Renderer_EnumerateDisplayModes"}
+
+
 # --- composition --------------------------------------------------------------------------------------------------
 
 def original_strip(d):
@@ -209,8 +214,8 @@ def label(im, text, corner="tl"):
 
 
 def save_jpeg(im, path, budget):
-    for q in range(90, 40, -4):
-        im.save(path, "JPEG", quality=q, optimize=True, progressive=True, subsampling="4:2:0")
+    for q in range(95, 40, -3):
+        im.save(path, "JPEG", quality=q, optimize=True, progressive=True, subsampling="4:4:4" if q >= 86 else "4:2:0")
         if os.path.getsize(path) <= budget:
             return q
     return q

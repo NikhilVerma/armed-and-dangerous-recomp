@@ -5,16 +5,16 @@ Usage:
                                  [--exe target-wt-shots] [--list]
 
 Reads tools/compare_videos.json (the levels, the input, the clip). For each level:
-1. The original game (orig/pc/GameData, the shipped code: every recovered function off but Camera_SetupProjection,
-   as tools/compare_gallery.py) runs off-screen and muted in its own game instance ("videos", tools/instances.py) with
+1. The original game (orig/pc/GameData, the shipped code: every recovered function off but
+   compare_gallery.CAPTURE_HOOKS) runs off-screen and muted in its own game instance ("videos", tools/instances.py) with
    the scripted keys counted from the briefing, and dumps every `step`-th play frame of the clip as a BMP with its
    camera ([test] hash_frames first:every:count, dump_hashed: hook/src/testshot.cpp).
 2. The remaster runs headless (--background, muted) on the same keys (engine/src/oracle.rs "oracle" section, a
    screenshot every `step`-th play frame), with the JSON's settings (the gallery's: tools/compare_gallery.json
    `remaster`), its own follow camera (the original's moves with Roman too; both start behind him at the level start).
 3. Each frame pair is composed side by side (the original's 3D strip, the letterbox cut as in the gallery; labels as
-   the gallery's) and ffmpeg encodes work/videos/<level>.mp4 (H.264, `fps`, `width` wide, scaled down until the
-   file is under `max_mb`) and the two raw clips work/videos/<level>_original.mp4 / <level>_remaster.mp4. The frame
+   the gallery's) and ffmpeg encodes work/videos/<level>.mp4 (AV1 on the GPU at constant quality, `fps`,
+   `side_width` per side) and the two raw clips work/videos/<level>_original.mp4 / <level>_remaster.mp4. The frame
    dumps are deleted after encoding. Nothing here is committed: the clips go to a release.
 
 Levels whose Roman starts in a turret (the mission's start_in_turret_tag: the base defence levels) are not in the set:
@@ -59,7 +59,7 @@ def capture_original(level, cfg, d):
     test = {"keys_from_play": 1, "play_delay": delay, "play_frames": frames[-1] + 10, "reseed_on_load": 1,
             "hash_from_load": 1, "hash_frames": f"{first}:{cfg['step']}:{len(frames)}", "dump_hashed": 1, "d3d_trace": 0,
             "offscreen": 1, "parallel": 1, "exit_frame": 0}
-    hooks = {n: n == "Camera_SetupProjection" for n in compare.hook_names()}
+    hooks = {n: n in gallery.CAPTURE_HOOKS for n in compare.hook_names()}
     compare.write_ini(hooks, level["level"], 0, level.get("keys", cfg["keys"]), test, None, {"display": {"width": w, "height": h}}, gd)
     opt = os.path.join(gd, "SavedGames", "options.opt")
     if os.path.exists(opt):
@@ -126,18 +126,17 @@ def ffmpeg(args):
 
 
 def encode(src_pattern, out, cfg, width):
-    """H.264 at the JSON's frame rate, scaled to `width`; bit rate lowered until the file fits max_mb."""
-    rate = cfg["bitrate_kbps"]
-    for _ in range(4):
-        r = ffmpeg(["-framerate", str(cfg["fps"]), "-i", src_pattern, "-vf", f"scale={width}:-2:flags=lanczos",
-                    "-c:v", "libx264", "-preset", "slow", "-b:v", f"{rate}k", "-maxrate", f"{int(rate * 1.5)}k",
-                    "-bufsize", f"{rate * 2}k", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out])
-        if r.returncode:
-            print("  ffmpeg:", r.stderr[-500:])
-            return False
-        if os.path.getsize(out) <= cfg["max_mb"] * 1024 * 1024:
-            return True
-        rate = int(rate * 0.7)
+    """AV1 on the GPU (NVENC, 10-bit, constant quality `cq`: no bit-rate cap, so no compression artefacts) at the
+    JSON's frame rate, scaled to `width`; libx264 at `crf` when the GPU encoder is unavailable."""
+    src = ["-framerate", str(cfg["fps"]), "-i", src_pattern, "-vf", f"scale={width}:-2:flags=lanczos"]
+    tail = ["-movflags", "+faststart", out]
+    r = ffmpeg([*src, "-c:v", "av1_nvenc", "-preset", "p7", "-tune", "hq", "-rc", "vbr", "-cq", str(cfg["cq"]),
+                "-b:v", "0", "-pix_fmt", "p010le", *tail])
+    if r.returncode:
+        r = ffmpeg([*src, "-c:v", "libx264", "-preset", "slow", "-crf", str(cfg["crf"]), "-pix_fmt", "yuv420p", *tail])
+    if r.returncode:
+        print("  ffmpeg:", r.stderr[-500:])
+        return False
     return True
 
 
@@ -146,19 +145,20 @@ def compose(level, cfg, d):
     n = len(frames_of(cfg))
     side = os.path.join(d, "side")
     os.makedirs(side, exist_ok=True)
-    half = (cfg["width"] - 4) // 2
+    half = cfg["side_width"]
+    width = 2 * half + 4
     for i in range(n):
         a = Image.open(os.path.join(d, "original", f"{i:04d}.png")).convert("RGB")
         b = Image.open(os.path.join(d, "remaster", f"{i:04d}.png")).convert("RGB")
         h = round(a.height * half / a.width) // 2 * 2
         a = gallery.label(a.resize((half, h), Image.LANCZOS), "Original (2003)", "tl")
         b = gallery.label(b.resize((half, h), Image.LANCZOS), "Remaster", "tl")
-        out = Image.new("RGB", (cfg["width"], h), (16, 16, 16))
+        out = Image.new("RGB", (width, h), (16, 16, 16))
         out.paste(a, (0, 0))
-        out.paste(b, (cfg["width"] - half, 0))
+        out.paste(b, (width - half, 0))
         out.save(os.path.join(side, f"{i:04d}.png"))
     name = level["level"]
-    ok = encode(os.path.join(side, "%04d.png"), os.path.join(OUT, f"{name}.mp4"), cfg, cfg["width"])
+    ok = encode(os.path.join(side, "%04d.png"), os.path.join(OUT, f"{name}.mp4"), cfg, width)
     ok &= encode(os.path.join(d, "original", "%04d.png"), os.path.join(OUT, f"{name}_original.mp4"), cfg, half)
     ok &= encode(os.path.join(d, "remaster", "%04d.png"), os.path.join(OUT, f"{name}_remaster.mp4"), cfg, half)
     for f in ("side",):
@@ -201,6 +201,9 @@ def main():
             continue
         if not (a.encode_only or a.skip_remaster) and not capture_remaster(lv, cfg, d, a.exe):
             print("  remaster: incomplete, not encoded")
+            continue
+        if a.skip_remaster and not os.path.isdir(os.path.join(d, "remaster")):
+            print("  remaster: no frames yet, original frames kept for a later --skip-original run")
             continue
         if compose(lv, cfg, d) and not a.keep_frames:
             shutil.rmtree(d, ignore_errors=True)

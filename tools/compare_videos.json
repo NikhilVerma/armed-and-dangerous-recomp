@@ -7,16 +7,16 @@
  "fps": 30,
  "step": 2,
  "original_size": [
-  1024,
-  768
+  1920,
+  1440
  ],
  "remaster_size": [
-  960,
-  558
+  1920,
+  1116
  ],
- "width": 1920,
- "bitrate_kbps": 3600,
- "max_mb": 6,
+ "side_width": 1920,
+ "cq": 18,
+ "crf": 14,
  "briefing_frames": {
   "lev_1_m1": 299,
   "lev_2_m3": 0,
