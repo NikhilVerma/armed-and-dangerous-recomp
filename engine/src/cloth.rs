@@ -68,7 +68,8 @@ fn hang(
         }
         let Some(model) = data.templates.get(CAPE_TEMPLATE).and_then(|t| t.model.clone()) else { continue };
         if let Some(cape) = kit.spawn(&mut commands, &model, *t, true) {
-            commands.entity(cape).insert(Cape { owner: e, particles: Vec::new(), swing: 0.0, stretch: 0.0, anchor_error: 0.0 });
+            // attached to Q (0x00487a40): it fades with him (camfade.rs)
+            commands.entity(cape).insert((Cape { owner: e, particles: Vec::new(), swing: 0.0, stretch: 0.0, anchor_error: 0.0 }, crate::camfade::AlphaFollows(e)));
             info!("EVENT cloth: Q's cape {model} hung");
         }
     }

@@ -45,7 +45,7 @@ impl Plugin for CameraFadePlugin {
         app.init_level_resource::<CameraFade>()
             .add_systems(
                 PostUpdate,
-                (fade, (object_alpha::<Solid>, object_alpha::<AlphaTested>))
+                (fade, follow_alpha, (object_alpha::<Solid>, object_alpha::<AlphaTested>))
                     .chain()
                     .after(crate::camera::CameraPlace)
                     .before(bevy::transform::TransformSystems::Propagate),
@@ -118,6 +118,23 @@ fn set_alpha(commands: &mut Commands, alphas: &mut Query<Option<&mut ObjectAlpha
 /// own copies of their materials, the alpha in emissive.w as the camera fade's (1 - alpha).
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub struct ObjectAlpha(pub f32);
+
+/// On an object attached to a character outside its hierarchy (Q's cape, cloth.rs): it takes that character's alpha.
+/// Character_SetFade 0x0042eb60 sets the alpha of the character's attachments (+0x61c) with its own, so Q's cape
+/// fades with him when the camera fades him.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct AlphaFollows(pub Entity);
+
+/// The attachments' alpha from their characters' (0x0042eb60), after this frame's fade.
+fn follow_alpha(mut commands: Commands, followers: Query<(Entity, &AlphaFollows)>, mut alphas: Query<Option<&mut ObjectAlpha>>) {
+    for (e, f) in &followers {
+        let Ok(owner) = alphas.get(f.0).map(|a| a.map_or(1.0, |a| a.0)) else { continue };
+        let own = alphas.get(e).ok().flatten().map_or(1.0, |a| a.0);
+        if own != owner {
+            set_alpha(&mut commands, &mut alphas, e, owner);
+        }
+    }
+}
 
 /// The state log's "character_alpha": the characters fading (alpha below 1) and their meshes, the whole hierarchy (a
 /// character's body, the weapon in his hand, a pack on his back: Character_SetFade 0x0042eb60 sets the character's,

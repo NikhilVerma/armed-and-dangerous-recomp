@@ -248,6 +248,15 @@ impl Physics {
         volume.map(|(_, id, at, n)| (id, at, n)).or(world)
     }
 
+    /// The characters' hit volumes a ray from `from` along the unit `d` enters within `reach` (the camera's rays pass
+    /// through characters and fade them, as they pass through any object: camera.rs follow_camera).
+    pub fn hit_volumes_along(&self, from: Vec3, d: Vec3, reach: f32) -> impl Iterator<Item = BodyId> + '_ {
+        self.hit_volumes.iter().filter_map(move |(&id, v)| {
+            let centre = self.from_m(self.world.body(id).ok()?.position());
+            v.ray(centre, from, d, reach).map(|_| id)
+        })
+    }
+
     fn raycast_bullet_bodies(&self, from: Vec3, d: Vec3, length: f32) -> Option<(BodyId, Vec3, Vec3)> {
         let (mut from, mut left) = (from, length);
         for _ in 0..16 {

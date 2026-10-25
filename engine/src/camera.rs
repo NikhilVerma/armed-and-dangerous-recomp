@@ -256,6 +256,11 @@ pub fn follow_camera(
     (topsy, cheats, mounted, lib): (Res<crate::topsy::Topsy>, Res<crate::cheats::Cheats>, Res<crate::turret::Mounted>, Res<crate::skin::AnimLibrary>),
     (mut rig, mut smooth, mut base_fov): (ResMut<CameraRig>, ResMut<CameraSmooth>, crate::levelreset::PerLevel<Option<f32>>),
     (peasants, parents): (Option<Res<crate::peasant::PeasantTally>>, Query<&ChildOf>),
+    (companions, hulls, binds): (
+        Query<(Entity, &crate::ai::Companion, &GlobalTransform, &crate::skin::Animator)>,
+        Option<Res<crate::hitparts::HitHulls>>,
+        Res<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
+    ),
 ) {
     // the unzoomed FOV, taken from the level's camera (a restart while zoomed must not keep the zoomed one)
     let base_fov = base_fov.get();
@@ -327,13 +332,16 @@ pub fn follow_camera(
         // every ray as long as the arm and the carried peasants' pull-back (0x2c)
         let mut from = target;
         let mut left = reach;
+        // where the landscape stops this ray
+        let mut stop = reach;
         // through objects: the landscape alone stops the ray; placed objects and moving bodies hit fade
         while let Some((body, at, normal)) = physics.raycast(from, dir, left) {
             // a landscape face hit from behind (the look target inside a steep hill at its foot: Jolt's rays hit back
             // faces) does not stop the arm; the original's camera stays behind Roman there (fightO 1440, guess: its
             // Havok landscape ray is one-sided)
             if physics.landscape == Some(body) && normal.dot(dir) < 0.0 {
-                dist = dist.min(at.distance(target));
+                stop = at.distance(target);
+                dist = dist.min(stop);
                 break;
             }
             let object = physics.bodies.get(&body).copied().or_else(|| placed.iter().find(|(_, p)| p.collider == Some(physics.main_body(body))).map(|(e, _)| e));
@@ -346,6 +354,25 @@ pub fn follow_camera(
             left -= step;
             if left <= 0.0 {
                 break;
+            }
+        }
+        // the characters on the ray fade as any object does: the ray meets their collision models. The grunts' by
+        // their hit volumes (shins to head; their walking body is a sphere at the feet that a ray from the head
+        // passes over), the companions' (Jonesy, Q: walkers outside the physics world) by their collision parts
+        for body in physics.hit_volumes_along(target, dir, stop) {
+            if let Some(&object) = physics.bodies.get(&body)
+                && object != roman_entity
+            {
+                fade.hit(object);
+            }
+        }
+        if let Some(h) = hulls.as_deref() {
+            let end = target + dir * stop;
+            for (e, c, ct, a) in &companions {
+                let parts = if c.q { &h.q111 } else { &h.molmer };
+                if !parts.is_empty() && crate::hitparts::near_segment(ct.translation(), target, end) && crate::hitparts::hit(parts, a, &joints, &binds, target, end).is_some() {
+                    fade.hit(e);
+                }
             }
         }
     }

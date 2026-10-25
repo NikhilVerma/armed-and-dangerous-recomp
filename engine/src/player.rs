@@ -2256,10 +2256,7 @@ fn projectiles(
                     }
                     let Some(a) = ca else { continue };
                     let parts = if c.q { &h.q111 } else { &h.molmer };
-                    let seg = to - from;
-                    let cc = ct.translation + Vec3::Y * 5.0;
-                    let u = ((cc - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
-                    if parts.is_empty() || (from + seg * u).distance(cc) > 12.0 {
+                    if parts.is_empty() || !crate::hitparts::near_segment(ct.translation, from, to) {
                         continue;
                     }
                     if let Some((f, part)) = crate::hitparts::hit(parts, a, &joints, &binds, from, to) {

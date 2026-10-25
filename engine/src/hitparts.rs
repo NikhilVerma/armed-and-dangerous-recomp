@@ -144,3 +144,11 @@ pub fn hit(
     }
     best.map(|(t, b)| (t, a.skeleton.names[b].trim().to_lowercase()))
 }
+
+/// Whether the segment from -> to passes near enough a character standing at `feet` for its parts to be worth testing
+/// (within 12 units of its middle, 5 above the feet: every character's collision model fits in that).
+pub fn near_segment(feet: Vec3, from: Vec3, to: Vec3) -> bool {
+    let (c, seg) = (feet + Vec3::Y * 5.0, to - from);
+    let u = ((c - from).dot(seg) / seg.length_squared().max(1e-6)).clamp(0.0, 1.0);
+    (from + seg * u).distance(c) <= 12.0
+}
