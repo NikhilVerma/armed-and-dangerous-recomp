@@ -1503,6 +1503,11 @@ gaim.json (10 s, speech and fighting): 29 distinct sounds heard advancing, voice
   stayed the clear colour (lev_bonus_m1's orange "sky holes" on the far castle walls, 2026-10-25). The colour pass of
   the prepassed opaque pipelines takes a small depth bias toward the camera (gamematerial.rs `specialize`). Telling
   sign: the artefact appears in the Original preset with `--graphics anti_aliasing=taa`, not without.
+- **Jolt's slope limit is a wall.** A CharacterVirtual's max_slope_angle does not make steep ground slippery: the
+  solver adds a vertical plane in front of it, so the character cannot move up it at all and slides sideways along it.
+  Roman's walker has no limit (0); player.rs decides steepness from `Physics::walker_floor` as the original does
+  (docs/subsystems/player.md "Steep slopes"). Jolt also leaves a resting walker up to ~0.1 m (0.5 units) above the
+  ground as a predictive contact (had_collision false): count contacts within a tolerance, not had_collision alone.
 - **The far plane is the level's.** options.rs `world_far`: global_settings clip_far, or fog_far plus one landscape
   grid cell's diagonal (LevelProperties_Load 0x00423900; scene.json `cell_size`, older exports fall back to the
   lev_1_m1 ratio).

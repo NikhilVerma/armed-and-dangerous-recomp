@@ -1,0 +1,12 @@
+{"scene": "lev_1_m3", "steps": [
+ {"note": "the walk of tools/compare_videos.json: W held from the start up the snow hill the original's Roman climbs (a face of normal z 0.53, ~58 degrees). Jolt's slope limit used to turn it into a wall: he slid back to x 3086 in trotter_jump_idle (player.rs WALKABLE_NZ, 0x00477c90 / 0x00478200)"},
+ {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 0.2},
+ {"down": "KeyW"},
+ {"wait": 5.0},
+ {"expect": {"feet_x": [3128, 3140], "feet_y": [4, 12], "on_ground": true}},
+ {"wait": 3.0},
+ {"expect": {"feet_x": [3110, 3130], "feet_y": [26, 48], "jumping": false}},
+ {"wait": 1.5},
+ {"expect": {"feet_x": [3110, 3136], "on_ground": true}},
+ {"quit": true}
+]}
