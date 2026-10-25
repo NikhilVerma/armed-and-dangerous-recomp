@@ -83,6 +83,7 @@ impl Coverage for AlphaTested {
 pub type AlphaTestedGameMaterial = GameMaterial<AlphaTested>;
 
 #[derive(AsBindGroup, Debug, Clone, Asset, TypePath)]
+#[bind_group_data(GameMaterialKey)]
 pub struct GameMaterial<C: Coverage = Solid> {
     #[texture(0)]
     #[sampler(1)]
@@ -107,7 +108,30 @@ pub struct GameMaterial<C: Coverage = Solid> {
     pub additive: bool,
     /// a snow surface by name (graphics.rs `ao_exempt`): keeps only `ao_snow` of the ambient occlusion
     pub ao_snow_surface: bool,
+    /// a fading object's depth copy (camfade.rs, remaster `solid_fade`): writes depth and no colour, drawn just
+    /// before the fading copy so only the object's nearest surface blends over the scene
+    pub depth_only: bool,
     pub coverage: std::marker::PhantomData<C>,
+}
+
+/// What a game material's pipeline depends on beyond the mesh: whether it is a fading object's depth copy.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct GameMaterialKey {
+    depth_only: bool,
+}
+
+impl<C: Coverage> From<&GameMaterial<C>> for GameMaterialKey {
+    fn from(m: &GameMaterial<C>) -> Self {
+        GameMaterialKey { depth_only: m.depth_only }
+    }
+}
+
+impl<C: Coverage> GameMaterial<C> {
+    /// The depth copy of this (fading) material: the same maps and parameters, so it rasterises exactly the same
+    /// depths as the colour copy drawn after it (camfade.rs).
+    pub fn depth_copy(&self) -> Self {
+        GameMaterial { depth_only: true, ..self.clone() }
+    }
 }
 
 /// The vertex location of the third uv set in the main pass (past Bevy's mesh attributes, 0..7).
@@ -161,7 +185,22 @@ impl<C: Coverage> Material for GameMaterial<C> {
             // reverse Z: a positive bias is nearer
             ds.bias = bevy::render::render_resource::DepthBiasState { constant: 4, slope_scale: 1.0, clamp: 0.0 };
         }
+        // a fading object's depth copy: depth only, so the colour copy after it keeps just the nearest surface
+        if key.bind_group_data.depth_only && !prepass_pipeline {
+            if let Some(f) = descriptor.fragment.as_mut() {
+                for t in f.targets.iter_mut().flatten() {
+                    t.write_mask = bevy::render::render_resource::ColorWrites::empty();
+                }
+            }
+            if let Some(ds) = descriptor.depth_stencil.as_mut() {
+                ds.depth_write_enabled = Some(true);
+            }
+        }
         Ok(())
+    }
+    /// The depth copy sorts just behind its colour copy (same mesh centre), so it draws first in the transparent pass.
+    fn depth_bias(&self) -> f32 {
+        if self.depth_only { -0.01 } else { 0.0 }
     }
     fn alpha_mode(&self) -> AlphaMode {
         // a translucent record with blend byte 0 adds (0x004897d0: state 0x120, blend table 0x0057d9e0 entry 1)
@@ -173,7 +212,7 @@ impl<C: Coverage> Material for GameMaterial<C> {
         // objects the camera fades (camfade.rs: emissive.w > 0) blend too
         // remaster alpha_coverage (graphics/geometry): an alpha texture (not a translucent record, not fading) covers
         // by its alpha with MSAA's alpha-to-coverage instead
-        if self.params.emissive.w > 0.0 || (self.alpha && self.params.diffuse.w < 1.0) {
+        if self.depth_only || self.params.emissive.w > 0.0 || (self.alpha && self.params.diffuse.w < 1.0) {
             return AlphaMode::Blend;
         }
         if !self.alpha {
@@ -512,6 +551,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
         alpha,
         additive: def.additive(),
         ao_snow_surface,
+        depth_only: false,
         coverage: std::marker::PhantomData,
     }
 }

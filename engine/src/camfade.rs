@@ -139,7 +139,7 @@ fn follow_alpha(mut commands: Commands, followers: Query<(Entity, &AlphaFollows)
 /// The state log's "character_alpha": the characters fading (alpha below 1) and their meshes, the whole hierarchy (a
 /// character's body, the weapon in his hand, a pack on his back: Character_SetFade 0x0042eb60 sets the character's,
 /// its attachments' (+0x61c) and its held object's (+0xb08) alpha), and how many of those draw with the alpha.
-fn log_object_alpha(q: Query<(Entity, &ObjectAlpha), With<crate::skin::Animator>>, children: Query<&Children>, meshes: Query<Has<OwnAlphaMaterial>, With<Mesh3d>>, play: Option<ResMut<crate::playtest::PlayState>>) {
+fn log_object_alpha(q: Query<(Entity, &ObjectAlpha), With<crate::skin::Animator>>, children: Query<&Children>, meshes: Query<Has<OwnAlphaMaterial>, (With<Mesh3d>, Without<IsDepthCopy>)>, play: Option<ResMut<crate::playtest::PlayState>>) {
     let Some(mut p) = play else { return };
     let (mut objects, mut total, mut faded) = (0, 0, 0);
     for (e, a) in &q {
@@ -166,31 +166,68 @@ struct OwnAlphaMaterial;
 #[derive(Component)]
 struct AlphaFrom<C: Coverage>(Handle<GameMaterial<C>>);
 
+/// On a fading mesh with the remaster's `solid_fade`: its depth copy, a child drawing the same mesh into the depth
+/// buffer only, just before the mesh blends (gamematerial.rs `depth_only`). The engine's plain fade (the Original
+/// preset) blends every front face of the object over the scene in index order, without depth writes (as the
+/// original, guess: 0x004897d0 sets state bit 0x20 for alpha < 1, and Renderer_ApplyMaterial 0x00505320 sets
+/// ZWRITEENABLE to !(flags bit 0x20)): a thick-walled open pipe beside the camera filled the screen with its bore
+/// and rims at alpha 0.9 (lev_2_m2 walk, docs/journal/2026-10-25-cam.md). With the depth first only the nearest
+/// surface blends.
+#[derive(Component)]
+struct DepthCopy(Entity);
+
+/// On the depth copy itself: not a part of the object to fade or count.
+#[derive(Component)]
+struct IsDepthCopy;
+
 /// The objects' alphas onto their meshes (the whole hierarchy: Character_SetFade 0x0042eb60): below 1 each mesh
-/// draws with its own material copy at the alpha, at 1 the shared material comes back.
+/// draws with its own material copy at the alpha, at 1 the shared material comes back. Solid, non-alpha-textured
+/// meshes get a depth copy while they fade when `solid_fade` is on ([`DepthCopy`]).
 #[allow(clippy::type_complexity)]
 fn object_alpha<C: Coverage>(
     mut commands: Commands,
     q: Query<(Entity, &ObjectAlpha), Changed<ObjectAlpha>>,
     children: Query<&Children>,
-    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Option<&AlphaFrom<C>>)>,
+    mut meshes: Query<(&mut MeshMaterial3d<GameMaterial<C>>, Option<&AlphaFrom<C>>, Option<&DepthCopy>, &Mesh3d, Option<&bevy::mesh::skinning::SkinnedMesh>), Without<IsDepthCopy>>,
     mut materials: ResMut<Assets<GameMaterial<C>>>,
+    settings: Option<Res<crate::graphics::GraphicsSettings>>,
 ) {
+    let solid_fade = !C::ALPHA_TESTED && settings.is_some_and(|s| s.geometry.solid_fade);
     for (e, a) in &q {
         let opaque = a.0 >= 1.0;
         for m in std::iter::once(e).chain(children.iter_descendants(e)) {
-            let Ok((mut mm, from)) = meshes.get_mut(m) else { continue };
+            let Ok((mut mm, from, depth, mesh, skin)) = meshes.get_mut(m) else { continue };
             match (from, opaque) {
                 (Some(AlphaFrom(shared)), true) => {
                     let own = std::mem::replace(&mut mm.0, shared.clone());
                     materials.remove(&own);
-                    commands.entity(m).try_remove::<(AlphaFrom<C>, OwnAlphaMaterial)>();
+                    commands.entity(m).try_remove::<(AlphaFrom<C>, OwnAlphaMaterial, DepthCopy)>();
+                    if let Some(&DepthCopy(d)) = depth {
+                        commands.entity(d).try_despawn();
+                    }
                     continue;
                 }
                 (None, true) => continue,
                 (None, false) => {
                     let shared = mm.0.clone();
                     let Some(copy) = materials.get(&shared).cloned() else { continue };
+                    if solid_fade && !copy.alpha && !copy.additive {
+                        let depth_material = materials.add(copy.depth_copy());
+                        let mut d = commands.spawn((
+                            Mesh3d(mesh.0.clone()),
+                            MeshMaterial3d(depth_material),
+                            Transform::IDENTITY,
+                            Visibility::Inherited,
+                            bevy::light::NotShadowCaster,
+                            IsDepthCopy,
+                            ChildOf(m),
+                        ));
+                        if let Some(s) = skin {
+                            d.insert(s.clone());
+                        }
+                        let d = d.id();
+                        commands.entity(m).try_insert(DepthCopy(d));
+                    }
                     mm.0 = materials.add(copy);
                     commands.entity(m).try_insert((OwnAlphaMaterial, AlphaFrom(shared)));
                 }
