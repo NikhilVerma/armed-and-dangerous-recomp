@@ -1117,15 +1117,16 @@ pub(crate) fn control(
             // on walkable ground the body moves along the ground's plane: the drive's wanted velocity lies in the plane of
             // the ground normal +0x574 (0x004798c5: the stick's velocity turned by Quat_FromTwoVectors 0x004f1830 from up
             // to +0x574) and the drive pulls any part leaving the ground back at full strength (0x00471810 with the
-            // normal as its direction: c clamps to 0 away from it), while gravity acts as always and the contact takes
-            // what goes into the ground. The normal is the last step's, kept while he touches nothing (0x00478200), so
-            // off a ledge's edge the velocity is the shelf's and he falls under gravity; down a slope it follows it.
+            // normal as its direction: c clamps to 0 away from it). Gravity there is the contact's and the ground
+            // friction's to hold (friction_max 2 at rest, more than any walkable slope's tangent): no gravity term, or he
+            // crept downhill standing still. The normal is the last step's, kept while he touches nothing (0x00478200),
+            // so off a ledge's edge the velocity is the shelf's and he falls under gravity; down a slope it follows it.
             // (Jolt's stick-to-floor used to snap him down 2.5 units a frame instead: off the lev_4_m3 shelf edge the
             // drop's top hid him from the camera while the original's Roman ran on off it.) Horizontally the drive
             // stays as tuned: the measured run speeds are horizontal.
             let n = r.floor;
             let along = -(r.vel.x * n.x + r.vel.z * n.z) / n.y;
-            r.vel.y = along - 64.348 * r.anti_gravity * 0.5 * dt;
+            r.vel.y = along;
         } else {
             // (in the jump state gravity acts even when the walker reports ground: wedged under an overhang or on a
             // ledge's edge it did, the rising speed never decayed, the jump never ended and the air control piled up
