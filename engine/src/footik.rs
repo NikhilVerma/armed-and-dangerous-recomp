@@ -192,13 +192,15 @@ fn place_feet(
         let (drop, lift) = body_and_lifts(fp.height);
         fp.drop = drop;
         fp.lift = lift;
-        // the body's drop on the root bones, then each leg reaches its lifted ankle
+        // the body's drop on the root of the legs' chain (the bone the animation rewrites every frame: the original's
+        // model offset 0x00457820 is not accumulated; a root nothing rewrites would sink by the drop each frame),
+        // then each leg reaches its lifted ankle
         let mut local = local;
-        for i in 0..n {
-            if skel.parents[i] < 0 {
-                local[i].translation.z += drop;
-            }
+        let mut root = legs[0].0;
+        while let Ok(p) = usize::try_from(skel.parents[root]) {
+            root = p;
         }
+        local[root].translation.z += drop;
         for (leg, &(hi, ki, ai)) in legs.iter().enumerate() {
             let m = model(&local);
             let (h, k, an) = (m[hi].translation, m[ki].translation, m[ai].translation);
@@ -235,6 +237,10 @@ fn place_feet(
             s.0.insert("foot_r".into(), r2(fp.height[1]).into());
             s.0.insert("foot_drop".into(), r2(fp.drop).into());
             s.0.insert("foot_lift".into(), r2(fp.lift[0].max(fp.lift[1])).into());
+            // a root bone nothing animates (ref_q_00): its height must not follow the drop
+            if let Some(&q) = skel.index.get("ref_q_00") {
+                s.0.insert("ref_q_z".into(), r2(local[q].translation.z).into());
+            }
         }
     }
 }
