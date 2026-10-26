@@ -654,7 +654,10 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
     // no slope limit in the walker: the original's body is a Havok sphere with no max slope (PlayerObject_BuildCollision
     // 0x00475220), so steep ground is not a wall to it. What is too steep is the update's (`WALKABLE_NZ`): no friction
     // there and the drive weakens uphill, so he slides down what he cannot climb
-    let walker = physics.add_walker(feet, radius, 11.0, 0.0)?;
+    let mut walker = physics.add_walker(feet, radius, 11.0, 0.0)?;
+    // no snap down to the floor: the update keeps him on the ground's plane with gravity, as the Havok body is (the
+    // walkable ground branch of the update), so off a ledge he falls
+    walker.stick_to_floor = false;
     Some(Roman {
         walker,
         yaw,
@@ -1111,7 +1114,18 @@ pub(crate) fn control(
             const JUMP_BREATH: [&str; 2] = ["fol_breath_light_short_1", "fol_breath_light_short_2"];
             sounds.write(crate::audio::PlaySound::at(JUMP_BREATH[breaths[0].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
         } else if walkable && !r.jumping {
-            r.vel.y = r.vel.y.max(-5.0);
+            // on walkable ground the body moves along the ground's plane: the drive's wanted velocity lies in the plane of
+            // the ground normal +0x574 (0x004798c5: the stick's velocity turned by Quat_FromTwoVectors 0x004f1830 from up
+            // to +0x574) and the drive pulls any part leaving the ground back at full strength (0x00471810 with the
+            // normal as its direction: c clamps to 0 away from it), while gravity acts as always and the contact takes
+            // what goes into the ground. The normal is the last step's, kept while he touches nothing (0x00478200), so
+            // off a ledge's edge the velocity is the shelf's and he falls under gravity; down a slope it follows it.
+            // (Jolt's stick-to-floor used to snap him down 2.5 units a frame instead: off the lev_4_m3 shelf edge the
+            // drop's top hid him from the camera while the original's Roman ran on off it.) Horizontally the drive
+            // stays as tuned: the measured run speeds are horizontal.
+            let n = r.floor;
+            let along = -(r.vel.x * n.x + r.vel.z * n.z) / n.y;
+            r.vel.y = along - 64.348 * r.anti_gravity * 0.5 * dt;
         } else {
             // (in the jump state gravity acts even when the walker reports ground: wedged under an overhang or on a
             // ledge's edge it did, the rising speed never decayed, the jump never ended and the air control piled up
