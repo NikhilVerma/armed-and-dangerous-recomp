@@ -136,10 +136,12 @@ pub struct Roman {
     /// comes when the anim sets 0x80); seconds left
     pub jump_wind: Option<f32>,
     /// this frame's horizontal speed as the update measures it before the drive (+0x4bc: the body's velocity from
-    /// the last step: `stepped_h`), last frame's (+0x47c, for the stop fx) and the slide fx's anchor (+0x568:
-    /// fx_roman_slide runs while it lives)
+    /// the last step: `stepped_h`) and the slide fx's anchor (+0x568: fx_roman_slide runs while it lives)
     pub hspeed: f32,
-    pub prev_hspeed: f32,
+    /// the wanted horizontal speed of the last two frames, for the stop fx: last frame's (+0x470,
+    /// m_targetLocalLinearVelocityNext) and the one before (+0x47c, m_targetLocalLinearVelocity), both set at the end
+    /// of the update by 0x00476a10 from the drive's input
+    pub target_h: (f32, f32),
     /// the horizontal speed the last step achieved (set after the move; at most the driven speed)
     pub stepped_h: f32,
     /// friction_min (+0x5a8), friction_max (+0x5a4), friction_exponent (+0x5ac): the ground contacts' friction blend
@@ -732,7 +734,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         move_local: Vec2::ZERO,
         jump_wind: None,
         hspeed: 0.0,
-        prev_hspeed: 0.0,
+        target_h: (0.0, 0.0),
         stepped_h: 0.0,
         // (not in p_trotter: PlayerObject_Load's defaults, game_05.cpp:573)
         friction: (p.f("friction_min", 0.3), p.f("friction_max", 2.0), p.f("friction_exponent", 4.0)),
@@ -1873,23 +1875,28 @@ fn ground_fx(physics: &Physics, fx: &mut MessageWriter<crate::surface::StartSurf
 }
 
 /// The stop and slide effects of the player update (0x004788a0 after the drive, 0x004799d5..0x00479bef):
-/// - grounded (the grace +0x570 > 0) and the horizontal speed dropped by more than 20 (0x005bcd44) since the last
-///   frame: "FX_fs_roman_stop" (0x00478800). The original compares per frame (about 60 per second in the captures);
-///   the remaster scales the threshold by dt x 60 so it does not depend on the frame rate;
+/// - grounded (the grace +0x570 > 0) and the wanted horizontal speed (the stick's, not the body's) dropped by more
+///   than 20 (0x005bcd44) between the last two frames: "FX_fs_roman_stop" (0x00478800). The original compares per
+///   frame (about 60 per second in the captures); above 60 fps the remaster scales the threshold by dt x 60;
 /// - touching the ground (contacts +0x584 > 0), faster than 10 (0x005bcb68) and the wanted velocity below 2 (its
 ///   square below 4, 0x005bcbe0): "FX_roman_slide" with the surface (vt+0xb8) runs, kept in +0x568 and released
 ///   (Fx_Release 0x0041d030) when that ends. The remaster releases it by despawning the anchor it follows.
 fn ground_effects(mut commands: Commands, time: Res<Time>, physics: NonSend<Physics>, mut q: Query<(&mut Roman, &Transform)>, mut fx: MessageWriter<crate::surface::StartSurfaceFx>) {
     let dt = time.delta_secs();
     for (mut r, t) in &mut q {
-        // the speed the update measured before its drive (+0x4bc): released at full speed, the slide fx starts on that
-        // frame and the stop fx on the next (the original's trace: fol_bodyslide_snow_lp and fs_boot_heavy_snow_stop
-        // together as Roman stops dead)
+        // the stop fx compares the WANTED speeds (0x004799d5..: |+0x470.xy| - |+0x47c.xy| < -20), last frame's against
+        // the one before: released at full speed, the slide fx starts on that frame and the stop fx on the next (the
+        // original's trace: fol_bodyslide_snow_lp and fs_boot_heavy_snow_stop together as Roman stops dead). Running
+        // into a wall with the stick held keeps the wanted speed, so no puff there (the walk capture of lev_1_m1_b:
+        // the measured speed fell to 0 at the wall and a snow puff hazed his legs, 2026-10-26). The threshold is
+        // per 60 Hz frame as the original's; above 60 fps it shrinks with the frame so a stick eased off over the
+        // same time still counts, below it stays 20 (a released key is a one-frame step at any rate)
         let h = r.hspeed;
-        if r.grace > 0.0 && !r.dead && h - r.prev_hspeed < -20.0 * (dt * 60.0).max(1e-3) {
+        let (last, before) = r.target_h;
+        if r.grace > 0.0 && !r.dead && last - before < -20.0 * (dt * 60.0).clamp(1e-3, 1.0) {
             ground_fx(&physics, &mut fx, t.translation, "fx_fs_roman_stop");
         }
-        r.prev_hspeed = h;
+        r.target_h = (r.wish_h, last);
         let slide = r.on_ground && !r.dead && h > 10.0 && r.wish_h * r.wish_h < 4.0;
         match (slide, r.slide_fx) {
             (true, None) => {
