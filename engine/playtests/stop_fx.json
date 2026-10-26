@@ -1,0 +1,8 @@
+{"load": "states/after_pub.json", "steps": [
+ {"wait": 1.0},
+ {"down": "KeyW"}, {"wait": 1.0},
+ {"expect": {"fx.started.fx_fs_roman_stop_snow": null}},
+ {"up": "KeyW"}, {"wait": 0.5},
+ {"expect": {"fx.started.fx_fs_roman_stop_snow": 1}},
+ {"quit": true}
+]}
