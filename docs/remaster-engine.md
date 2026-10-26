@@ -1009,6 +1009,12 @@ position-only fx on their side). What changed for everything that starts fx:
   composited over the scene as the original adds them (fxvm/additive.rs, 2026-10-25): added as linear light the
   domes' dark textures greyed the rain levels out.
 - A resume stops the pause blur at once: the original's frames are sharp right after a message (open-questions.md).
+- An fx object's first update ages it by nothing (Fx_CreateObject 0x004234d0: +0x468 = fx+0xc - dt; fn_0041a350),
+  so objects living 0.01 s (the bullet impacts' smoke, the snow footsteps, the blasts' emitters) run their emitters
+  once. Aged by 1/60 s before 2026-10-26, they emitted nothing and the impacts had no smoke (journal 2026-10-26-fx-soft).
+- Soft particles (Remaster) also soften the additive cards (fxadd.wesl: the impact fireballs and flashes), over 0.3
+  of the card's own size, at most the particles' depth (graphics.rs CARD_SOFTNESS). The original cuts them hard where
+  they meet the ground.
 
 Playtests: `{"fx": {"name", "at", "yaw", "clear"}}` steps and the `fx` state-log field (counts per pool and template,
 bodies, hits, lights, extent, screen); scripts fx_particles, fx_debris, fx_emit, fx_lights, fx_screen, fx_hits.
