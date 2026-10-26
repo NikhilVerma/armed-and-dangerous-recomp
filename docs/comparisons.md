@@ -194,7 +194,11 @@ Not in the set: an explosion pair (a blast needs a scripted moment that frames t
 Checked by eye against the original in every clip and still of the 2026-10-25 set (status in docs/player-feedback.md).
 Fixed for this set: texture density (the materials' second UV set, terrain detail at the original's tiling), the snow
 amount, the rain levels' domes, the sky holes, reeds and water, the HUD's opacity, subtitle size, the jetpack's
-chrome, Q's fade and the first frame's fog-coloured silhouettes.
+chrome and wing blades (the depth prepass now culls back faces like the colour pass), the pale shells near the
+camera (the follow camera no longer fades characters, as in the original) and the first frame's fog-coloured
+silhouettes. The companions now route on the original's 10-unit grid, so Q crosses the lev_5_m3 bridge on the
+original's line, and Roman walks off ledges and falls instead of snapping down them (lev_4_m3's mill shelf), and the snow stop-puff no longer fires when he runs into a
+wall (lev_1_m1_b).
 
 Style choices (intended):
 - **Characters** are lit a little darker than in the original in the non-snow levels (per-pixel sun and soft shadows).
@@ -203,7 +207,16 @@ Style choices (intended):
 
 Remaining differences (not bugs in the remaster's rendering):
 - **Paths diverge** after a few seconds in some clips (AI timing, physics): in lev_bonus_m1 the original's Roman dies
-  in the turret fire while the remaster's survives; in lev_2_m2 the camera ends up beside the pipe.
+  in the turret fire while the remaster's survives; in lev_2_m2 the original's Roman veers downhill on a steep side slope and is stopped by two kegs; the
+  remaster's slides past them, so its camera ends up beside the pipe (the steep-slope drive is not decoded yet,
+  docs/open-questions.md). At the end of
+  lev_5_m3 the original's Q comes up on Roman's left; the remaster's stops behind Roman, out of view (the leader
+  pick on the move is open). At the start of lev_1_m3, lev_5_m2 and lev_5_m3 the original shows Q's gun at the right
+  edge.
+- **The red band at the screen edge** in the l1_courtyard still is the HUD's hit-direction marker (b_hit, shown
+  0.1 s after Roman is hit, 0x004670f0; the original draws it too, lev_1_m1_b f299): the remaster's grunts happen to
+  hit Roman at the shot frame.
+- **lev_1_m1 stills**: the original's Roman is under the window archer's fire with his rifle raised; the remaster's is
+  not attacked yet at that frame (combat timing).
 - **lev_4_m3's mill windows** show thin white slits in both games (the original's art).
-- **The jetpack's wing strips** are orange where the original's read teal (lev_3_m2, lev_bonus_m3; open).
 - **lev_1_m1 pub windows**: not lit as in the original (not examined).
