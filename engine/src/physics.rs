@@ -518,6 +518,10 @@ pub struct Walker {
     pub id: CharacterId,
     /// capsule centre above the feet (game units)
     pub lift: f32,
+    /// Jolt's stick-to-floor: having walked off the floor, snap down to floor up to 0.5 m (2.5 units) below. On by
+    /// default; a walker whose caller keeps it on the ground itself (Roman: the ground's plane and gravity) turns it
+    /// off, so it walks off a ledge and falls instead of snapping down it.
+    pub stick_to_floor: bool,
 }
 
 impl Physics {
@@ -536,7 +540,7 @@ impl Physics {
             .mass(80.0);
         let id = self.world.create_character(&settings, self.to_m(feet), j::Quat { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }).ok()?;
         let _ = self.world.refresh_character_contacts(id, &QueryFilter::new().object_layers(&SOLID_LAYERS));
-        Some(Walker { id, lift })
+        Some(Walker { id, lift, stick_to_floor: true })
     }
 
     /// Moves a walker with `velocity` (game units/s, engine axes) for `dt`; gravity is the caller's (it is part
@@ -548,7 +552,11 @@ impl Physics {
         if dt > 0.0 {
             self.world.character_mut(w.id).ok()?.set_linear_velocity(jv(velocity * k)).ok()?;
             let g = self.gravity_m();
-            self.world.update_character(w.id, dt.min(0.1), g, &ExtendedUpdateSettings::default(), &QueryFilter::new().object_layers(&SOLID_LAYERS)).ok()?;
+            let mut settings = ExtendedUpdateSettings::default();
+            if !w.stick_to_floor {
+                settings = settings.stick_to_floor_step_down(j::Vec3::new(0.0, 0.0, 0.0));
+            }
+            self.world.update_character(w.id, dt.min(0.1), g, &settings, &QueryFilter::new().object_layers(&SOLID_LAYERS)).ok()?;
         }
         let c = self.world.character(w.id).ok()?;
         let on = matches!(c.ground_state(), oxijolt::GroundState::OnGround);

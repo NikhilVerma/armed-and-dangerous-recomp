@@ -244,3 +244,10 @@ the camp fight itself (the original was not run: the game was in use by other ag
   unpause's clock adjustment (Timer_Tick 0x004e47e0, the paused time taken off 0x00604a98 / 0x00604ac4) gives the
   first frame a clamped 0.25 s dt, or the hook's test clock differs; a capture of the frames right after Enter
   (play frames 0..10) would tell.
+- **Roman on steep side slopes (2026-10-26, docs/journal/2026-10-26-player-ledge.md).** On the lev_2_m2 start walk
+  the original's Roman veers downhill on a side slope of normal z 0.64-0.76 (oracle play frame 220: (-63.1, 53.2,
+  -57.3) against the remaster's (-65.6, 49.8, -53.3)). That is about 8 units/s sideways, and with the fitted drive
+  stiffness (player.rs DRIVE_GAIN) gravity along the slope gives under 1. The 2.5-unit offset puts the remaster's
+  Roman past keg 157 by snow_pipe 192, where the original's stops behind the kegs. Needs the force action pool
+  (0x00455a30 -> 0x00403fb0) decoded. Note that the drive 0x00471810 takes the ground normal +0x574 as its direction
+  (game_06.cpp:2663), not up as player.rs does.
