@@ -813,7 +813,8 @@ about by blasts.
 
 `engine/src/ai.rs` Companion, from MolmerObject_Slot47 0x00485910 and the fire cycle (spec in the module comment):
 formation on Roman's ref_q_00 / ref_molmer_00 bones (regroup beyond formation_distance + 2.5, speed (d / delay) x
-move_speed), nav.rs routes re-planned every 0.25 s, targets within scan_distance (cone, line of sight), and support
+move_speed), routes on the original's AI grid (navgrid.rs, 2026-10-26: built again every 0.25 s once the slot moves
+more than 1 unit), targets within scan_distance (cone, line of sight), and support
 fire: with Roman's Fire held, no target and his heading within 45 degrees, they shoot at his aim point. Bursts follow
 the fire anims' notes (Jonesy 4 at once per 0.3 s loop, Q 6 per 0.633 s loop), burst / clip delays, reload anims.
 Verified against the original's sound log on the fire-held test (gunA): Jonesy's 4-shot bursts every 33..49 frames
@@ -830,9 +831,12 @@ read work/instances/main/and-frame-N.camera.json. AIDBG=1 logs the engine's comp
 The ai port queue (`python tools/port_queue.py ai`) was reported empty here, but many of its `not needed` rows were
 deferred work (2026-10-16 audit: docs/port/README.md, docs/port/deferred-2026-10-16.md); they are now `deferred`
 and count as open work. What the engine replaces rather than ports:
-- the nav grid Game+0xaa4 (grid marking, A*, path smoothing, the route follower AIRoute_*, the body drive 0x00454d80):
-  nav.rs A* over the Jolt world, re-planned every 1 s (grunts) / 0.25 s (companions), velocities set from the
-  property sets' speeds;
+- the nav grid Game+0xaa4 for the grunts (AIRoute_Refresh / SetTarget / Append, the steering curve, the body drive
+  0x00454d80): nav.rs A* over the Jolt world, re-planned every 1 s, velocities set from the property sets' speeds.
+  The grid itself is ported (2026-10-26, engine/src/navgrid.rs: PathGrid_Build 0x0046ed30 from the landscape's
+  triangles and surface names, the objects' footprints, Grid_FindPath 0x0046fd20 with its A* and Path_Smooth) and
+  the companions route on it (ai.rs formation_route); the rest is feature grid-routes-grunts (docs/port/features.csv).
+  Debug: NAVGRID_DUMP=x,y,radius prints the grid round a game point at level load, AIDBG=1 the companions' plans;
 - object plumbing: the AI position / matrix slots, in-frustum culling, the class descriptors, teardown, physics
   descriptions, collision filters, the alarm controller's global lists (alarm.rs `Markers`), the trench slot
   bookkeeping (ai.rs `Barricade`), the companions' pairing;

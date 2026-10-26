@@ -1,6 +1,8 @@
 {"load": "states/after_pub.json", "steps": [
  {"wait": 1.0},
  {"cheat": "SHIELDME"},
+ {"note": "the companions take no target of their own: Q's grid slot beside the pub puts the barracks grunt that chases him in reach of his own close kill, which would come before the scripted one"},
+ {"ai_force": "companions_hold"},
  {"warp": [190.68, -69.44, 13.76, 90]},
  {"warp_companion": [0, 175, -60, 14]},
  {"warp_companion": [1, 175, -78, 14]},

@@ -1420,7 +1420,7 @@ pub fn spawn(
             info!("{}", nav_grid.ascii(Vec2::new(x, y), r as i32));
         }
     }
-    commands.insert_resource(nav_grid);
+    physics.nav_grid = nav_grid;
     info.models = lib.models.len();
     info.static_bodies = physics.static_bodies;
     info.static_triangles = physics.static_triangles;
@@ -1544,7 +1544,6 @@ pub struct StageSwap<'w, 's> {
     meshes: ResMut<'w, Assets<Mesh>>,
     materials: ResMut<'w, Assets<StandardMaterial>>,
     decal_world: Option<ResMut<'w, crate::decals::DecalWorld>>,
-    nav_grid: Option<ResMut<'w, NavGrid>>,
     /// the next stage's husk pick (Object_LoadBaseProps 0x00451360 of the new object); each level starts it over
     rng: crate::levelreset::PerLevel<'w, 's, crate::fxvm::CrtRand>,
 }
@@ -1565,9 +1564,7 @@ impl StageSwap<'_, '_> {
             w.remove_object(e);
         }
         // its footprint off the AI's grid (vt+0xfc(0, ..) at the death, game_03.cpp:621)
-        if let Some(g) = self.nav_grid.as_mut() {
-            g.unmark(e);
-        }
+        self.physics.nav_grid.unmark(e);
     }
 
     /// Removed for good: unlinked and despawned.
@@ -1630,9 +1627,7 @@ impl StageSwap<'_, '_> {
             Some(n) => self.lib.load_model(&n, false, &self.assets, &mut self.meshes, &mut self.materials).and_then(|m| {
                 let c = static_collider(&mut self.physics, m, world)?;
                 // the husk is a new object: it marks the grid as its class does at load
-                if let Some(g) = self.nav_grid.as_mut() {
-                    mark_footprint(g, e, &hp, movable, m, Mat4::from_quat(game_to_engine()).inverse() * world);
-                }
+                mark_footprint(&mut self.physics.nav_grid, e, &hp, movable, m, Mat4::from_quat(game_to_engine()).inverse() * world);
                 Some(c)
             }),
             None => None,

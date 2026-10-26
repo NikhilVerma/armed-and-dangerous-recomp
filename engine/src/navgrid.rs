@@ -242,8 +242,7 @@ struct Footprint {
     permanent: bool,
 }
 
-/// The level's navigation grid (Game+0xaa4).
-#[derive(Resource)]
+/// The level's navigation grid (Game+0xaa4), kept in the physics world (physics.rs `nav_grid`).
 pub struct NavGrid {
     min: Vec2,
     max: Vec2,
@@ -294,6 +293,13 @@ fn clip(poly: &[Vec3], axis: usize, sign: f32, at: f32) -> Vec<Vec3> {
         (prev, d_prev) = (cur, d_cur);
     }
     out
+}
+
+impl Default for NavGrid {
+    /// A grid of one free cell, until a level makes its own.
+    fn default() -> Self {
+        NavGrid::new(Vec2::ZERO, Vec2::ZERO)
+    }
 }
 
 impl NavGrid {

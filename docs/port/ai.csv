@@ -249,8 +249,8 @@ address,name,disposition,reason
 0x00461ea0,MolmerObject_GetClass,replaced,"the class descriptor: the engine's component types carry the class (ai.rs Grunt with Kind, Companion, level.rs Penguin, alarm.rs Marker)"
 0x00461eb0,SniperCaptain_GetClass,replaced,"class chosen by ai::Kind::from_template / level.rs (squads, jump markers: their components)"
 0x00461ee0,TwigletGenerator_GetClass,replaced,class descriptors: Bevy components (twiglet.rs Generator / Twiglet)
-0x0046e770,NavGrid_Init,replaced,"the grid made per level: navgrid.rs NavGrid::new / from_landscape, a resource level.rs inserts at spawn (no node pool: Rust collections)"
-0x0046e7c0,NavGrid_Free,replaced,"the NavGrid resource is replaced with the next level's (level.rs spawn); its arrays are Rust collections"
+0x0046e770,NavGrid_Init,replaced,"the grid made per level: navgrid.rs NavGrid::new / from_landscape, kept in physics.rs nav_grid, made by level.rs spawn (no node pool: Rust collections)"
+0x0046e7c0,NavGrid_Free,replaced,"the NavGrid in physics.rs is replaced with the next level's (level.rs spawn); its arrays are Rust collections"
 0x0046e830,Poly_ClipToPlane,ported,"engine/src/navgrid.rs clip (the cell squares' four planes)"
 0x0046ece0,Grid_SetCell,ported,"engine/src/navgrid.rs NavGrid::set; ai.rs formation_route keeps Roman's and the partner's cells out (plan_avoiding)"
 0x0046f250,Grid_GetBits,replaced,"the cell bits are rebuilt from the level at load (navgrid.rs from_landscape, the footprints in level.rs); a saved game's destroyed objects unmark / re-mark through level.rs StageSwap (restore_stages)"

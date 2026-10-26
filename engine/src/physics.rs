@@ -38,6 +38,10 @@ pub struct Physics {
     pub contacts: Arc<crate::contacts::Contacts>,
     /// CPU time of the last steps (ms), for the benchmark.
     pub step_ms: f32,
+    /// the level's AI grid (Game+0xaa4, navgrid.rs), made with the landscape and its objects (level.rs spawn). Kept
+    /// here rather than as a resource: a Bevy resource is an entity, and one more entity at level load changes the
+    /// order every later entity iterates in
+    pub nav_grid: crate::navgrid::NavGrid,
     poses: Vec<BodyPose>,
 }
 
@@ -122,6 +126,7 @@ impl Physics {
             part_of: HashMap::new(),
             contacts,
             step_ms: 0.0,
+            nav_grid: Default::default(),
             poses: Vec::new(),
         }
     }

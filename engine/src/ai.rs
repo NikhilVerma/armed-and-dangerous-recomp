@@ -6259,21 +6259,18 @@ fn companions(
         Query<(), (With<Companion>, Or<(With<carried::Knocked>, With<close_kill::Killing>)>)>,
         ResMut<AiForce>,
     ),
-    (path, topsy, glove, mounted, held_q, ids, nav): (
+    (path, topsy, glove, mounted, held_q, ids): (
         Res<crate::campath::CameraPath>,
         Res<crate::topsy::Topsy>,
         Res<crate::weapons::glove::Glove>,
         Res<crate::turret::Mounted>,
         Query<&Companion, Or<(With<tower::OnTask>, With<carried::Knocked>, With<close_kill::Killing>)>>,
         Query<&crate::level::InstanceId>,
-        Option<ResMut<NavGrid>>,
     ),
 ) {
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let Ok((rt, r, ra, rh)) = roman.single() else { return };
-    // the AI's grid (Game+0xaa4), made with the level
-    let Some(mut nav) = nav else { return };
     let bone = |a: &crate::skin::Animator, n: &str| a.skeleton.index.get(n).and_then(|&i| joints.get(a.joints[i]).ok()).map(|t| t.translation());
     // Roman's aim point (Game+0xa6c): where the crosshair ray meets the world, else far along it
     let aim_point = cam.single().ok().map(|c| {
@@ -6606,16 +6603,16 @@ fn companions(
                 let force = roman_dir.dot(c.roman_dir) < 0.0;
                 leader_pick(c, e, me, force, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
-            c.set_out(&mut nav, me, point(c), &avoid);
+            c.set_out(&mut physics.nav_grid, me, point(c), &avoid);
         } else if c.target.is_none() && std::mem::take(&mut c.return_req) {
             // the return order (0x00484290): the pick unless the partner idles, the route
             if !partner_idle {
                 leader_pick(c, e, me, false, &mut pair, &mut lead_changes, points, rt.translation, roman_dir, now);
             }
-            c.set_out(&mut nav, me, point(c), &avoid);
+            c.set_out(&mut physics.nav_grid, me, point(c), &avoid);
         } else if back_to_formation {
             // the fight's end (mode 3 -> 2: 0x00483d60(1, 0, 0))
-            c.set_out(&mut nav, me, point(c), &avoid);
+            c.set_out(&mut physics.nav_grid, me, point(c), &avoid);
         }
         // the attack order's target gone and the fight over: the first update with the held target +0xbb0 out of the
         // fight (Q111Object_Slot139 0x00485490, mode 1 / 2) drops it and the pair returns to Defend Me without a line
@@ -6646,7 +6643,7 @@ fn companions(
                     let to = point(c);
                     c.goal = Some(to);
                     if c.anchor.is_none_or(|a| (a - to).with_y(0.0).length() > 1.0) {
-                        match formation_route(&mut nav, me, to, &avoid) {
+                        match formation_route(&mut physics.nav_grid, me, to, &avoid) {
                             Some((route, pending)) => {
                                 c.route = route;
                                 c.target_pending = pending;
@@ -6670,7 +6667,7 @@ fn companions(
                 if !(c.target_pending && c.route.len() == 1) {
                     break;
                 }
-                match nav.plan(to_grid(me), to_grid(c.route[0]), crate::nav::node_budget()) {
+                match physics.nav_grid.plan(to_grid(me), to_grid(c.route[0]), crate::nav::node_budget()) {
                     Some(r) => {
                         c.target_pending = r.target_unplanned;
                         c.route = r.points.iter().map(|p| from_grid(*p, me.y)).collect();
