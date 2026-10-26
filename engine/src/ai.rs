@@ -691,6 +691,9 @@ pub struct Gun {
     pub shots: u32,
     /// "fire" notes a forge cannon held back (0x0043ec60: the target behind or within 100)
     pub held: u32,
+    /// put on it by AI_ResolveStartObjects 0x00425e20 (mode turret): state 0x7d at once, without 0x7b's counter roll
+    /// and fire delay
+    pub start: bool,
 }
 
 impl Gun {
@@ -717,6 +720,7 @@ impl Gun {
             snap: false,
             shots: 0,
             held: 0,
+            start: false,
         }
     }
 }
@@ -2797,7 +2801,7 @@ fn pick_gun(g: &Grunt, pos: Vec3, target: Option<(Vec3, Vec3)>, need_target: boo
 /// rounds, burst and no pause; later rounds, burst and the clip pause; the burst delay cleared, the burst at most the
 /// rounds.
 fn gun_roll(g: &mut Grunt, gn: &mut Gun, rng: &mut FxStats) {
-    let int = |rng: &mut FxStats, (lo, hi): (i64, i64)| rng.range(lo as f32, hi as f32 + 0.999) as i64;
+    let int = roll_count;
     let st = gn.table;
     if !g.fire_ready {
         g.fire_ready = true;
@@ -3067,6 +3071,22 @@ fn barricade_clip_end(g: &mut Grunt, me: Entity, p: Vec3, pos: Vec3, tgt: Option
             g.mind = m;
         }
     }
+}
+
+/// Whether the AI grid has no route from `from` to `to` (AIRoute_Build 0x0046f6d0 returning 0, as state 0x3c asks
+/// it: only for a target more than 10 away, Dist2Sq > K 0x005bcb60 = 100; a straight clear line is a route).
+fn no_grid_route(physics: &Physics, from: Vec3, to: Vec3) -> bool {
+    let (a, b) = (to_grid(from), to_grid(to));
+    a.distance_squared(b) > 100.0 && physics.nav_grid.plan(a, b, crate::nav::node_budget()).is_none()
+}
+
+/// 0x0042d0f0 (a0 = 0, a1 = 1): a guard where he stands: the guard point +0x4c0, +0x484 bit 25, the stand set, state
+/// 0x79.
+fn become_guard(g: &mut Grunt, pos: Vec3) -> Mind {
+    g.guard = true;
+    g.home = pos;
+    g.attention = false;
+    Mind::Guard
 }
 
 /// The pursuit's entry (vt+0x184 0x004295d0, state 0x3c): the pause cleared, a point around the target and the
@@ -3543,7 +3563,7 @@ fn think(
             match spots.guns.iter().position(|v| v.instance == Some(id)) {
                 Some(i) if spots.guns[i].ai.is_none() && spots.guns[i].reserved.is_none() => {
                     let gv = &spots.guns[i];
-                    g.gun = Some(Gun::to(gv, if gv.forge { g.forge } else { g.stig }));
+                    g.gun = Some(Gun { start: true, ..Gun::to(gv, if gv.forge { g.forge } else { g.stig }) });
                     g.hold = true;
                     g.mind = Mind::Gunner;
                     spots.guns[i].reserved = Some(ge);
@@ -4118,6 +4138,18 @@ fn think(
                 // pursue 0x004295d0: a point within +-20 of the target; every 0.2-0.4 s a ray decides to engage. Its
                 // entry clears the pause +0x5c8 (ai_02.cpp:2293): the engage after it fires without a leftover wait
                 g.pause = 0.0;
+                // no route on the AI grid to the target (state 0x3c, ai_06.cpp:1495-1531: AIRoute_Build 0x0046f6d0
+                // returns 0, the target more than 10 away): the hiding-spot search (vt+0x240(0, 0, 1)), else, unless on
+                // a base-defence level (0x0044e600) or charging (+0x958), a guard where he stands (0x0042d0f0): a rocket
+                // captain on a tower roof holds it and fires from there instead of walking off its edge
+                if let (Some(p), true) = (target, g.ray_timer <= 0.0 && !g.base_defence && !g.charged && g.q112.is_none()) {
+                    if no_grid_route(&physics, pos, p) {
+                        g.route.clear();
+                        let m = find_hiding_spot(&mut g, ge, (false, false, true), pos, tgt, &mut spots, &physics, body.id, &mut rng).mind();
+                        g.mind = m.unwrap_or_else(|| become_guard(&mut g, pos));
+                        continue;
+                    }
+                }
                 if let Some(p) = target {
                     if g.ray_timer <= 0.0 {
                         pursuit_point(&mut g, p, limping, &mut rng);
@@ -4594,9 +4626,25 @@ fn think(
                             g.fixed = Some(gn.origin);
                             tr.translation = gn.origin;
                             g.yaw = gn.yaw;
-                            g.fire_ready = false;
-                            gun_roll(&mut g, &mut gn, &mut rng);
-                            gn.timer = rng.range(g.stig.delay.0, g.stig.delay.1);
+                            if gn.start {
+                                // the start turret (AI_ResolveStartObjects 0x00425e20, ai_02.cpp:204-232) sets state 0x7d
+                                // with no counter roll and no fire delay: the counters are the init's (Ai_InitGeneric's
+                                // 0x00427600 before any gun, ai_01.cpp:2441: fire_num_* clips / rounds / burst, flag 4
+                                // set) and +0x494 is still 0, so he fires at once; his first cycle's clip pauses come from
+                                // the gun's table (0x004292f0), and once those clips are spent the gun's own sequence
+                                // starts with the aim snapped and led (+0x48c flag 1)
+                                g.fire_ready = true;
+                                gn.clips = roll_count(&mut rng, g.clips);
+                                gn.rounds = roll_count(&mut rng, g.rounds);
+                                gn.burst = roll_count(&mut rng, g.bursts).min(gn.rounds);
+                                gn.pause = 0.0;
+                                gn.delay = 0.0;
+                                gn.timer = 0.0;
+                            } else {
+                                g.fire_ready = false;
+                                gun_roll(&mut g, &mut gn, &mut rng);
+                                gn.timer = rng.range(g.stig.delay.0, g.stig.delay.1);
+                            }
                             g.search_timer = 0.0;
                             gn.phase = GunPhase::On;
                             g.gun = Some(gn);
@@ -5185,6 +5233,12 @@ fn fire_cycle(
 
 /// One of 0x00427600's integer rolls (RandRange: min..=max).
 fn roll_count(rng: &mut FxStats, (lo, hi): (i64, i64)) -> i64 {
+    // RandRange's ((rand() * (hi - lo + 1)) >> 15) + lo: a max one below the min (an instance's _min over its
+    // template's lower _max) gives the min, lower maxima less than the min
+    if hi < lo {
+        let r = rng.rand();
+        return lo + (r * (hi - lo + 1) as f32).floor() as i64;
+    }
     rng.range(lo as f32, hi as f32 + 0.999) as i64
 }
 
