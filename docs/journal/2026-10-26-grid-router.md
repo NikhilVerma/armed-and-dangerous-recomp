@@ -78,7 +78,10 @@ lead to Jonesy and takes ref_molmer_00 on the left. The original's long walk has
   footprint, mode 2) is snapped to the cell next to it, which puts the barracks grunt chasing him within reach of his
   own close kill. That grab came before the scripted one. Both scripts now hold the companions' own targets
   (ai_force companions_hold) and pass.
-- regress.py: see the commit message.
+- regress.py --exe target-wt-router (final build): the same failing scripts as 11ed0429 (target-wt-router-base):
+  save_write, save_read, hud, hud_meters, taunt1, volumes, ticker, campaign_chain, companion_carried, q112_extras,
+  weapon_mortar, weapon_shark, weapon_blackhole, controls_rebind. None new. goliath_legs failed in one run of each
+  build and passed in another (flaky).
 
 ## Next
 
