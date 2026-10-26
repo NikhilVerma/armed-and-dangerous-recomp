@@ -198,7 +198,8 @@ pub struct FxAddParams {
     /// the uv transform's rows (u' = x.x u + x.y v + x.z; v' likewise with y)
     pub uv_x: Vec4,
     pub uv_y: Vec4,
-    /// x: the texture stored premultiplied (1)
+    /// x: the texture stored premultiplied (1); y, z: the soft fade's depth as a part of the card's size (0: hard) and
+    /// its most in game units (graphics.rs apply_particle_materials)
     pub flags: Vec4,
 }
 

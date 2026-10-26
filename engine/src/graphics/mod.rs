@@ -740,17 +740,34 @@ fn apply_game_materials<C: crate::gamematerial::Coverage>(
     }
 }
 
-/// The particles' softness.
+/// The additive fx cards' soft depth as a part of their size (`apply_particle_materials`, fxadd.wesl).
+const CARD_SOFTNESS: f32 = 0.3;
+
+/// The particles' softness, and the additive fx cards' (the fireballs: fxadd.wesl).
 fn apply_particle_materials(
     s: Res<GraphicsSettings>,
     mut particles: ResMut<Assets<crate::fxvm::ParticleMaterial>>,
     mut particle_events: MessageReader<AssetEvent<crate::fxvm::ParticleMaterial>>,
+    mut cards: ResMut<Assets<crate::fxvm::FxAddMaterial>>,
+    mut card_events: MessageReader<AssetEvent<crate::fxvm::FxAddMaterial>>,
 ) {
     let soft = s.soft_particles.max(0.0);
     for id in ids_to_apply(s.is_changed(), &particles, &mut particle_events) {
         if particles.get(id).is_some_and(|m| m.params.y != soft) {
             if let Some(mut m) = particles.get_mut(id) {
                 m.params.y = soft;
+            }
+        }
+    }
+    // the cards stand on the ground, 4 (fx_imp_stig's fireball) to 20 units (its flash) across: faded over the
+    // particles' depth, a fireball dimmed whole (lev_bonus_m1 walk frame 195); over 0.3 of its size, at most the
+    // particles' depth, only the line where it meets the ground softens
+    let card_soft = if soft > 0.0 { CARD_SOFTNESS } else { 0.0 };
+    for id in ids_to_apply(s.is_changed(), &cards, &mut card_events) {
+        if cards.get(id).is_some_and(|m| (m.params.flags.y, m.params.flags.z) != (card_soft, soft)) {
+            if let Some(mut m) = cards.get_mut(id) {
+                m.params.flags.y = card_soft;
+                m.params.flags.z = soft;
             }
         }
     }
