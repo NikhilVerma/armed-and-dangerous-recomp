@@ -534,17 +534,53 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
 /// The third-person camera (camera.rs).
 pub use crate::camera::FollowCam;
 
-/// How hard the drive's force action pulls the body's velocity to the wanted one, per unit of movement power. Measured
-/// on the original (oracle trace, tools/oracle_scenarios/stop.json, every frame on the lev_1_m1 start slope): from
-/// rest, full stick reaches 36.6 units/s in the first moving frame (k = 0.92 at 60 fps, power 10) and his full 39.2
-/// in the next; releasing the stick stops him within one frame (no slide). How the force action pool
-/// (0x00455a30 -> ForceActionPool_Add 0x00403fb0) applies the force through the Havok steps is not decoded; this gain
-/// on the drive's power, with the ground friction modelled after it (control), reproduces the measured profile.
-const DRIVE_GAIN: f32 = 15.0;
+/// The share of the drive's velocity change the body keeps in a frame on level ground, by the drive's power: the
+/// original's impulse moves the velocity all the way to the wanted one (`control`, the drive), and the step's contact
+/// solve against the ground friction leaves this much of it. Measured on the original (oracle trace,
+/// tools/oracle_scenarios/stop.json, every frame on the lev_1_m1 start): from rest, full stick reaches 36.6 units/s
+/// in the first moving frame (0.92 at 60 fps, power 10) and his full 39.2 in the next; releasing the stick stops him
+/// within one frame (no slide). Havok's solver is not ported; this fit of its outcome stands in for it.
+fn drive_response(power: f32, dt: f32) -> f32 {
+    const DRIVE_GAIN: f32 = 15.0;
+    1.0 - (-power * DRIVE_GAIN * dt).exp()
+}
 
 /// The steepest ground Roman stands on by its normal alone: normal z above 0.7 (0x005bcd48, about 45.6 degrees). The
 /// contact callback 0x00477c90 gives steeper contacts no friction.
 const WALKABLE_NZ: f32 = 0.7;
+
+/// The friction coefficient of Roman's ground contact (0x00477c90: +0x5a0 on contacts with normal z above 0.7, none
+/// on steeper ones). +0x5a0 (0x00478200) blends friction_max at rest to friction_min at the max speed, w = (1 -
+/// min(|v.xy| / max speed, 1))^friction_exponent, while the grounded grace runs, friction_min after it. The blend is
+/// taken on the speed the drive leaves (the step solves drive and friction together; on the speed before it the first
+/// frame from rest would be 31 units/s, the original's is 36.6).
+fn ground_friction(r: &Roman, max_speed: f32) -> f32 {
+    if r.floor.y <= WALKABLE_NZ {
+        return 0.0;
+    }
+    let speed = Vec2::new(r.vel.x, r.vel.z).length();
+    let w = if r.grace > 0.0 && max_speed > 0.0 { (1.0 - (speed / max_speed).min(1.0)).powf(r.friction.2) } else { 0.0 };
+    r.friction.0 * (1.0 - w) + r.friction.1 * w
+}
+
+/// The ground contact's share of the body's step (Havok's contact solve, as the sphere on the ground meets it): the
+/// velocity into the ground (normal `n`) is taken away, and friction `mu` times that normal impulse is taken off the
+/// velocity along the ground (Coulomb: at most all of it). On level ground that is mu x gravity x dt off the speed
+/// (friction_min 0.3 holds full stick at 39.2 units/s, the measured walk); standing on any walkable slope friction_max
+/// 2 holds him, and on steeper ground (no friction) or while gravity's pull along a slope exceeds the friction at
+/// speed, he slides downhill.
+fn ground_contact(vel: &mut Vec3, n: Vec3, mu: f32) {
+    let into = vel.dot(n);
+    if into >= 0.0 {
+        return;
+    }
+    *vel -= n * into;
+    let along = *vel - n * vel.dot(n);
+    let speed = along.length();
+    if speed > 1e-6 {
+        *vel -= along * ((mu * -into).min(speed) / speed);
+    }
+}
 
 /// Whether Roman counts as grounded after a step (0x00478200, the flag 0x1000 that restarts the 0.5 s grace +0x570):
 /// he touches ground facing up (`floor`, the most upward contact normal) above normal z -0.1 (0x005bcd14), and either
@@ -655,10 +691,10 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
     let radius = p.f("collision_radius", 4.0).clamp(2.0, 5.0);
     // no slope limit in the walker: the original's body is a Havok sphere with no max slope (PlayerObject_BuildCollision
     // 0x00475220), so steep ground is not a wall to it. What is too steep is the update's (`WALKABLE_NZ`): no friction
-    // there and the drive weakens uphill, so he slides down what he cannot climb
+    // there, and the drive takes back only part of a slide downhill, so he slides down what he cannot climb
     let mut walker = physics.add_walker(feet, radius, 11.0, 0.0)?;
-    // no snap down to the floor: the update keeps him on the ground's plane with gravity, as the Havok body is (the
-    // walkable ground branch of the update), so off a ledge he falls
+    // no snap down to the floor: the drive keeps him in the ground's plane and gravity and the ground contact act on
+    // him as on the Havok body (`ground_contact`), so off a ledge he falls
     walker.stick_to_floor = false;
     Some(Roman {
         walker,
@@ -971,12 +1007,11 @@ pub(crate) fn control(
         if topsy.active() || glove.active() {
             wish = Vec3::ZERO;
         }
-        // the drive (PlayerObject_Update 0x004799d5 through 0x00471810): force = d * mass * power * s^5, d the wanted
+        // the drive's numbers (PlayerObject_Update 0x004799d5 through 0x00471810; the drive itself below): d the wanted
         // minus the current velocity, s = sqrt(1 - c^2) with c = (d . up) / |d| clamped to [0, 1], the power scaled by
         // max_speed / |d| when |d| exceeds the max speed. On the ground the max speeds are fwd / side_max_speed (40)
         // with movement_power (lerp min..max by the stick: keys are full stick, max 10); jumping (state flag 0x80)
-        // jump_fwd / side_max_speed (6.5) with jump_movement_power (4). Integrated exactly per frame, the power times
-        // DRIVE_GAIN (the original's measured stiffness: full speed in a frame, a dead stop on release).
+        // jump_fwd / side_max_speed (6.5) with jump_movement_power (4).
         // the power: movement_power_min..max by the stick (keys: full stick); for 1 s after a knockback (w = 1 -
         // slow) min becomes w x 7 + (1 - w) and max x (0.5 (1 - w) + w) (game_06.cpp:2572)
         r.wish_h = Vec2::new(wish.x, wish.z).length();
@@ -1021,16 +1056,20 @@ pub(crate) fn control(
                 r.vel += a * dt;
             }
         }
-        // Steep ground (touching only contacts with normal z <= 0.7): the contact callback 0x00477c90 gives them no
-        // friction, and the wanted velocity lies along the slope (0x004798c5: the stick's velocity turned by the
-        // rotation from up to the ground normal +0x574, Quat_FromTwoVectors 0x004f1830), so the drive's uphill
-        // weakening (s^5 of the angle from up) holds him back on the steep part: about 60 degrees is the most he climbs
-        // at full stick, and steeper he slides down. The body keeps its vertical speed there (gravity and the contact),
-        // where on walkable ground the walker keeps him on the floor.
-        let steep = r.touching && r.floor.y <= WALKABLE_NZ;
-        let walkable = r.on_ground && !steep;
-        let want = if steep { Quat::from_rotation_arc(Vec3::Y, r.floor) * wish } else { wish };
-        let d = Vec3::new(want.x - r.vel.x, if walkable { 0.0 } else { want.y - r.vel.y }, want.z - r.vel.z);
+        // The drive (0x004799d5): the wanted velocity is the stick's turned by the rotation from up to the ground normal
+        // +0x574 (0x004798c5, Quat_FromTwoVectors 0x004f1830), so it lies in the ground's plane; the normal is the last
+        // one touched (0x00478200 restores it while he touches nothing). Then 0x00471810 with the direction up
+        // (0x005fb9a4 = (0, 0, 1): the normal goes in as an argument it does not read) gives the force d x mass x
+        // power' x s^5 and the duration mass / (mass x power') = 1 / power', which the force action pool runs (0x00455a30
+        // -> ForceActionPool_Add 0x00403fb0, ForceActionPool_Update 0x00404140 with flag 0x10): a duration of 0.2 s
+        // or less (power' 5 or more: always on foot) is one impulse force x duration = d x mass x s^5 in the first
+        // substep. So each frame the body's velocity moves by d x s^5: all of the way on level ground, and only s^5 of
+        // a correction that points uphill. The uphill weakening is what lets him slide down a side slope while he
+        // walks across it: gravity pulls him downhill, and the drive takes back only s^5 of that each frame.
+        // `drive_response` is the share of d the body keeps after the step's contact solve on level ground (measured).
+        let ground_plane = !r.jumping && r.floor.y > 0.0;
+        let want = if ground_plane { Quat::from_rotation_arc(Vec3::Y, r.floor) * wish } else { wish };
+        let d = want - r.vel;
         let dist = d.length();
         // (the drive's force action is released once the grounded grace has run out while he touches something,
         // 0x004799d5: sliding down a steep face, nothing pushes)
@@ -1039,30 +1078,7 @@ pub(crate) fn control(
             let strength = if max_speed > 0.0 && dist > max_speed { power * max_speed / dist } else { power };
             let c = (d.y / dist).clamp(0.0, 1.0);
             let s5 = (1.0 - c * c).max(0.0).sqrt().clamp(0.0, 1.0).powi(5);
-            let k = 1.0 - (-strength * DRIVE_GAIN * s5 * dt).exp();
-            r.vel.x += d.x * k;
-            r.vel.z += d.z * k;
-            if !walkable {
-                r.vel.y += d.y * k;
-            }
-        }
-        // the ground contacts' friction (+0x5a0, 0x00478200; consumed by the step's contact solver): friction_max at
-        // rest blending to friction_min at the max speed, w = (1 - min(|v.xy| / max speed, 1))^friction_exponent,
-        // against the horizontal velocity at mu x gravity. It holds full stick at 39.2 units/s (the original's
-        // measured walk: 0.653 units a frame, stop.json / the intro). The blend is taken on the speed the drive leaves
-        // (the step solves drive and friction together; on the speed before it the first frame from rest would be 31
-        // units/s, the original's is 36.6)
-        if walkable && !r.jumping && !r.dead {
-            let h = Vec2::new(r.vel.x, r.vel.z);
-            let speed = h.length();
-            if speed > 1e-4 {
-                let w = if max_speed > 0.0 { (1.0 - (speed / max_speed).min(1.0)).powf(r.friction.2) } else { 0.0 };
-                let mu = r.friction.0 * (1.0 - w) + r.friction.1 * w;
-                let gravity = 64.348 * r.anti_gravity * 0.5;
-                let s = (speed - mu * gravity * dt).max(0.0) / speed;
-                r.vel.x *= s;
-                r.vel.z *= s;
-            }
+            r.vel += d * (s5 * drive_response(strength, dt));
         }
         // the jump (0x0047aaf0): TurboJump with the grounded grace +0x570 > 0 sets flag 0x40, and 0x80 at once when the
         // horizontal speed +0x4bc is above 20 (0x005bcbe8); standing, 0x80 comes when trotter_jump_into (0.133 s) ends.
@@ -1115,20 +1131,6 @@ pub(crate) fn control(
             // the jump's breath (0x0047aaf0: 0x00493b70 with table 0x005fb99c, 2 sounds)
             const JUMP_BREATH: [&str; 2] = ["fol_breath_light_short_1", "fol_breath_light_short_2"];
             sounds.write(crate::audio::PlaySound::at(JUMP_BREATH[breaths[0].deal(2, || rng.rand() as f32 / 32768.0)], t.translation));
-        } else if walkable && !r.jumping {
-            // on walkable ground the body moves along the ground's plane: the drive's wanted velocity lies in the plane of
-            // the ground normal +0x574 (0x004798c5: the stick's velocity turned by Quat_FromTwoVectors 0x004f1830 from up
-            // to +0x574) and the drive pulls any part leaving the ground back at full strength (0x00471810 with the
-            // normal as its direction: c clamps to 0 away from it). Gravity there is the contact's and the ground
-            // friction's to hold (friction_max 2 at rest, more than any walkable slope's tangent): no gravity term, or he
-            // crept downhill standing still. The normal is the last step's, kept while he touches nothing (0x00478200),
-            // so off a ledge's edge the velocity is the shelf's and he falls under gravity; down a slope it follows it.
-            // (Jolt's stick-to-floor used to snap him down 2.5 units a frame instead: off the lev_4_m3 shelf edge the
-            // drop's top hid him from the camera while the original's Roman ran on off it.) Horizontally the drive
-            // stays as tuned: the measured run speeds are horizontal.
-            let n = r.floor;
-            let along = -(r.vel.x * n.x + r.vel.z * n.z) / n.y;
-            r.vel.y = along;
         } else {
             // (in the jump state gravity acts even when the walker reports ground: wedged under an overhang or on a
             // ledge's edge it did, the rising speed never decayed, the jump never ended and the air control piled up
@@ -1141,6 +1143,10 @@ pub(crate) fn control(
             // first: 110 units of drop are ~188 units/s)
             let g = jet.as_deref().and_then(|j| j.gravity_scale()).unwrap_or(r.anti_gravity * 0.5);
             r.vel.y -= 64.348 * g * dt;
+            if !r.jumping && !r.dead && r.touching && r.floor.y > 0.0 {
+                let (mu, n) = (ground_friction(&r, max_speed), r.floor);
+                ground_contact(&mut r.vel, n, mu);
+            }
         }
         let vel = r.vel;
         let fwd = Quat::from_rotation_y(r.yaw) * Vec3::NEG_Z;
@@ -1168,8 +1174,9 @@ pub(crate) fn control(
             } else {
                 r.on_ground
             };
-            if r.touching && r.floor.y <= WALKABLE_NZ && dt > 0.0 && !r.dead {
-                // on steep ground the body keeps the velocity the contact left it (Havok's, after the solve)
+            if r.touching && !r.jumping && dt > 0.0 && !r.dead {
+                // on the ground the body keeps the velocity its step achieved (Havok's, after the solve: along the
+                // ground, nothing into a wall)
                 r.vel = (feet - before) / dt;
             } else if on && r.vel.y <= 0.0 {
                 r.vel.y = 0.0;
