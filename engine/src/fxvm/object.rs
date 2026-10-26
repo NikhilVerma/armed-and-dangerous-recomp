@@ -331,6 +331,9 @@ pub struct FxObject {
     /// the uniform scale this frame
     pub scale_now: f32,
     pub age: f32,
+    /// its first update has run: that one ages it by nothing (Fx_CreateObject 0x004234d0 sets +0x468 = fx+0xc - dt,
+    /// the script's carried time, 0 for a new fx, minus the frame time; fn_0041a350 adds +0x468 to that update's dt)
+    pub updated: bool,
     pub lifespan: Option<f32>,
     /// (delay or time, 1 / duration, still delayed)
     pub fade_in: Option<(f32, f32, bool)>,
@@ -398,6 +401,7 @@ impl FxObject {
             place,
             scale_now: 1.0,
             age: 0.0,
+            updated: false,
             lifespan: None,
             fade_in: None,
             fade_out: None,
@@ -572,9 +576,8 @@ pub fn remove(o: &FxObject, physics: &mut Physics, commands: &mut Commands, scre
 
 
 /// The fx object update (fn_0041a350 0x0041a350, render_r1.cpp:974), once per frame for every live object, in the
-/// original's order: the ground hit's actions (+0x464 bit 0x2000), the camera shake (moved before the life check:
-/// the shakes sit on objects that live 0.01 s, which the engine's first step of at least 1/60 s ends at once),
-/// age and lifespan (ending runs the on-death fx), fades, size over life, the light, uv transforms and texture
+/// original's order: the ground hit's actions (+0x464 bit 0x2000), the camera shake (before the life check: the
+/// shakes sit on objects that live 0.01 s), age and lifespan (ending runs the on-death fx), fades, size over life, the light, uv transforms and texture
 /// frames, the placement (camera card 0x00419a60), mesh emitters, particle emitters (0x0041a050).
 #[allow(clippy::too_many_arguments)]
 pub fn objects(
@@ -663,9 +666,14 @@ pub fn objects(
                 }
             }
         }
-        // the original ran at 60 fps: an object's first update steps at least 1/60 s, so scripts with lifespans
-        // under a frame (Roman's snow footsteps: 0.01) end before their emitters run, as there (render_r1.cpp:1071)
-        let step = if o.age == 0.0 { dt.max(1.0 / 60.0) } else { dt };
+        // the first update ages the object by nothing (dt + +0x468 = fx+0xc, the script's carried time: 0 here;
+        // render_r1.cpp:1061, game/fx.cpp:171), so an object with a lifespan under a frame (0.01: the bullet impacts'
+        // smoke fx_imp_stig / fx_imp_flemming, the snow footsteps' puffs, the sticky's and the kegs' blasts) still
+        // runs its emitters once (with the frame's dt, 0x0041a050 reads [0x00604a90]) and ends on its second update.
+        // Until 2026-10-26 the first update aged it by at least 1/60 s: those objects ended before emitting and the
+        // impacts left no smoke (lev_bonus_m1's turrets, work/fxsoft/)
+        let step = if o.updated { dt } else { 0.0 };
+        o.updated = true;
         o.age += step;
         // the remaster's kept debris loses its end here, before the life check (render_r1.cpp:1065, debris.rs); a
         // restored object goes by its saved state
@@ -768,7 +776,12 @@ pub fn objects(
             if o.muted {
                 em.prev_pos = pos; // unmuted, it starts from here, not along the path it travelled muted
             } else {
+                let before = vm.pools.live[em.pool].len();
                 step_emitter(&mut vm.pools, &mut vm.rng, em, pos, obj_dir, dt);
+                let n = vm.pools.live[em.pool].len() - before;
+                if n > 0 {
+                    *vm.emitted.entry(o.template.clone()).or_default() += n as u32;
+                }
             }
         }
         if o.screen {
