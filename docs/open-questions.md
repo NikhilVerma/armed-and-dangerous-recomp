@@ -184,15 +184,11 @@ the camp fight itself (the original was not run: the game was in use by other ag
 
 ## AI parity leftovers (2026-10-16, agent-aiparity2; docs/journal/2026-10-16-aiparity2.md)
 
-- **B14 rest (lev_bonus_m1's stig gunners fire late).** The assault now starts as in the original (ai_target_tag,
-  the charge's pursuit, the jumpers' load-frame take-off), but the 18 turret-mode grunts' first bursts come ~110
-  frames after the original's: the original fires 8 frames after the unpause (`wpn_stig_machgun_fire_lp` x 8 at play
-  frame 8, forge cannons at 6), the remaster after stig_fire_delay (0.5..0.75 s) and the clip pause that the second
-  0x00427600 roll sets (state 0x7d, ai_06.cpp:640-790, read the same way here). Either the original's mount
-  (AI_ResolveStartObjects 0x00425e20 -> state 0x7b at load) runs its timer during load frames the trace does not
-  see, or 0x004292f0's clip pause is not the one the remaster waits for. Evidence: the GUNDBG2 run in the journal
-  (grunt 664v0: timer 0.69 -> fire at 1.98 s); next: hook trace_calls of 0x004292f0 / fn_00427600 on lev_bonus_m1.
-  Roman, hit sooner, dies ~190 frames earlier (the scenario's known entries).
+- **B14 rest (lev_bonus_m1's stig gunners fire late).** FIXED 2026-10-26 (docs/journal/2026-10-26-turret-range.md).
+  The start turret (0x00425e20) goes straight to state 0x7d with the init's infantry counters and +0x494 = 0, so it
+  fires at play frame 8 as in the original. Rocket captains with no AI-grid route now guard on their roofs (state 0x3c
+  -> 0x0042d0f0). Left: the walking Roman dies ~1 s after the original's; the standing one now dies earlier (the
+  rocket captains fire on the load frame, the original's after their 0x79 switch at frames 2..12).
 - **B3b (lifted grunts fall in the remaster).** lev_5_m1 captain 66 / lev_5_m3 grunt 44 are lifted by force_ground out
   of an overhang (now at the original's height: the touch tolerance is 0.3, 2026-10-16 agent-charbody) and stay there
   in the original. Traced (hook trace fields entity / awake / vel, trace_calls GenericAIObject_Slot42 / Slot44,

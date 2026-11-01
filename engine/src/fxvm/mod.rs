@@ -84,6 +84,10 @@ pub struct FxVm {
     pub made: HashMap<String, u32>,
     /// instances started per script name (the material variant resolved) since start or the last playtest clear
     pub started: HashMap<String, u32>,
+    /// particles emitted per object template since start or the last playtest clear, for playtests
+    pub emitted: HashMap<String, u32>,
+    /// where the last playtest fx step started its fx (game x, y): the logged extent counts the objects near it
+    probe: Option<Vec2>,
     /// game time (seconds since start): the on-hit spawn spacing (0x0041fc70, [0x00604a98])
     time: f32,
     out: Outbox,
@@ -187,6 +191,8 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
         lights: Vec::new(),
         made: HashMap::new(),
         started: HashMap::new(),
+        emitted: HashMap::new(),
+        probe: None,
         time: 0.0,
         out: Outbox::default(),
         body_defs: HashMap::new(),
@@ -198,6 +204,9 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, mut meshes: ResMut<As
 fn game_running(time: Res<Time<Virtual>>) -> bool {
     !time.is_paused()
 }
+
+/// The logged extent's reach around a playtest fx step (game units): an explosion's debris starts well within it.
+const PROBE_RADIUS: f32 = 500.0;
 
 fn engine_to_game() -> Quat {
     game_to_engine().inverse()
@@ -274,6 +283,7 @@ fn playtest_fx(
             kill_all(&mut vm, &mut commands, &mut physics, cams.iter().next());
             vm.made.clear();
             vm.started.clear();
+            vm.emitted.clear();
             if let Some(s) = state.as_mut() {
                 s.0.remove("fx");
             }
@@ -289,6 +299,7 @@ fn playtest_fx(
         let yaw = f.get("yaw").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
         // a game-space turn about z, as an engine-space rotation
         let rotation = game_to_engine() * Quat::from_rotation_z(yaw.to_radians());
+        vm.probe = Some((engine_to_game() * at).truncate());
         out.write(StartFx { name: name.to_owned(), at, rotation, follow: None, position_only: false });
     }
 }
@@ -345,17 +356,22 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
     let pools: Vec<usize> = vm.pools.live.iter().map(Vec::len).collect();
     let bodies = vm.objects.values().filter(|o| o.has_body()).count();
     let top = vm.objects.values().map(|o| o.place.w_axis.z).fold(f32::MIN, f32::max);
-    // live objects per template, and the horizontal extent of the live objects (where debris starts: attach points)
+    // live objects per template, and the horizontal extent of the live objects (where debris starts: attach points);
+    // after a playtest fx step only of those within PROBE_RADIUS of it: the level's own fx (the grunts' footsteps,
+    // which live a frame) are elsewhere
     let mut by_template = serde_json::Map::new();
     let (mut lo, mut hi) = (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN));
     for o in vm.objects.values() {
         let n = by_template.get(&o.template).and_then(|v| v.as_u64()).unwrap_or(0);
         by_template.insert(o.template.clone(), (n + 1).into());
         let p = o.place.w_axis.truncate().truncate();
+        if vm.probe.is_some_and(|c| c.distance(p) > PROBE_RADIUS) {
+            continue;
+        }
         lo = lo.min(p);
         hi = hi.max(p);
     }
-    let extent = if vm.objects.is_empty() { 0.0 } else { (hi - lo).length() };
+    let extent = if hi.x < lo.x { 0.0 } else { (hi - lo).length() };
     // texture animation frames: the highest frame per "<template>_<stage>" among the live objects
     let mut texframe = serde_json::Map::new();
     for o in vm.objects.values() {
@@ -434,6 +450,7 @@ fn playtest_state(vm: Res<FxVm>, mut state: Option<ResMut<crate::playtest::PlayS
             "facing_bodies": vm.objects.values().filter(|o| o.face_direction && o.body.is_some()).count(),
             "made": vm.made,
             "started": vm.started,
+            "emitted": vm.emitted,
             "blasts": vm.stats.blasts,
             "extent": extent,
             "max_extent": prev.get("max_extent").and_then(|x| x.as_f64()).map_or(extent, |m| (m as f32).max(extent)),

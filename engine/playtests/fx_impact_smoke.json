@@ -1,0 +1,11 @@
+{"load": "states/after_pub.json", "steps": [
+ {"note": "an fx object with a lifespan under a frame runs its emitters once: its first update ages it by nothing (Fx_CreateObject 0x004234d0: +0x468 = fx+0xc - dt; fn_0041a350 0x0041a350). The bullet impacts' smoke emitters sit on 0.01 s fxo_ref_sphere objects: one puff each (interval 0.025..0.05 s)"},
+ {"wait": 1.0},
+ {"fx": {"name": "fx_imp_stig", "clear": true}},
+ {"wait": 0.2},
+ {"expect": {"fx.emitted.fxo_ref_sphere": 1, "fx.made.fxo_ref_sphere": 1, "fx.by_template.fxo_ref_sphere": null}},
+ {"fx": {"name": "fx_imp_flemming"}},
+ {"wait": 0.2},
+ {"expect": {"fx.emitted.fxo_ref_sphere": 2, "fx.made.fxo_ref_sphere": 2}},
+ {"quit": true}
+]}
