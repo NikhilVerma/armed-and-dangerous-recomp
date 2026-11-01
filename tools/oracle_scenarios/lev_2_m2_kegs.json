@@ -1,0 +1,10 @@
+{
+ "about": "lev_2_m2: the walk video's input (tools/compare_videos.json: W from play frame 10 for 620 frames) traced at the powderkegs 156 / 157 before snow_pipe 192 (play frames 400-640): where Roman is held (the video's original frames 240-299 show him behind grunt 29, right of the kegs), and grunt 29's position against his. Open question in docs/journal/2026-10-26-keg-end.md",
+ "level": "lev_2_m2",
+ "keys": "0:ENTER*3,10:17*620",
+ "frames": 640,
+ "trace_every": 2,
+ "trace_from": 400,
+ "suite": false,
+ "known": {}
+}

@@ -146,6 +146,8 @@ pub struct Roman {
     pub stepped_h: f32,
     /// friction_min (+0x5a8), friction_max (+0x5a4), friction_exponent (+0x5ac): the ground contacts' friction blend
     pub friction: (f32, f32, f32),
+    /// the body sphere's radius (collision_radius): the lever of the ground friction's turn (`friction_turn`)
+    pub radius: f32,
     pub slide_fx: Option<Entity>,
     /// +0xc00: 0.5 s after each shot (0x004788a0 at 0x0047a555), counted down by dt; the empty-clip reload and the
     /// weapon fallback wait for it (0x0047a6af)
@@ -569,17 +571,45 @@ fn ground_friction(r: &Roman, max_speed: f32) -> f32 {
 /// (friction_min 0.3 holds full stick at 39.2 units/s, the measured walk); standing on any walkable slope friction_max
 /// 2 holds him, and on steeper ground (no friction) or while gravity's pull along a slope exceeds the friction at
 /// speed, he slides downhill.
-fn ground_contact(vel: &mut Vec3, n: Vec3, mu: f32) {
+/// Returns the friction's velocity change (for `friction_turn`).
+fn ground_contact(vel: &mut Vec3, n: Vec3, mu: f32) -> Vec3 {
     let into = vel.dot(n);
     if into >= 0.0 {
-        return;
+        return Vec3::ZERO;
     }
     *vel -= n * into;
     let along = *vel - n * vel.dot(n);
     let speed = along.length();
-    if speed > 1e-6 {
-        *vel -= along * ((mu * -into).min(speed) / speed);
+    if speed <= 1e-6 {
+        return Vec3::ZERO;
     }
+    let dv = -along * ((mu * -into).min(speed) / speed);
+    *vel += dv;
+    dv
+}
+
+/// The share of the sphere's turn from its ground friction (`friction_turn`) that Roman's heading keeps in a frame.
+/// Fitted on the original's traces: the level-start walks of tools/oracle_scenarios (work/oracle/*_start), the
+/// heading's change per frame against the side tilt of the ground under him (docs/journal/2026-10-26-keg-end.md).
+/// Havok's contact solve is not ported; this stands for how much of the friction impulse's moment it turns into spin.
+const FRICTION_TURN_SHARE: f32 = 0.0165;
+
+/// How far the ground friction turns Roman in a frame (radians about up, engine axes). The original rebuilds his
+/// placement every frame from the facing his Havok body has after its step (PlayerObject_Update at 0x00479e2e:
+/// Object_GetNegColumn1 0x00453150, the yaw plus the turn input, Object_SetTransform 0x00457990, angular velocity
+/// zeroed by Body_setAngularVelocity 0x00458580), so whatever the step turned the sphere about the vertical stays in
+/// his heading: the friction impulse `dv` acts at the contact, `radius` below the centre along -`n`, and its moment
+/// spins the solid sphere (inertia 2/5 m r^2, Object_BuildRadiusCollision 0x004527d0) by (5 / (2 r^2)) (r_c x dv).
+/// On level ground r_c x dv is horizontal (a roll, which the next placement drops); across a side slope part of it is
+/// about the vertical, so walking along a hillside he slowly turns: the lev_2_m2 start walk ends 0.6 degrees right of
+/// where it set off after 2 s, and on the walk video's input he passes powderkeg 157 on its far (-x)
+/// side as the original's does, not into the gap between kegs 156 / 157.
+fn friction_turn(n: Vec3, dv: Vec3, radius: f32, dt: f32) -> f32 {
+    if radius <= 0.0 {
+        return 0.0;
+    }
+    let spin = (-n * radius).cross(dv) * (5.0 / (2.0 * radius * radius));
+    FRICTION_TURN_SHARE * spin.y * dt
 }
 
 /// Whether Roman counts as grounded after a step (0x00478200, the flag 0x1000 that restarts the 0.5 s grace +0x570):
@@ -774,6 +804,7 @@ pub fn make_roman(physics: &mut Physics, p: &Props, data: &GameData, feet: Vec3,
         stepped_h: 0.0,
         // (not in p_trotter: PlayerObject_Load's defaults, game_05.cpp:573)
         friction: (p.f("friction_min", 0.3), p.f("friction_max", 2.0), p.f("friction_exponent", 4.0)),
+        radius,
         slide_fx: None,
         fire_delay: 0.0,
         mg_held: 0.0,
@@ -1145,7 +1176,8 @@ pub(crate) fn control(
             r.vel.y -= 64.348 * g * dt;
             if !r.jumping && !r.dead && r.touching && r.floor.y > 0.0 {
                 let (mu, n) = (ground_friction(&r, max_speed), r.floor);
-                ground_contact(&mut r.vel, n, mu);
+                let dv = ground_contact(&mut r.vel, n, mu);
+                r.yaw += friction_turn(n, dv, r.radius, dt);
             }
         }
         let vel = r.vel;
