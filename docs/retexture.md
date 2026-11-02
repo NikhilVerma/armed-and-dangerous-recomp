@@ -153,7 +153,9 @@ tools/retex/batch.py, with prepare / run / post / sheet and reject.py.
 - **Sizes:** 4x while the result stays <= 1024 per side, otherwise 2x (max 2048), smallest first. 2048x2048 jobs take
   2.5-5 min each on the shared 4090.
 - **Descriptions** come from Haiku subagents (about 25 previews each). They also classify each texture and skip glows,
-  smoke, fire, flat colours, normal maps, text and many-piece sheets.
+  smoke, fire, flat colours, normal maps, text and many-piece sheets. The 512 descriptions are committed in
+  tools/retex/desc/<name>.json (text only, no game data), so a player with their own game copy can regenerate the
+  pack with tools/retex/batch.py.
 - **Results:** 212 installed, 253 skipped, 36 rejected after contact-sheet review and in-game checks, 14 deferred
   (1024 px sources).
 - **Post-processing lessons:**

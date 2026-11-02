@@ -10,8 +10,9 @@
                  wrapped, stored row order (flipped); written to the game's and the test instance's overrides folders
   sheet K        contact sheets of the processed textures (original | remaster), K per sheet, into the OneDrive folder
 
-Descriptions (desc/<name>.json): {"kind": "portrait|ui|material|decal|sprite|fx|sky|text|other",
-  "skip": false, "describe": "The image shows ..."}; written by describing subagents from the previews.
+Descriptions (tools/retex/desc/<name>.json, committed; no game data): {"kind":
+  "portrait|ui|material|decal|sprite|fx|sky|text|other", "skip": false, "describe": "The image shows ..."}; written by
+  describing subagents from the previews. With them, anyone with their own game copy can regenerate the pack.
 
 Usage: .venv/Scripts/python.exe tools/retex/batch.py prepare 120 | run | post | sheet 24
 """
@@ -28,6 +29,7 @@ sys.path.insert(0, HERE)
 import medialab  # noqa: E402
 
 B = os.path.join(ROOT, "work", "retex", "batch")
+DESC = os.path.join(HERE, "desc")  # the descriptions live in the repository, everything else in work/
 SHARE = "%USERPROFILE%/OneDrive/AnD-retexture-test/batch"
 OVERRIDES = [os.path.join(ROOT, "orig", "pc", "GameData", "overrides", "textures"),
              os.path.join(ROOT, "work", "instances", "main", "overrides", "textures")]
@@ -57,6 +59,8 @@ NORMAL_NEGATIVE = ("photograph, shading, shadows, highlights, lighting, colour s
 
 
 def path(*p):
+    if p and p[0] == "desc":
+        return os.path.join(DESC, *p[1:])
     return os.path.join(B, *p)
 
 
