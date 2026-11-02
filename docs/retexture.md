@@ -178,6 +178,16 @@ tools/retex/batch.py, with prepare / run / post / sheet and reject.py.
   - Names differing only in case (N_T_iron / N_t_iron) share one file on Windows. All such pairs hold identical
     images.
 
+## PiD (2026-11-02, tools/retex/pid.py; tried on the sweep's eight samples, not installed)
+
+Media Lab's `pid` engine (NVIDIA PiD) keeps every texture's layout and colours exactly (no Qwen drift: x_dirtrocks1
+stays dirt with pebbles, b_stone_dark keeps its courses) and adds moderate detail. Chain: SwinIR-L realSR 2x and back
+to the original size (removes DXT blocks; on the raw original PiD sharpens them into a crosshatch of scratches),
+non-square sources padded to a square (256x64 k_player_rifle got vertical streaks otherwise), PiD at the plan's scale
+(max 4x), 4 steps, degrade 0 (0.15 changed little), tone transfer 4, prompt "Game texture, highly detailed." + the
+committed description (a hand-written prompt gave nearly the same result). Sources under 32 px are skipped
+(fx_smoke_brown, 16 px, came back as invented blocks). Results in work/retex/pid_batch/, sheets sheet_<k>.jpg.
+
 ## Proposed recipe (2026-10-11, agreed with the player; not yet run as a batch)
 
 Found by sweep (tools/retex/sweep.py, results in work/retex/batch/sweep/, montages in
