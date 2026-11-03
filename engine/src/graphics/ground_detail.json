@@ -1,0 +1,15 @@
+{
+  "about": "Which tiling detail each landscape texture gets (graphics/ground_detail.rs). Names are the game's texture names in lower case. Sorted by hand on 2026-11-03 from the texture descriptions in tools/retex/desc, covering every texture the 24 exported landscapes use. A texture not listed gets no detail: water, sky, cut-outs, signs and flat colours.",
+  "surfaces": {
+    "snow": ["b_level1_ground"],
+    "ice": ["b_t_level1_water"],
+    "rock": ["2m2_ground_light", "2m2_ground_dark", "n_t_rockface", "2m1_ground3", "lev_3_m3_rockface", "2m1_ground_dark", "2m1_ground_light", "n_t_white_cliffs", "b_l3_m1_rockface", "4m3_ground_dark", "b_stone"],
+    "dirt": ["b_level1_ground2", "2m2_ground3", "n_level5_sand", "n_level5_sand_2", "b_l3_m1_dirt", "b_l3_m1_dirt_bright", "x_dirtrocks1", "lev_3_m3_ground_2", "l5_m5_battlefield_2", "l5_m5_battlefield_d", "l5_m5_battlefield_3", "l5_m2_ground_2"],
+    "grass": ["b_plains_ground", "b_plains_ground_bright", "n_l5_m1_grass", "n_l5_m5_grass_2"],
+    "moss": ["b_wildwood_ground", "b_wildwood_ground2", "b_wildwood_ground3", "b_wildwood_moss", "b_wildwood_moss2", "l5_m2_ground_1"],
+    "sand": ["lev_3_m3_ground_1"],
+    "stone": ["b_stone_dark", "b_stone_bright", "castlewall", "castlewall2", "castlewall3", "castlewall4", "c_ruin_stone_1", "c_ruin_stone_2", "c_ruin_stone_3", "c_ruin_pillar_1", "c_altar_jerosa_1", "n_t_concrete", "b_ww_dirty_wall", "n_t_brick_classic", "k_t_plaster_wall_red", "k_t_plaster_wall_orange", "n_t_white_wash", "n_t_roof_tile_diamond"],
+    "wood": ["n_t_wood_planks", "n_t_wood_planks2", "n_t_wood_planks_dark", "k_t_wood_small", "k_t_wood_small_dark", "k_t_wood_small_ring", "x_root_ring", "b_t_tree_bark_1", "b_level1_walls", "n_t_roof_tile_wood_diamond", "k_t_roof_tile_dark"],
+    "metal": ["k_t_ruststeel_d", "n_t_bronze", "b_dirty_wall", "x_dirty_wall", "n_t_metal_rust", "n_t_metal_rust_grooved", "b_base_wall", "n_t_iron", "k_t_corrigrust", "k_t_copper"]
+  }
+}

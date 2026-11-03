@@ -142,9 +142,10 @@ class Exe:
         for i in range(n):
             nm, vs, va, rs, ro = struct.unpack_from("<8sIIII", d, pe + 24 + opt + 40 * i)
             self.secs.append((nm.rstrip(b"\0").decode(), va, rs, d[ro:ro + rs]))
-        self.text = next(s for s in self.secs if s[0] == ".text")
-        self.text_readable = not any(s[0] == ".bind" for s in self.secs)
-        self.data = [s for s in self.secs if s[0] in (".rdata", ".data")]
+        self.text = next((s for s in self.secs if s[0] == ".text"), None)
+        # The GOG build renames every section and moved its code, so the code addresses of our notes don't apply there.
+        self.text_readable = self.text is not None and not any(s[0] == ".bind" for s in self.secs)
+        self.data = [s for s in self.secs if s[0] in (".rdata", ".data")] or self.secs[1:3]
         self.lower = [(nm, va, raw.lower()) for nm, va, _, raw in self.data]
         rows = (ROOT / "symbols" / "functions.csv").read_text().splitlines()[1:]
         self.funcs = sorted((int(r.split(",")[0], 16), int(r.split(",")[1] or 0), r.split(",")[2]) for r in rows)

@@ -92,8 +92,9 @@ regenerate them and the known differences still open: [docs/comparisons.md](docs
 - **Windows 10 / 11, 64-bit.** The only platform played so far.
 - **macOS** (Apple silicon; Intel Macs too): builds in CI, not yet played. You copy your game files over from a
   Windows install; see [docs/macos.md](docs/macos.md). Linux is untested.
-- **Game version:** the Steam release (app 6090, build 251748) is the tested one. Other releases (for example GOG)
-  are untested; `tools/setup_assets.py` reports an unknown build and tries anyway. Reports welcome.
+- **Game version:** the Steam release (app 6090, build 251748) is the tested one. The GOG release (2.0.0.3) has its
+  own setup steps and is still being checked. Another build needs its own address list, and
+  `tools/setup_assets.py` reports it as unknown. See [docs/game-builds.md](docs/game-builds.md).
 - A GPU with current DirectX 12 or Vulkan drivers (Metal on macOS).
 
 ## Getting started

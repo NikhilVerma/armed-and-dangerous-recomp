@@ -1,0 +1,148 @@
+{
+"load": "states/after_pub.json",
+"steps": [
+{
+"note": "Every grunt the bomb reaches falls into the sky: a low roll at once, the rest when their grip runs out (0x0042fe50, state 0xeb, ai_06.cpp:2776)."
+},
+{
+"wait": 1.0
+},
+{
+"warp": [
+190.68,
+-69.44,
+13.76,
+90
+]
+},
+{
+"wait": 0.5
+},
+{
+"cheat": "SHIELDME"
+},
+{
+"spawn": [
+212.68,
+-69.44,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+206.23634918610406,
+-53.883650813895954,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+190.68,
+-47.44,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+175.12365081389595,
+-53.883650813895954,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+168.68,
+-69.44,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+175.12365081389595,
+-84.99634918610404,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+190.68,
+-91.44,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"spawn": [
+206.23634918610404,
+-84.99634918610404,
+14.5
+],
+"template": "grunt_regular"
+},
+{
+"wait": 1.0
+},
+{
+"tap": "Tab"
+},
+{
+"wait": 0.3
+},
+{
+"click": "Right"
+},
+{
+"wait": 0.8
+},
+{
+"shot": "bomb_held"
+},
+{
+"wait": 2.7
+},
+{
+"expect": {
+"topsy.phase": "Hang"
+}
+},
+{
+"shot": "falling"
+},
+{
+"wait": 1.0
+},
+{
+"shot": "falling2"
+},
+{
+"wait": 2.8
+},
+{
+"expect": {
+"topsy.phase": "Hang",
+"topsy.hanging": 0,
+"topsy.falling": [
+8,
+8
+]
+}
+},
+{
+"wait": 3.0
+},
+{
+"expect": {
+"topsy.phase": "Off"
+}
+},
+{
+"quit": true
+}
+]
+}

@@ -216,7 +216,8 @@ pub fn make_dynamic(physics: &mut Physics, commands: &mut Commands, o: &mut FxOb
         .friction(1.0)
         .restitution(def.restitution)
         .gravity_factor(physics.game_gravity_factor(o.gravity))
-        .motion_quality(MotionQuality::LinearCast);
+        .motion_quality(MotionQuality::LinearCast)
+        .object_layer(crate::physics::FX_DEBRIS);
     let id = physics.add_dynamic(e, &shape, pos, rot, Vec3::ZERO, s)?;
     // fx bodies pass through each other: a flying keg goes straight up through the debris of the house its chain
     // blew up (the player: "they went UP 90 degrees ALWAYS"; whether Havok paired two fx bodies is not traced: guess)

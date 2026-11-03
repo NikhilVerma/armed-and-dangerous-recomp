@@ -204,8 +204,12 @@ impl TexAnim {
         std::mem::replace(&mut self.frame, next) != next
     }
 
+    /// The stage's texture at this frame. A frame the level doesn't have draws the stage's own texture, as the
+    /// original does: TexAnim_ResolveTextures 0x00419940 replaces it only when TexAnim_FindFrameTexture 0x004198c0
+    /// finds the frame.
     fn texture(&self) -> String {
-        if self.frame == 0 { self.base.clone() } else { format!("{}_{}", self.base, self.frame) }
+        let frame = format!("{}_{}", self.base, self.frame);
+        if self.frame != 0 && crate::graphics::texture_exists(&frame) { frame } else { self.base.clone() }
     }
 }
 

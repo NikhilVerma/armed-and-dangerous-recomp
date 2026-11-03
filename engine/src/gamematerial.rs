@@ -32,7 +32,7 @@ pub struct GameMaterialParams {
     pub fog_range: Vec4,
     /// presentation settings (graphics.rs; zero in the Original): x the ambient occlusion's strength (0 on blended
     /// surfaces), y 1 = dissolve at the far clip instead of a hard cut, z the alpha below which an alpha-tested
-    /// surface casts no shadow (0: the whole card casts, as the original's silhouettes)
+    /// surface casts no shadow (0: the whole card casts, as the original's silhouettes), w 1 = procedural snow surface
     pub remaster: Vec4,
     /// the old remaster's height fog (graphics/height_fog.rs `HeightFogSettings::material_params`; x 0 = the level's
     /// linear fog)
@@ -50,6 +50,9 @@ pub struct GameMaterialParams {
     /// how the surface meets what is behind it: x 1 = added (SRCALPHA / ONE, [`MaterialDef::additive`]; gamma-space
     /// colour times alpha, composited by fxvm/additive.rs), 0 = alpha-blended or opaque
     pub blend: UVec4,
+    /// ground detail (graphics/ground_detail.rs): x the base texture's detail layer and y the second texture's,
+    /// counted from 1 (0: none); z how much it changes the brightness and w how much it bumps (both 0: off)
+    pub detail: Vec4,
 }
 
 /// How a game material covers what lies behind it in the depth-only passes (the sun's shadow cascades): the whole
@@ -103,6 +106,10 @@ pub struct GameMaterial<C: Coverage = Solid> {
     #[texture(9)]
     #[sampler(10)]
     pub env_atlas: Handle<Image>,
+    /// the ground detail layers (graphics/ground_detail.rs), the same array texture for every material
+    #[texture(11, dimension = "2d_array")]
+    #[sampler(12)]
+    pub detail: Handle<Image>,
     pub alpha: bool,
     /// added to the scene rather than blended over it ([`MaterialDef::additive`])
     pub additive: bool,
@@ -527,6 +534,7 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
     let alpha = alpha || def.alpha() < 1.0 || def.additive();
     let ao_snow_surface = crate::graphics::ao_exempt(&[texture, def.texture2.as_deref(), def.normal_map.as_deref()]);
     let g = crate::graphics::current();
+    let snow_floor = g.snow_shader && def.normal_map.as_deref().is_some_and(|n| n.eq_ignore_ascii_case("n_b_t_snow"));
     GameMaterial {
         base: tex(texture, true),
         normal: tex(def.normal_map.as_deref(), false),
@@ -553,15 +561,21 @@ pub fn make<C: Coverage>(def: &MaterialDef, texture: Option<&str>, alpha: bool, 
             ambient_light: l3(lights.ambient, 0.0),
             fog_col,
             fog_range,
-            remaster: Vec4::new(crate::graphics::ao_weight(&g, alpha), if g.far_fade { 1.0 } else { 0.0 }, g.shadow_alpha_cutoff, 0.0),
+            remaster: Vec4::new(crate::graphics::ao_weight(&g, alpha), if g.far_fade { 1.0 } else { 0.0 }, g.shadow_alpha_cutoff, snow_floor as u32 as f32),
             height_fog: g.height_fog.material_params(lights.fog_reference),
             ao_extras: g.ao_extras.material_params(ao_snow_surface),
             geometry: crate::graphics::geometry::for_material(crate::graphics::geometry::material_values(&g), alpha, def.alpha()),
             env_map: Vec4::new(if lights.env_baked { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0),
             uv_sets: def.uv_set_vec(),
             blend: UVec4::new(def.additive() as u32, 0, 0, 0),
+            detail: {
+                let (base_layer, second_layer) = crate::graphics::ground_detail::layers(texture, def.texture2.as_deref());
+                let (albedo, bumps) = crate::graphics::ground_detail::strengths(g.ground_detail);
+                Vec4::new(base_layer, second_layer, albedo, bumps)
+            },
         },
         env_atlas: if lights.env_baked { lights.env_atlas.clone() } else { white.clone() },
+        detail: crate::graphics::ground_detail::DETAIL_TEXTURES,
         alpha,
         additive: def.additive(),
         ao_snow_surface,

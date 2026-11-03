@@ -74,8 +74,12 @@ def export_textures(level, out):
             continue
         (out / "textures" / f"{name}.dds").write_bytes(
             txtr.dds_bytes(DXT3 if fmt == DXT2 else fmt, t["width"], t["height"], t["levels"], pixels))
-        if fmt == A8R8G8B8 and alpha:  # only call it alpha if some pixel is not opaque
+        # Only call it alpha if some pixel is not opaque. The engine draws alpha textures in its blended pass, which
+        # writes no depth: lev_1_m1's ice (DXT3, every pixel opaque) had pine trees drawn over it from behind.
+        if fmt == A8R8G8B8 and alpha:
             alpha = any(pixels[i] != 255 for i in range(3, t["width"] * t["height"] * 4, 4))
+        elif fmt in (DXT2, DXT3):  # each 16-byte block starts with its 8 bytes of alpha, 4 bits per pixel
+            alpha = any(pixels[i:i + 8] != b"\xff" * 8 for i in range(0, len(pixels), 16))
         info[name] = {"alpha": alpha, "premultiplied": fmt == DXT2, "width": t["width"], "height": t["height"]}
     return info
 

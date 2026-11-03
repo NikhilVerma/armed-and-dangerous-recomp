@@ -18,7 +18,11 @@ use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ImageRenderTarget, RenderTarget};
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
+use bevy::render::extract_resource::ExtractResource;
 use bevy::render::render_resource::TextureFormat;
+use bevy::render::RenderApp;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub struct RenderScalePlugin;
 
@@ -29,15 +33,27 @@ impl Plugin for RenderScalePlugin {
 }
 
 /// The image the game view draws into while the effective scale is not 1, and its size.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Clone, ExtractResource)]
+#[extract_app(RenderApp)]
 pub struct ScaledView {
     pub image: Option<Handle<Image>>,
     pub size: UVec2,
+    /// The window-sized image MetalFX draws into, when it does the scaling up (platform/metalfx.rs).
+    pub upscaled: Option<Handle<Image>>,
+}
+
+/// Present on systems with MetalFX (platform/metalfx.rs). It replaces the bilinear stretch when the scale is below 1.
+///
+/// The render world can only learn that the GPU lacks MetalFX by trying, so it sets `unavailable` to bring the stretch
+/// back.
+#[derive(Resource, Clone, Default)]
+pub struct MetalFxActive {
+    pub unavailable: Arc<AtomicBool>,
 }
 
 /// The game view's image on the screen (on the HUD layer, under everything else).
 #[derive(Component)]
-struct ScaledPicture;
+pub(super) struct ScaledPicture;
 
 /// The render scale in effect: the setting (clamped as display.cpp clamps the and.ini value, 0.25..4) and, when not
 /// DPI aware, the desktop's scaling undone (a 150 % desktop draws at 1 / 1.5).
@@ -53,7 +69,7 @@ pub fn scaled_size(window: UVec2, scale: f32) -> UVec2 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn apply(
+pub(super) fn apply(
     mut commands: Commands,
     settings: Res<crate::graphics::GraphicsSettings>,
     windows: Query<&Window>,
@@ -64,6 +80,7 @@ fn apply(
     mut pictures: Query<(Entity, &mut Transform, &MeshMaterial2d<ColorMaterial>, &mut Visibility), With<ScaledPicture>>,
     (mut meshes, mut materials): (ResMut<Assets<Mesh>>, ResMut<Assets<ColorMaterial>>),
     hud_cameras: Query<(), With<crate::hud::HudCamera>>,
+    metalfx: Option<Res<MetalFxActive>>,
 ) {
     let Some(window) = windows.iter().next() else { return };
     let win = UVec2::new(window.physical_width(), window.physical_height());
@@ -100,6 +117,19 @@ fn apply(
         _ => {}
     }
 
+    // MetalFX's result, when it replaces the stretch: at the window's size, so shown pixel for pixel
+    let metalfx_works = metalfx.is_some_and(|m| !m.unavailable.load(Ordering::Relaxed));
+    let upscale = metalfx_works && want.is_some_and(|size| size.x < win.x && size.y < win.y);
+    let upscaled_size = state.upscaled.as_ref().and_then(|h| images.get(h)).map(|i| i.size());
+    if !upscale {
+        state.upscaled = None;
+    } else if upscaled_size != Some(win) {
+        let mut img = Image::new_target_texture(win.x, win.y, TextureFormat::Rgba8UnormSrgb, None);
+        img.sampler = ImageSampler::nearest();
+        state.upscaled = Some(images.add(img));
+    }
+    let shown = state.upscaled.clone().or_else(|| state.image.clone());
+
     // the game view's target
     let target = match &state.image {
         Some(h) => RenderTarget::Image(ImageRenderTarget { handle: h.clone(), scale_factor: 1.0 }),
@@ -122,7 +152,7 @@ fn apply(
     }
 
     // the picture on the screen
-    match (&state.image, pictures.iter_mut().next()) {
+    match (&shown, pictures.iter_mut().next()) {
         (Some(image), None) => {
             let material = materials.add(ColorMaterial { texture: Some(image.clone()), ..default() });
             commands.spawn((

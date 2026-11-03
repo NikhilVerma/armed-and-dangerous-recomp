@@ -40,7 +40,7 @@ from big_kinds import font as fontkind, obj, objchunk, text as textkind, txtr, u
 import remaster_export as rx  # noqa: E402  (payload(), mesh_submeshes(), the texture converters)
 
 GAME = ROOT / "orig" / "pc" / "GameData"
-from gamefiles import game_exe  # noqa: E402
+from gamefiles import game_exe, table_va  # noqa: E402
 EXE = game_exe(GAME)  # tools/gamefiles.py: game.unpacked.exe if present, else game.exe
 DXT1, DXT2, DXT3 = rx.DXT1, rx.DXT2, rx.DXT3
 A8R8G8B8, R5G6B5 = rx.A8R8G8B8, rx.R5G6B5
@@ -284,7 +284,7 @@ def caption_table():
     img, base = pe.get_memory_mapped_image(), pe.OPTIONAL_HEADER.ImageBase
     rows = []
     for i in range(64):
-        o = 0x005cadd8 - base + 24 * i
+        o = table_va(EXE, 0x005cadd8) - base + 24 * i
         name_p, colour, flags, size, x, y = struct.unpack_from("<IIIfff", img, o)
         if not base <= name_p < base + len(img):
             break

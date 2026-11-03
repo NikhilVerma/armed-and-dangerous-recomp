@@ -6,13 +6,22 @@
 //! docs/macos.md lists what is known to differ and what an iOS build would still need.
 //!
 //! API: [`app_data_dir`], [`user_files_dir`], [`find_system_font`], [`utc_offset_secs`], [`PLAY_POINTER`] /
-//! [`PlayPointer`].
+//! [`PlayPointer`], [`BACKGROUND_WINDOW_NEEDS_VISIBLE_EDGE`].
 
 mod localtime;
+#[cfg(target_os = "macos")]
+pub mod metalfx;
 
 use std::path::{Path, PathBuf};
 
 pub use localtime::utc_offset_secs;
+
+/// Whether a test run's window has to stay partly visible to render.
+///
+/// On Metal, wgpu gives a window that nothing of it can be seen no surface to draw into, so its captures come out
+/// black. That rules out a window off-screen or below the others on macOS. There the test window stays above the
+/// others with all but a few pixels past the screen's left edge.
+pub const BACKGROUND_WINDOW_NEEDS_VISIBLE_EDGE: bool = cfg!(target_os = "macos");
 
 /// The folder name under the platform's data directory.
 const APP_DIR: &str = "AndRemaster";

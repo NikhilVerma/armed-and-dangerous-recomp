@@ -304,7 +304,8 @@ impl Library {
             let nrm = floats(&bin, s.normals, s.vertices * 3);
             let uv = floats(&bin, s.uvs, s.vertices * 2);
             let idx: Vec<u32> = bin[s.index_offset..s.index_offset + s.indices * 4].chunks_exact(4).map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
-            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+            // Scenery tessellation reads these vertices after the mesh has gone to the GPU, so they stay in memory.
+            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::all());
             mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
             mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
             mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());
@@ -407,9 +408,9 @@ impl Library {
                 }
                 cpu_v.extend(pos.chunks_exact(3).map(|v| Vec3::new(v[0], v[1], v[2])));
                 cpu_t.extend(idx.chunks_exact(3).map(|t| [t[0] + base, t[1] + base, t[2] + base]));
-                // skinned meshes keep a main-world copy too (the playtest skinning check skins them on the CPU)
-                let usage = if s.joints.is_some() { RenderAssetUsages::all() } else { RenderAssetUsages::RENDER_WORLD };
-                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, usage);
+                // Kept in memory for two readers: the playtest skinning check, and scenery tessellation, which needs the
+                // vertices after the mesh has gone to the GPU.
+                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::all());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nrm.chunks_exact(3).map(|v| [v[0], v[1], v[2]]).collect::<Vec<_>>());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv.chunks_exact(2).map(|v| [v[0], v[1]]).collect::<Vec<_>>());

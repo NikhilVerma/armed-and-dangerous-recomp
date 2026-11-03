@@ -24,7 +24,7 @@ struct GameMaterialParams {
     fog_range: vec4<f32>,
     // presentation (graphics.rs; zero in the Original): x the ambient occlusion's weight (0: exempt, as snow),
     // y 1 = dissolve over the last 15 % before the far clip instead of a hard cut, z the alpha below which an
-    // alpha-tested surface casts no shadow (0: the whole card casts)
+    // alpha-tested surface casts no shadow (0: the whole card casts), w 1 = procedural snow surface
     remaster: vec4<f32>,
     // the old remaster's height fog (graphics/height_fog.rs; x 0 = the level's linear fog): x density scale, y height
     // falloff per unit, z sun glow, w the level's reference height
@@ -42,6 +42,9 @@ struct GameMaterialParams {
     uv_sets: vec4<u32>,
     // x 1 = added to the scene (SRCALPHA / ONE): gamma-space colour times alpha, composited by fxvm/additive.rs
     blend: vec4<u32>,
+    // ground detail (graphics/ground_detail.rs): x the base texture's layer and y the second texture's, counted from
+    // 1 (0: none); z the brightness strength, w the bump strength (both 0: off)
+    detail: vec4<f32>,
 }
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var base_tex: texture_2d<f32>;
@@ -55,3 +58,5 @@ struct GameMaterialParams {
 @group(constants::MATERIAL_BIND_GROUP) @binding(8) var<uniform> p: GameMaterialParams;
 @group(constants::MATERIAL_BIND_GROUP) @binding(9) var env_tex: texture_2d<f32>;
 @group(constants::MATERIAL_BIND_GROUP) @binding(10) var env_smp: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(11) var detail_tex: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(12) var detail_smp: sampler;

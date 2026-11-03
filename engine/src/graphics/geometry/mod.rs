@@ -3,7 +3,7 @@
 //! them). Each is a small piece with its provenance:
 //!
 //! - `tessellation*`: [`tessellation`] (vk_tessellation.cpp): Phong-tessellated characters, refined once at load.
-//! - `terrain_detail*`: the terrain normal map sampled again at a finer tiling (vk_shader_translate.cpp), in
+//! - `terrain_detail*`: also turns on the grain added to magnified surfaces (gamematerial.wesl). The terrain normal map sampled again at a finer tiling (vk_shader_translate.cpp), in
 //!   gamematerial.wesl `terrain_detail`.
 //! - `lod_max`, `lod_scale`: [`lod`] (Object_SelectLod 0x00452f50 with the old switches).
 //! - `alpha_coverage`: alpha textures cover by their alpha with MSAA's alpha-to-coverage instead of blending (the old's
@@ -42,6 +42,8 @@ use super::{AntiAliasing, GraphicsSettings};
 pub struct GeometrySettings {
     /// Phong-tessellated skinned meshes (characters), refined once at load ([`tessellation`])
     pub tessellation: bool,
+    /// the same refinement for the solid parts of the landscape and static objects
+    pub tessellation_scenery: bool,
     /// segments per edge (each triangle becomes level^2; the old: screen-adaptive up to 8)
     pub tessellation_level: u32,
     /// 0 flat .. 1 the full curved surface (the old tess_shape)
@@ -75,6 +77,7 @@ impl GeometrySettings {
     pub fn original() -> Self {
         GeometrySettings {
             tessellation: false,
+            tessellation_scenery: false,
             tessellation_level: 3,
             tessellation_shape: 0.75,
             tessellation_smooth_angle: 25.0,
@@ -96,6 +99,7 @@ impl GeometrySettings {
     pub fn remaster() -> Self {
         GeometrySettings {
             tessellation: true,
+            tessellation_scenery: true,
             terrain_detail: 8.0,
             // a hint of relief, not a second surface: at the old 0.6 (and the gallery's 16x) the detail layer's slope
             // outweighed the snow's own ripples, which then read as soft lumps with an embossed grain over them, the
@@ -189,7 +193,9 @@ fn report(
 }
 
 /// The cameras' mip bias: `aa_mip_bias` while TAA runs (Bevy's TAA requires a MipBias, -1 by default; the game
-/// material samples with it, gamematerial.wesl), none otherwise.
+/// material samples with it, gamematerial.wesl), -0.5 under SMAA T2x, none otherwise.
+///
+/// T2x uses a smaller bias because it blends only two frames, too few to calm the shimmer of a sharper mip.
 fn apply_mip_bias(
     mut commands: Commands,
     s: Res<GraphicsSettings>,
@@ -200,12 +206,19 @@ fn apply_mip_bias(
         return;
     }
     for (e, bias) in &cams {
-        if s.anti_aliasing == AntiAliasing::Taa {
-            if bias.is_none_or(|b| b.0 != s.geometry.aa_mip_bias) {
-                commands.entity(e).insert(MipBias(s.geometry.aa_mip_bias));
+        let wanted = match s.anti_aliasing {
+            AntiAliasing::Taa => Some(s.geometry.aa_mip_bias),
+            AntiAliasing::SmaaT2x => Some(-0.5),
+            _ => None,
+        };
+        match wanted {
+            Some(w) if bias.is_none_or(|b| b.0 != w) => {
+                commands.entity(e).insert(MipBias(w));
             }
-        } else if bias.is_some() {
-            commands.entity(e).remove::<MipBias>();
+            None if bias.is_some() => {
+                commands.entity(e).remove::<MipBias>();
+            }
+            _ => {}
         }
     }
 }

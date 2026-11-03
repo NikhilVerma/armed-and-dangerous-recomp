@@ -73,7 +73,13 @@ pub fn bq(q: j::Quat) -> Quat {
 /// `no_collide` object (DefaultGameObject_Load's flag 8: the goliath, whose original stands its walker-free body over
 /// Roman, who walks between its legs). In no collision pair; walkers query [`SOLID_LAYERS`] only.
 pub const HIT_ONLY: ObjectLayer = ObjectLayer::new(2);
-/// The layers a character's walker collides with: the level and the moving bodies, not [`HIT_ONLY`].
+/// The object layer of explosion pieces (fx bodies): they land on the level but a walker passes through them.
+///
+/// The pieces were meant to last seconds. In the Remaster they stay on the ground (debris.rs), and a piece that blocked
+/// a walker could stop Roman or strand Q and Jonesy (the player, 2026-11-01). The original's mask 0x20000 reads as
+/// "the ground only" (fxvm/body.rs), so this is its likely behaviour too (guess, not compared).
+pub const FX_DEBRIS: ObjectLayer = ObjectLayer::new(3);
+/// The layers a character's walker collides with: the level and the moving bodies, not [`HIT_ONLY`] or [`FX_DEBRIS`].
 pub const SOLID_LAYERS: [ObjectLayer; 2] = [ObjectLayer::NON_MOVING, ObjectLayer::MOVING];
 
 /// The world's layers: static (0) and moving (1) as Jolt's default (moving meets both), and [`HIT_ONLY`] (2) in no pair.
@@ -83,7 +89,9 @@ fn collision_layers() -> CollisionLayers {
     let moving = layers.add_object_layer(BroadPhaseLayer::MOVING);
     let hit_only = layers.add_object_layer(BroadPhaseLayer::MOVING);
     debug_assert_eq!(hit_only, HIT_ONLY);
-    layers.enable_collision(moving, non_moving).enable_collision(moving, moving);
+    let fx_debris = layers.add_object_layer(BroadPhaseLayer::MOVING);
+    debug_assert_eq!(fx_debris, FX_DEBRIS);
+    layers.enable_collision(moving, non_moving).enable_collision(moving, moving).enable_collision(fx_debris, non_moving).enable_collision(fx_debris, moving);
     layers
 }
 

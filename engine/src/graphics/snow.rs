@@ -101,7 +101,8 @@ pub struct SnowTuning {
     /// pixels all over the view. Until 2026-10-25 every layer read the first uv set (the second flake layer as coarse
     /// as the first, the mask tiled 72 times), so they looked sparse and the snowfall replaced them; drawn right they
     /// carry the original's amount and look (work/texdensity/: the snowfall alone showed a tenth of their brightening
-    /// over the near walls), and the snowfall adds depth and motion over them
+    /// over the near walls). They are off by default in the Remaster: they are fixed to the camera, and the player
+    /// read them as "a screensaver on top of my game" (2026-11-01)
     pub keep_cylinders: bool,
     /// the camera-locked particle emitters the snowfall replaces too (they stop emitting while it snows): lev_1_m1's
     /// fx_camera_l1_m1_locked carries an invisible `fxo_glow_red` that sprays flake sprites along the view at the lens
@@ -128,7 +129,8 @@ pub struct SnowTuning {
     pub size: f32,
     /// flake opacity ("like 0.7": the player, 2026-10-12)
     pub opacity: f32,
-    /// motion-streak exposure (s): the old remaster's shutter 1/120 s times its snow_shutter_scale 4 (the player:
+    /// motion-streak exposure (s). 1/30 s (the old remaster's shutter 1/120 s times its snow_shutter_scale 4) drew
+    /// streaks of 1 to 3 pixels at play distance, which read as still dots (the player, 2026-11-02; earlier:
     /// "snow particles have NO motion blur" at 1/120 s)
     pub streak: f32,
     /// longest streak (pixels)
@@ -143,18 +145,18 @@ impl Default for SnowTuning {
     fn default() -> Self {
         SnowTuning {
             replaces: vec!["fxo_snow".into(), "fxo_snow_2".into()],
-            keep_cylinders: true,
+            keep_cylinders: false,
             mutes: vec!["fxo_glow_red".into()],
             radius: 150.0,
             sky: 70.0,
             below: 40.0,
-            fall: 1.6,
-            wind: [0.9, 0.35],
+            fall: 6.0,
+            wind: [2.5, 1.0],
             turbulence: 0.6,
             drag: 0.5,
             size: 0.03,
             opacity: 0.7,
-            streak: 4.0 / 120.0,
+            streak: 1.0 / 15.0,
             streak_max_px: 96.0,
             soft: 0.3,
             debug: false,
@@ -599,12 +601,12 @@ fn draw(
 mod tests {
     use super::*;
 
-    /// The old remaster's defaults; the wind blows along the game's ground plane (engine x, z: no vertical part).
+    /// The defaults (fall and wind retuned 2026-11-03 for a heavier, faster snowfall); the wind blows along the game's ground plane (engine x, z: no vertical part).
     #[test]
     fn defaults_and_wind_axes() {
         let t = SnowTuning::default();
-        assert_eq!((t.radius, t.sky, t.fall, t.opacity), (150.0, 70.0, 1.6, 0.7));
+        assert_eq!((t.radius, t.sky, t.fall, t.opacity), (150.0, 70.0, 6.0, 0.7));
         let w = crate::level::game_to_engine() * Vec3::new(t.wind[0], t.wind[1], 0.0);
-        assert!(w.y.abs() < 1e-6 && (w.x - 0.9).abs() < 1e-6 && (w.z + 0.35).abs() < 1e-6);
+        assert!(w.y.abs() < 1e-6 && (w.x - 2.5).abs() < 1e-6 && (w.z + 1.0).abs() < 1e-6);
     }
 }

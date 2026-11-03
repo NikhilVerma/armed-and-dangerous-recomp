@@ -14,13 +14,18 @@ struct TextureSet {
     exclude: Vec<String>,
     /// the loaded level's retextures (lower-case names)
     remaster: HashSet<String>,
+    /// the loaded level's exported textures (lower-case names)
+    exported: HashSet<String>,
     anisotropy: u16,
     anisotropic_fx: bool,
 }
 
 impl TextureSet {
-    /// Lists the scene's remaster textures when the settings use them.
+    /// Lists the scene's exported textures, and its remaster textures when the settings use them.
     fn list(&mut self, scene: &std::path::Path) {
+        self.exported = std::fs::read_dir(scene.join("textures"))
+            .map(|d| d.filter_map(|e| e.ok()).filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".dds")).map(str::to_lowercase)).collect())
+            .unwrap_or_default();
         self.remaster = if self.use_remaster {
             std::fs::read_dir(scene.join("textures_remaster"))
                 .map(|d| {
@@ -47,7 +52,7 @@ pub(super) fn init(scene: &std::path::Path, s: &super::GraphicsSettings) {
     if set.is_some() {
         return;
     }
-    let mut t = TextureSet { use_remaster: s.remaster_textures, exclude: s.remaster_textures_exclude.clone(), remaster: HashSet::new(), anisotropy: s.anisotropy.max(1), anisotropic_fx: s.anisotropic_fx };
+    let mut t = TextureSet { use_remaster: s.remaster_textures, exclude: s.remaster_textures_exclude.clone(), remaster: HashSet::new(), exported: HashSet::new(), anisotropy: s.anisotropy.max(1), anisotropic_fx: s.anisotropic_fx };
     t.list(scene);
     *set = Some(t);
 }
@@ -65,6 +70,13 @@ pub(super) fn count() -> usize {
     SET.read().ok().and_then(|s| s.as_ref().map(|s| s.remaster.len())).unwrap_or(0)
 }
 
+/// Whether the loaded level has a texture of this game name. Some animations skip a frame: every level's fxa_flash
+/// has frames 1..13 and 15 but no 14, so a caller checks before loading. Before a level is listed, any name counts.
+pub fn exists(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    SET.read().is_ok_and(|s| s.as_ref().is_none_or(|s| s.exported.contains(&lower) || s.remaster.contains(&lower)))
+}
+
 /// The asset path of a texture by its game name: the remaster's version when the preset uses it and one exists. The
 /// exporters write every texture under its lower-case name, and the game's own references (FX scripts, materials)
 /// are not always lower case: the path is, so it is found on a case-sensitive file system too.
@@ -77,19 +89,22 @@ pub fn texture_path(name: &str) -> String {
     }
 }
 
-/// Whether the HUD uses the pack's retextures (`ui_texture_path`).
-const HUD_RETEXTURES: bool = false;
+/// Whether the pack's version of a HUD texture is good to show: the item icons, compared by eye with the originals
+/// (2026-11-01). The rest of the pack's HUD art stays off because it redraws figures and lettering (the villagers
+/// panel's peasants garbled, "CAPTURED" doubled; 2026-10 audit).
+fn hud_retexture_ok(lower: &str) -> bool {
+    lower.starts_with("k_player_") || lower.starts_with("b_player_") || lower == "k_tickerbomb_face"
+}
 
 /// The asset path of a HUD texture (`file`: its UI export, `textures/<name>.png` under the level's `ui/`): the
-/// remaster's version of `name` when the preset uses one and the bank stores the texture with straight alpha, else
-/// the export. The retextures keep a premultiplied (DXT2) original's premultiplied texels, which the HUD's alpha
-/// blend would darken at every soft edge, while the UI export un-premultiplies them (tools/remaster_export_ui.py):
-/// those stay the export's until the pack carries straight-alpha versions.
-/// Off for now (`HUD_RETEXTURES`): the pack's HUD art redraws the figures and lettering (the villagers panel's
-/// peasants garbled, "CAPTURED" doubled; work/retexfix/cmp_lev_3_m3_hud_orb.png), worse than the original's.
+/// remaster's version of `name` when the preset uses one and `hud_retexture_ok` allows it, else the export.
+///
+/// A premultiplied (DXT2) original always uses the export. Its retexture keeps premultiplied texels, which the HUD's
+/// alpha blend would darken at every soft edge, while the UI export un-premultiplies them
+/// (tools/remaster_export_ui.py).
 pub fn ui_texture_path(name: &str, file: &str, premultiplied: bool) -> String {
     let lower = name.to_lowercase();
-    if HUD_RETEXTURES && !premultiplied && SET.read().is_ok_and(|s| s.as_ref().is_some_and(|s| s.remaster.contains(&lower))) {
+    if hud_retexture_ok(&lower) && !premultiplied && SET.read().is_ok_and(|s| s.as_ref().is_some_and(|s| s.remaster.contains(&lower))) {
         format!("textures_remaster/{lower}.dds")
     } else {
         format!("ui/{file}")

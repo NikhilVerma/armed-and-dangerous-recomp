@@ -18,6 +18,7 @@ pub mod base_area;
 pub mod body;
 pub mod bully;
 pub mod coverslot;
+pub mod flung;
 pub mod carried;
 pub mod close_kill;
 pub mod dialogue;
@@ -227,7 +228,12 @@ pub fn cold_level(dir: &std::path::Path) -> bool {
 
 /// The weapon template a grunt template holds (Kind::weapon): level.rs attaches its model to the hand.
 pub fn weapon_template(template: &str) -> Option<&'static str> {
-    Kind::from_template(template).map(Kind::weapon)
+    // Q and Jonesy are not `Kind`s: Q111 load 0x00483250 sets weapon 0xd, Jonesy (MolmerObject_Load 0x0044e630) 0xc, both at ref_rhand
+    match template {
+        "q111" => Some("q_chaingun"),
+        "molmer" => Some("molmer_pistol"),
+        _ => Kind::from_template(template).map(Kind::weapon),
+    }
 }
 
 
@@ -1309,7 +1315,7 @@ impl Plugin for AiPlugin {
             .add_systems(
                 Update,
                 (
-                    (difficulty_health, body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, (trigger_kills, die, dismay).chain()).chain(),
+                    (difficulty_health, body::bumps, squad::update_squads, interests, mark_army_targets, search, ic::activate, (ic::knocks, base_area::cull).chain(), scare, max_fire::sync_limit, aim::track, think, max_fire::upkeep, fall::run, ic::run, paratroop::rappel, notes::from_movers, notes::apply, bully::bullies, (trigger_kills, (die, flung::fly).chain(), dismay).chain()).chain(),
                     (
                         (body::apply_rules, log_cover, log_ai, log_placed, squad::log_squads, ic::log).chain(),
                         // the later levels' infantry (projectiles, falls, drops, the wall assault) and their playtest logs
@@ -5514,7 +5520,7 @@ fn die(
         // after the last launch (Game+0xb34) throws him through the air (Character_Launch 0x00431020: toward a point
         // 40..60 from the bomb along its line to him, forward or back past it, at rand 2.5..3 x his move_speed), before
         // the ragdoll count is looked at. The original flails him through that arc (anims 0x49 / 0x4a) and he goes
-        // limp on landing; here the ragdoll is launched with the arc's velocity (as the glove's punch, glove.rs)
+        // limp on landing (ai/flung.rs)
         // a blast's fling at the very time of a launch (GoRagdoll's impact branch with Game+0xb34 == now,
         // physics_01.cpp:3597-3612, as ic::go_ragdoll for a knock): 25 % (rand * 100 >> 15 < 25) a launch from the
         // record's attacker (+0x2c: the sticky's thrower, Roman, whose launch stamped the clock) turned within 45
@@ -5580,6 +5586,12 @@ fn die(
         if !g.ragdoll {
             // the death anim on slot 0 (charanim.rs), then the corpse timer
             commands.entity(e).remove::<Body>().insert(crate::corpses::Corpse::animated(0));
+            continue;
+        }
+        // thrown with an animator: flails until it lands (ai/flung.rs)
+        if (launched || thrown) && animator.is_some() {
+            g.death_name = Some(g.anim(if rng.rand() < 0.5 { 0x49 } else { 0x4a }, 0.0));
+            commands.entity(e).remove::<Body>().insert((flung::Flung::new(push), crate::bodyfall::Launched::default()));
             continue;
         }
         commands.entity(e).insert(crate::corpses::Corpse::ragdoll());

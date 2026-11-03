@@ -23,15 +23,16 @@ import struct
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAIN = ROOT if (ROOT / "orig").exists() else ROOT.parents[2]   # a worktree reads the main checkout's orig/ and work/
-from gamefiles import game_exe  # noqa: E402
+from gamefiles import game_exe, table_va  # noqa: E402
 EXE = game_exe(MAIN / "orig" / "pc" / "GameData")  # tools/gamefiles.py
 BASE = 0x400000
-MODE_TABLE, BLEND_TABLE = 0x005cb650, 0x005cb3a8
+MODE_TABLE, BLEND_TABLE = table_va(EXE, 0x005cb650), table_va(EXE, 0x005cb3a8)
 MODES = 41           # modes 0..40 (0x29 is the death mode, outside the table)
 # the rate blocks (PlayerObject_Load 0x00473da0, game_05.cpp:660-707) and their directions after the load
-BLOCKS = {0x005feab4: "run_fwd", 0x005fea8c: "run_back", 0x005feb54: "walk_fwd", 0x005feb2c: "walk_back",
-          0x005fea64: "side_run_left", 0x005fea3c: "side_run_right", 0x005feb04: "side_walk_left",
-          0x005feadc: "side_walk_right"}
+BLOCKS = {table_va(EXE, steam_va): name for steam_va, name in {
+    0x005feab4: "run_fwd", 0x005fea8c: "run_back", 0x005feb54: "walk_fwd", 0x005feb2c: "walk_back",
+    0x005fea64: "side_run_left", 0x005fea3c: "side_run_right", 0x005feb04: "side_walk_left",
+    0x005feadc: "side_walk_right"}.items()}
 
 
 def side_dirs():

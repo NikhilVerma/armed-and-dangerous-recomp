@@ -26,6 +26,7 @@ use bevy::mesh::{Indices, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+use crate::gamematerial::GameMaterial;
 use crate::graphics::GraphicsSettings;
 
 /// The refinement's parameters (from [`super::GeometrySettings`]).
@@ -297,8 +298,9 @@ pub fn refine(mesh: &Mesh, params: &TessParams) -> Option<Mesh> {
         }
     }
 
-    let usage = mesh.asset_usage;
-    let mut out = Mesh::new(PrimitiveTopology::TriangleList, usage | RenderAssetUsages::MAIN_WORLD);
+    // Only skinned meshes are read again on the CPU. A refined static mesh is large, so it keeps no second copy.
+    let usage = if joints.is_some() { mesh.asset_usage | RenderAssetUsages::MAIN_WORLD } else { RenderAssetUsages::RENDER_WORLD };
+    let mut out = Mesh::new(PrimitiveTopology::TriangleList, usage);
     out.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     let had_tangents = mesh.attribute(Mesh::ATTRIBUTE_TANGENT).is_some();
     for (attr, values) in mesh.attributes() {
@@ -412,30 +414,39 @@ impl Plugin for TessellationPlugin {
     }
 }
 
-/// Swaps every skinned part's mesh for its refined one while `tessellation` is on, back when it goes off. The old
-/// remaster tessellated the skinned draws only (vk_device.cpp: vertex shaders with relative constants), props with
-/// tess_props=1, off by default: the same set here, the characters.
+/// Marks a static model (the landscape, a building, a rock) whose solid parts `tessellation_scenery` refines.
+#[derive(Component)]
+pub struct SceneryModel;
+
+/// Swaps a part's mesh for its refined one while its setting is on, and back when it goes off.
+///
+/// Characters follow `tessellation`, the set the old remaster refined. Scenery follows `tessellation_scenery`, which
+/// the old remaster didn't have. It covers solid surfaces only, because a branch card has no shape to round.
 #[allow(clippy::type_complexity)]
 fn apply_tessellation(
     mut commands: Commands,
     settings: Res<GraphicsSettings>,
     mut cache: ResMut<RefinedMeshes>,
     mut meshes: ResMut<Assets<Mesh>>,
-    parts: Query<(Entity, Ref<Mesh3d>, Ref<SkinnedMesh>, Option<&Tessellated>)>,
+    parts: Query<(Entity, Ref<Mesh3d>, Has<SkinnedMesh>, Option<Ref<MeshMaterial3d<GameMaterial>>>, Option<&ChildOf>, Option<&Tessellated>)>,
+    scenery: Query<(), With<SceneryModel>>,
 ) {
-    if !settings.is_changed() && !parts.iter().any(|(_, m, s, _)| m.is_changed() || s.is_added()) {
+    // The game material replaces the standard one a little after a part spawns, and only then is a part known as solid.
+    if !settings.is_changed() && !parts.iter().any(|(_, m, _, solid, ..)| m.is_changed() || solid.is_some_and(|s| s.is_added())) {
         return;
     }
     let g = &settings.geometry;
     let params = TessParams { level: g.tessellation_level, shape: g.tessellation_shape, smooth_angle: g.tessellation_smooth_angle, sharp_angle: g.tessellation_sharp_angle };
-    let on = g.tessellation && params.level >= 2;
+    let enough_segments = params.level >= 2;
     if cache.params != Some(params) {
         cache.params = Some(params);
         cache.by_original.clear();
     }
     // the meshes of a level left behind (the library is per level) let their refined meshes go too
     cache.by_original.retain(|id, _| meshes.contains(*id));
-    for (e, mesh, _, tess) in &parts {
+    for (e, mesh, skinned, solid, parent, tess) in &parts {
+        let is_scenery = !skinned && solid.is_some() && parent.is_some_and(|p| scenery.contains(p.parent()));
+        let on = enough_segments && ((skinned && g.tessellation) || (is_scenery && g.tessellation_scenery));
         // a part whose mesh someone else replaced since: that mesh is its original now
         let original = match tess {
             Some(t) if mesh.0 == t.refined => t.original.clone(),

@@ -1,10 +1,10 @@
 # The remaster on macOS
 
-Status (2026-10-24): **builds in CI, not yet played.** The engine is built and its unit tests run on Apple silicon
-in GitHub Actions (`.github/workflows/ci.yml`, job "Engine macOS arm64"), and Intel Macs are covered by a cross
-check from the same runner ("Engine macOS x86_64"). Nobody has played it on a Mac yet: the list of things to look at
-first is under [To verify on the first run](#to-verify-on-the-first-run). Apple silicon (M1 or later) is the first
-target, Intel Macs the second.
+Status (2026-11-01): **played on an M5 Pro, with the GOG build's assets.** Levels were exported and lev_1_m1 was
+played in the Remaster preset. The fast regression suite passes 187 of 210 scripts on a Mac, and
+docs/journal/2026-11-01-mac-first-play.md describes the failures. CI builds the engine and runs its
+unit tests on Apple silicon (`.github/workflows/ci.yml`, job "Engine macOS arm64"), and covers Intel Macs with a cross
+check ("Engine macOS x86_64"). Apple silicon (M1 or later) is the first target, Intel Macs the second.
 
 Nothing in the engine is Windows-specific any more: wgpu renders through Metal, cpal plays through CoreAudio, Jolt
 builds with Apple's clang. What differs per system lives in one module, `engine/src/platform/` (data folders, the
@@ -55,6 +55,9 @@ banks; nothing else). Use your own copy, one of these ways:
 
 The Steam executable stays as it is: the exporters read only its data sections (tools/gamefiles.py), and the
 project never unwraps or patches it.
+
+4. **Or unpack the GOG installer.** It needs `innoextract` and one folder rename: see
+   [docs/game-builds.md](game-builds.md), which also covers other builds.
 
 ## 3. Export the assets
 
@@ -121,8 +124,36 @@ bookmark).
 - **Textures**: every Mac GPU samples the game's BC1 / BC3 (DXT) textures directly (wgpu enables
   TEXTURE_COMPRESSION_BC on macOS). A GPU without BC gets them decoded to RGBA8 on load
   (`engine/src/graphics/bc_decode.rs`; `AND_DECODE_BC=1` forces it for a test).
-- **Upscaling**: there is no DLSS or other vendor upscaler in the engine on any system; the render scale option and
-  TAA work the same on Metal.
+- **Upscaling**: below a render scale of 100%, MetalFX's spatial scaler enlarges the picture instead of the bilinear
+  stretch used on other systems (`engine/src/platform/metalfx.rs`). There is no setting for it. If the GPU lacks
+  MetalFX, the game logs a warning and uses the stretch.
+- **Heat**: the render scale is what lowers the GPU's load most. GPU busy time and CPU use in the Remaster preset at
+  3600 x 2260 on an M5 Pro, standing still in lev_1_m1 for 18 seconds per setting. This is load, not measured power or
+  temperature:
+
+  | Setting | GPU busy | CPU (100% = one core) |
+  | --- | --- | --- |
+  | Default | 82% | 157% |
+  | 60 fps cap | 79% | 163% |
+  | 67% render scale | 50% | 148% |
+  | 60 fps cap, 67% render scale | 50% | 157% |
+  | 60 fps cap, 50% render scale | 44% | 157% |
+  | 30 fps cap | 57% | 93% |
+  | 60 fps cap, no GPU snow | 77% | 164% |
+  | 60 fps cap, no ambient occlusion | 62% | 157% |
+
+  MetalFX adds little to these numbers. A second run, in the same scene and with a 3600 x 2008 window because the
+  screen clips the requested size:
+
+  | Render scale | Stretch | MetalFX spatial, last step |
+  | --- | --- | --- |
+  | 100% | 83% | not used |
+  | 67% | 54% | 58% |
+  | 50% | 48% | 49% |
+
+  The crate `bevy_metalfx` 0.5 was tried and dropped, because it runs the post effects at full size. It measured 68% GPU
+  busy with its spatial mode at 67% scale and 83% with its temporal mode, and the temporal stills showed flat
+  rectangular blocks.
 - **Performance**: the 4K / 100 fps floor is measured on the Windows PC's RTX 4090. On a Mac start with the
   Remaster preset at the display's resolution and lower the render scale, or use the Original preset, if it is slow.
 - **The oracle tools are Windows-only**: everything that drives the original game.exe (`tools/shot.py`,

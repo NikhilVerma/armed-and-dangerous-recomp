@@ -8,8 +8,8 @@
 //! (Fx_Create: fx_bodyfall_grass / _dirt / _snow / _stone / _wood / _mud / _sand / _ice / _shallow / _deep, the base
 //! when the bank has none).
 //!
-//! The remaster ragdolls such a character at once (ai.rs die: a death whose body is moving faster than 30 units a
-//! second, the launch speeds), so the flight is the ragdoll's: [`Launched`] marks it, and its body's first touch of
+//! A flung grunt becomes a ragdoll on landing (ai/flung.rs), and other bodies moving at launch speed ragdoll at once
+//! (ai.rs die). [`Launched`] marks either one, and its body's first touch of
 //! the ground (descending, the ground within 3 units under the pelvis) starts fx_bodyfall with the ground's variant
 //! (surface.rs) and stops its scream.
 

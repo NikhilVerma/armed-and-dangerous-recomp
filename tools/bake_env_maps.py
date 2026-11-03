@@ -17,6 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import instances  # noqa: E402
+import platform_paths  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEVELS = os.path.join(ROOT, "work", "remaster")
@@ -37,7 +38,7 @@ def main():
     ap.add_argument("--presets", default="remaster,original")
     ap.add_argument("--force", action="store_true", help="bake again where a file exists")
     a = ap.parse_args()
-    exe = os.path.join(ROOT, "engine", a.exe, "release", "and_remaster.exe")
+    exe = str(platform_paths.engine_exe(a.exe))
     levels = a.levels or sorted(os.path.basename(d) for d in glob.glob(os.path.join(LEVELS, "lev_*")) if os.path.isfile(os.path.join(d, "scene.json")))
     for level in levels:
         d = os.path.join(LEVELS, level)

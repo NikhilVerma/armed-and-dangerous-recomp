@@ -11,7 +11,7 @@ Steps (each skipped when its output is already there, unless --force):
               junction on Windows, a symbolic link elsewhere; nothing is copied, nothing in the install is written).
               A plain copy of the install folder serves as well as the install (nothing is read from the registry
               or Steam): on macOS or Linux, copy it from a Windows PC (docs/macos.md). The Steam build (app 6090,
-              build 251748) is the tested one; another build (GOG) is reported as untested and tried anyway.
+              build 251748) is the tested one; docs/game-builds.md lists the other builds and how to add one.
   2. export   tools/export_level.py for each level -> work/remaster/<level>/ (scene, animations, audio, mission,
               UI, prompt icons, player, AI and instance data). Reads the banks and, read only, game.exe's data
               sections (tools/gamefiles.py): the Steam executable is used as installed, it is never unwrapped.
@@ -53,6 +53,7 @@ PACK_URL = "https://pub-7801d845a6624a4881145d2e393c182c.r2.dev/textures/v2/rema
 
 KNOWN_EXES = {
     "960df24c70d788a34946fa5984685ef69bf2c0cacf04a275769472ce302f5b45": "Steam, app 6090, build 251748 (tested)",
+    "d59366423d97583d791505baaaeeccc821192611ed48d54bddc7318ea5543a14": "GOG 2.0.0.3 (exports checked, not played through)",
 }
 EXPORT_STEPS = "scene,anims,audio,mission,ui,icons,player,instance_props,grunt_ai,player_anims"
 
@@ -107,7 +108,7 @@ def check_game(gamedata):
     exe = gamedata / "game.exe"
     digest = sha256(exe)
     build = KNOWN_EXES.get(digest)
-    print(f"game: {exe} sha256 {digest[:16]}... {build or 'UNKNOWN build (GOG or another release: untested)'}")
+    print(f"game: {exe} sha256 {digest[:16]}... {build or 'UNKNOWN build: its tables may be misread, see docs/game-builds.md'}")
     lv = levels_in(gamedata)
     print(f"game: {len(lv)} levels: {' '.join(lv)}")
     if not lv:

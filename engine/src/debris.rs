@@ -41,9 +41,10 @@ impl DebrisSettings {
         DebrisSettings { debris_keep: false, debris_time: 0.0, debris_max: 1000 }
     }
 
-    /// The old remaster's: kept until the level ends, at most 1000 (and.ini `debris_max`).
+    /// Pieces stay for 30 seconds, then fade. The old remaster kept them until the level ended; the player found that
+    /// unhelpful and asked for the level to return to normal (2026-11-01).
     pub fn remaster() -> Self {
-        DebrisSettings { debris_keep: true, ..Self::original() }
+        DebrisSettings { debris_keep: true, debris_time: 30.0, ..Self::original() }
     }
 }
 
@@ -126,7 +127,7 @@ mod tests {
         assert!(!k.consider(&s, &mut piece("fxo_debris_wood", 1.0, false)));
         let mut o = piece("FXO_Debris_Wood", 1.0, true);
         assert!(k.consider(&s, &mut o));
-        assert_eq!((o.lifespan, o.fade_out, k.kept), (None, None, 1));
+        assert_eq!((o.lifespan, o.fade_out, k.kept), (Some(30.0 + DEBRIS_FADE), Some(30.0), 1));
         // once only
         assert!(!k.consider(&s, &mut o));
         // the Original keeps nothing

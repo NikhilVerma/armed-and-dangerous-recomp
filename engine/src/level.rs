@@ -930,7 +930,7 @@ pub fn spawn(
     let to_game = axes.inverse();
     if let Some(model) = lib.load_model(&scene.landscape, false, assets, meshes, materials) {
         if !skip_visual {
-            let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"))).id();
+            let e = commands.spawn((Transform::from_matrix(axes), Visibility::default(), Name::new("landscape"), crate::graphics::geometry::tessellation::SceneryModel)).id();
             let (d, t, _) = attach_model(commands, e, model, Shadowing::casting(true), None, "ref_rhand");
             info.draws += d;
             info.triangles += t;
@@ -1088,6 +1088,9 @@ pub fn spawn(
             let shadowing = Shadowing::of(&p, !background && p.f("shadow_enable", 0.0) != 0.0);
             let hand_bone = ai::Kind::from_template(&inst.template).map_or("ref_rhand", ai::Kind::weapon_bone);
             let (d, t, hand) = attach_model(commands, e, model, shadowing, Some(&mut *skin), hand_bone);
+            if model.skeleton.is_none() {
+                commands.entity(e).insert(crate::graphics::geometry::tessellation::SceneryModel);
+            }
             // its template's other LODs, switched by distance unless lod_max (graphics/geometry/lod.rs)
             if let Some(lods) = tpl.and_then(|t| crate::graphics::geometry::lod::LodSource::new(t, &p, shadowing)) {
                 commands.entity(e).insert(lods);
@@ -1108,7 +1111,11 @@ pub fn spawn(
                     // the Topsy Turvy bomb in the hand during its use (0x0047bbe0; shown by player.rs hand_weapon)
                     if let Some(parts) = data.templates.get("player_topsyturvy").and_then(|t| t.model.clone()).and_then(|n| lib.load_model(&n, false, assets, meshes, materials)).map(|m| m.parts.clone()) {
                         let held = attach_rest_pose(commands, h, &parts, meshes);
-                        commands.entity(held).insert((HandWeapon::Topsy, Visibility::Hidden));
+                        // Unlike the guns, the bomb's ref_hand_00 (topsy_turvy_child_bone) is not at its origin: it sits
+                        // on the casing, turned 90 degrees. Object_Attach 0x004539f0 lines that bone up with the hand.
+                        let grip = skin.lib.skeleton("player_topsyturvybomb_0", skin.binds).and_then(|sk| sk.index.get("ref_hand_00").map(|&i| sk.rest[i]));
+                        let at_grip = grip.map_or(Transform::IDENTITY, |g| Transform::from_matrix(g.to_matrix().inverse()));
+                        commands.entity(held).insert((HandWeapon::Topsy, Visibility::Hidden, at_grip));
                     }
                     // the knockout bomb's glove: player_punchingglove attached at bof_glove_player_bone (r_wrist) by its
                     // bof_glove_child_bone (0x004788a0 case 1: 0x004539f0); here in the hand like the guns (tuning item)

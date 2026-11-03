@@ -83,7 +83,10 @@ def default_count():
 
 
 def _process_paths():
-    """Full image paths of the running processes (Win32: EnumProcesses + QueryFullProcessImageNameW)."""
+    """Full image paths of the running processes (Win32: EnumProcesses + QueryFullProcessImageNameW; else ps)."""
+    if os.name != "nt":
+        import subprocess
+        return subprocess.run(["ps", "-axo", "comm="], capture_output=True, text=True).stdout.splitlines()
     import ctypes
     import ctypes.wintypes as W
     k32, psapi = ctypes.windll.kernel32, ctypes.windll.psapi
@@ -109,7 +112,7 @@ def player_busy():
     meanwhile (docs/agent-brief.md: they eat the player's CPU)."""
     for p in _process_paths():
         low = p.lower().replace("/", "\\")
-        if low.endswith("\\engine\\target\\release\\and_remaster.exe"):
+        if low.removesuffix(".exe").endswith("\\engine\\target\\release\\and_remaster"):
             return p
         if "\\orig\\pc\\gamedata\\" in low and low.endswith(".exe") and "\\work\\instances\\" not in low:
             return p

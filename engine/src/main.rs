@@ -148,6 +148,8 @@ struct Args {
     load: Option<PathBuf>,
     /// test runs: the window opens off-screen, unfocused and behind everything, so it does not take over the desktop
     background: bool,
+    /// draw into an image in memory with no window system at all (display/offscreen.rs)
+    no_window: bool,
     /// the landscape with Bevy's standard material instead of the original's (A/B comparisons)
     std_materials: bool,
     /// debug: hide "landscape" or the placed objects whose template contains this text (render comparisons)
@@ -174,7 +176,7 @@ struct Args {
 }
 
 fn args() -> Args {
-    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false, level: None, dev: None, no_session: false, bake_env_map: false };
+    let mut a = Args { scene: PathBuf::from("../work/remaster").join(campaign::FIRST_LEVEL), scene_given: false, size: (1920, 1080), bench: None, vsync: false, no_ai: false, fx_test: None, snap: None, play: None, skip_title: false, camera: None, no_hud: false, background: false, no_window: false, size_given: false, load: None, std_materials: false, debug_hide: None, no_intro: false, movies: None, preset: None, graphics: None, profile: false, level: None, dev: None, no_session: false, bake_env_map: false };
     let v: Vec<String> = std::env::args().collect();
     let mut bench_secs = None;
     let mut out = PathBuf::from("../work/remaster/bench/latest.json");
@@ -203,6 +205,7 @@ fn args() -> Args {
             "--camera" => a.camera = Some(PathBuf::from(next)),
             "--no-hud" => (a.no_hud, used) = (true, 1),
             "--background" => (a.background, used) = (true, 1),
+            "--no-window" => (a.no_window, a.background, used) = (true, true, 1),
             "--load" => a.load = Some(PathBuf::from(next)),
             "--std-materials" => (a.std_materials, used) = (true, 1),
             "--debug-hide" => a.debug_hide = Some(next),
@@ -255,8 +258,8 @@ fn resize_tolerant(e: &bevy::render::error_handler::RenderError, _: &mut World, 
     std::process::exit(1);
 }
 
-/// The game window. A test run's (`--background`: playtests, captures, benches) opens off-screen, never focused or
-/// activated, below every other window and out of the taskbar, so it cannot take the keyboard, the mouse or the cursor
+/// The game window. A test run's (`--background`: playtests, captures, benches) opens off-screen (on macOS with
+/// a few pixels showing, platform::BACKGROUND_WINDOW_NEEDS_VISIBLE_EDGE), never focused or activated and out of the taskbar, so it cannot take the keyboard, the mouse or the cursor
 /// from the player's game (player.rs grab_cursor also leaves the cursor alone in scripted runs and in any unfocused
 /// window).
 fn primary_window(size: (u32, u32), vsync: bool, background: bool) -> Window {
@@ -265,9 +268,17 @@ fn primary_window(size: (u32, u32), vsync: bool, background: bool) -> Window {
         title: "Armed and Dangerous - remaster engine".into(),
         resolution: WindowResolution::new(size.0, size.1).with_scale_factor_override(1.0),
         present_mode: if vsync { PresentMode::AutoVsync } else { PresentMode::AutoNoVsync },
-        position: if background { WindowPosition::At(IVec2::new(-20000, -20000)) } else { WindowPosition::Automatic },
+        position: match (background, platform::BACKGROUND_WINDOW_NEEDS_VISIBLE_EDGE) {
+            (false, _) => WindowPosition::Automatic,
+            (true, false) => WindowPosition::At(IVec2::new(-20000, -20000)),
+            (true, true) => WindowPosition::At(IVec2::new(8 - size.0 as i32, 200)),
+        },
         focused: !background,
-        window_level: if background { WindowLevel::AlwaysOnBottom } else { WindowLevel::Normal },
+        window_level: match (background, platform::BACKGROUND_WINDOW_NEEDS_VISIBLE_EDGE) {
+            (false, _) => WindowLevel::Normal,
+            (true, false) => WindowLevel::AlwaysOnBottom,
+            (true, true) => WindowLevel::AlwaysOnTop,
+        },
         skip_taskbar: background,
         ..default()
     }
@@ -283,9 +294,11 @@ mod window_tests {
     fn a_test_window_never_takes_the_focus() {
         let w = primary_window((1280, 720), false, true);
         assert!(!w.focused);
-        assert_eq!(w.window_level, bevy::window::WindowLevel::AlwaysOnBottom);
         assert!(w.skip_taskbar);
-        assert!(matches!(w.position, bevy::window::WindowPosition::At(p) if p.x <= -10000 && p.y <= -10000));
+        if !platform::BACKGROUND_WINDOW_NEEDS_VISIBLE_EDGE {
+            assert_eq!(w.window_level, bevy::window::WindowLevel::AlwaysOnBottom);
+            assert!(matches!(w.position, bevy::window::WindowPosition::At(p) if p.x <= -10000 && p.y <= -10000));
+        }
         let c = bevy::window::CursorOptions::default();
         assert_eq!(c.grab_mode, bevy::window::CursorGrabMode::None, "no grab until play in a focused window");
         let player = primary_window((1920, 1080), false, false);
@@ -343,7 +356,7 @@ fn main() {
     // the asset server reads the loaded level's folder (a level change points it at the next one: campaign.rs)
     app.register_asset_source(bevy::asset::io::AssetSourceId::Default, levels.asset_source());
     app.insert_resource(levels);
-    app.add_plugins(
+    let default_plugins =
         DefaultPlugins
             .set(gfx.image_plugin())
             .set(bevy::log::LogPlugin { custom_layer: devtools::session::log_layer, ..default() })
@@ -359,8 +372,13 @@ fn main() {
             .set(bevy::render::RenderPlugin { synchronous_pipeline_compilation: true, ..default() })
             // bevy_audio's output opens the default device once: audiooutput.rs plays the same components and
             // follows the system's default device
-            .disable::<bevy::audio::AudioPlugin>(),
-    )
+            .disable::<bevy::audio::AudioPlugin>();
+    app.add_plugins(if a.no_window {
+        // the window system also drives the frame loop, so this mode needs a loop of its own
+        default_plugins.disable::<bevy::winit::WinitPlugin>().add(bevy::app::ScheduleRunnerPlugin::run_loop(std::time::Duration::ZERO))
+    } else {
+        default_plugins
+    })
     .add_plugins(audiooutput::AudioOutputPlugin {
         global_volume: default(),
         // Bevy's spatial audio only pans: game units are scaled down so its own distance fall-off is negligible;
@@ -454,6 +472,9 @@ fn main() {
         app.insert_resource(FxTest { dir, t: 0.0, shot: 0, target: None });
         app.insert_state(AppState::Playing);
     }
+    if a.no_window {
+        app.add_plugins(display::offscreen::OffscreenPlugin { size: a.size });
+    }
     if bench {
         app.insert_state(AppState::Playing);
         // Bevy's default updates an unfocused window at 60 Hz at most: a background bench would measure that cap
@@ -462,6 +483,8 @@ fn main() {
             app.add_plugins(profile::ProfilePlugin);
         }
     }
+    #[cfg(target_os = "macos")]
+    app.add_plugins(platform::metalfx::MetalFxUpscalerPlugin);
     if a.bake_env_map {
         let preset = graphics::current().preset;
         app.insert_resource(graphics::env_map::EnvMapBake::new(scene_dir.join(graphics::env_map::atlas_file(preset))));
@@ -645,7 +668,7 @@ fn setup(
             None => white.clone(),
         };
         let parts = lib.load_game_parts(&scene.landscape, &lights, &assets, &mut meshes, &mut game_materials, &white);
-        let e = commands.spawn((Transform::from_matrix(Mat4::from_quat(level::game_to_engine())), Visibility::default(), Name::new("landscape"))).id();
+        let e = commands.spawn((Transform::from_matrix(Mat4::from_quat(level::game_to_engine())), Visibility::default(), Name::new("landscape"), graphics::geometry::tessellation::SceneryModel)).id();
         for (i, (mesh, mat)) in parts.into_iter().enumerate() {
             // the landscape casts no shadow (shadows.md: only objects with shadow_enable cast, projected silhouettes)
             let c = commands.spawn((Mesh3d(mesh), MeshMaterial3d(mat), Name::new(format!("lsub{i}_")), bevy::light::NotShadowCaster)).id();

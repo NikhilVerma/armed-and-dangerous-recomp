@@ -27,6 +27,7 @@
 mod bc_decode;
 pub(crate) mod farclip;
 pub mod geometry;
+pub mod ground_detail;
 pub mod snow;
 mod textures;
 // the environment cube maps of ice, water and metal (2026-10-23)
@@ -36,9 +37,10 @@ pub mod ao_extras;
 mod effects_log;
 pub mod height_fog;
 pub mod motion_blur;
+pub mod smaa_t2x;
 pub mod present;
 
-pub use textures::{set_level as set_level_textures, texture_path, ui_texture_path, world_sampler};
+pub use textures::{exists as texture_exists, set_level as set_level_textures, texture_path, ui_texture_path, world_sampler};
 
 use bevy::anti_alias::contrast_adaptive_sharpening::ContrastAdaptiveSharpening;
 use bevy::anti_alias::smaa::{Smaa, SmaaPreset};
@@ -83,16 +85,19 @@ pub enum AntiAliasing {
     Smaa,
     /// Bevy's TAA: also smooths shading, shadow and texture shimmer; sharpened afterwards
     Taa,
+    /// SMAA with one past frame blended in (smaa_t2x.rs): calms shimmer and stays sharper than TAA in motion
+    SmaaT2x,
 }
 
 impl AntiAliasing {
-    pub const ALL: [AntiAliasing; 4] = [AntiAliasing::Off, AntiAliasing::Msaa, AntiAliasing::Smaa, AntiAliasing::Taa];
+    pub const ALL: [AntiAliasing; 5] = [AntiAliasing::Off, AntiAliasing::Msaa, AntiAliasing::Smaa, AntiAliasing::Taa, AntiAliasing::SmaaT2x];
     pub fn name(self) -> &'static str {
         match self {
             AntiAliasing::Off => "Off",
             AntiAliasing::Msaa => "MSAA 4x",
             AntiAliasing::Smaa => "SMAA",
             AntiAliasing::Taa => "TAA",
+            AntiAliasing::SmaaT2x => "SMAA T2x",
         }
     }
 }
@@ -147,6 +152,10 @@ pub struct GraphicsSettings {
     pub soft_particles: f32,
     /// the far clip (the original camera's far plane) dissolves over its last part instead of cutting hard
     pub far_fade: bool,
+    /// shades the snow floors with the procedural snow surface (gamematerial.wesl `snow_*`) in place of their bump map
+    pub snow_shader: bool,
+    /// small tiling detail (rock, dirt, grass, snow) on the landscape close up (graphics/ground_detail.rs)
+    pub ground_detail: bool,
     /// bloom intensity on what is brighter than white (stacked additive effects; 0 = off, no HDR target)
     pub bloom: f32,
     /// dead bodies lying at once: one more makes the oldest fade (0 = no cap, the original's: bodies go by their
@@ -223,6 +232,8 @@ impl GraphicsSettings {
             shadow_alpha_cutoff: 0.0,
             soft_particles: 0.0,
             far_fade: false,
+            snow_shader: false,
+            ground_detail: false,
             bloom: 0.0,
             corpse_keep: 0,
             corpse_time: 0.0,
@@ -257,6 +268,8 @@ impl GraphicsSettings {
             shadow_alpha_cutoff: 0.5,
             soft_particles: 6.0,
             far_fade: true,
+            snow_shader: true,
+            ground_detail: true,
             bloom: 0.08,
             corpse_keep: 48,
             corpse_time: 60.0,
@@ -519,8 +532,8 @@ impl Plugin for GraphicsPlugin {
         app.insert_resource(self.launch.clone())
             .insert_resource(self.initial.clone())
             .insert_resource(DirectionalLightShadowMap { size: self.initial.shadow_map_size as usize })
-            .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
-            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, snow::SnowPlugin, env_map::EnvMapPlugin, bc_decode::BcDecodePlugin))
+            .add_plugins((height_fog::HeightFogPlugin, ao_extras::AoExtrasPlugin, motion_blur::MotionBlurPlugin, smaa_t2x::SmaaT2xPlugin, present::PresentPlugin, effects_log::EffectsLogPlugin))
+            .add_plugins((farclip::FarClipPlugin, geometry::GeometryPlugin, ground_detail::GroundDetailPlugin, snow::SnowPlugin, env_map::EnvMapPlugin, bc_decode::BcDecodePlugin))
             .add_systems(
                 PostUpdate,
                 (
@@ -577,7 +590,7 @@ pub(crate) fn apply_cameras(
     for e in &cams {
         let mut c = commands.entity(e);
         // start from the Original's camera, then add
-        c.remove::<(TemporalAntiAliasing, TemporalJitter, MipBias, Smaa, ContrastAdaptiveSharpening, ScreenSpaceAmbientOcclusion)>()
+        c.remove::<(TemporalAntiAliasing, smaa_t2x::SmaaT2x, TemporalJitter, MipBias, Smaa, ContrastAdaptiveSharpening, ScreenSpaceAmbientOcclusion)>()
             .remove::<(DepthPrepass, NormalPrepass, MotionVectorPrepass, Bloom, Hdr, ShadowFilteringMethod)>();
         c.insert(msaa);
         match s.anti_aliasing {
@@ -587,9 +600,12 @@ pub(crate) fn apply_cameras(
             AntiAliasing::Smaa => {
                 c.insert(Smaa { preset: SmaaPreset::High });
             }
+            AntiAliasing::SmaaT2x => {
+                c.insert((Smaa { preset: SmaaPreset::High }, smaa_t2x::SmaaT2x, TemporalJitter::default(), DepthPrepass, MotionVectorPrepass));
+            }
             _ => {}
         }
-        if s.sharpening > 0.0 && matches!(s.anti_aliasing, AntiAliasing::Taa | AntiAliasing::Smaa) {
+        if s.sharpening > 0.0 && matches!(s.anti_aliasing, AntiAliasing::Taa | AntiAliasing::Smaa | AntiAliasing::SmaaT2x) {
             c.insert(ContrastAdaptiveSharpening { enabled: true, sharpening_strength: s.sharpening.min(1.0), denoise: false });
         }
         if ao {
@@ -727,14 +743,17 @@ fn apply_game_materials<C: crate::gamematerial::Coverage>(
     let cutoff = s.shadow_alpha_cutoff.clamp(0.0, 1.0);
     let want = |m: &crate::gamematerial::GameMaterial<C>| Vec3::new(ao_weight(&s, m.alpha), far, cutoff);
     let geometry = geometry::material_values(&s);
+    let detail = ground_detail::strengths(s.ground_detail);
     for id in ids_to_apply(s.is_changed(), &game, &mut events) {
         // read first: a mutable access marks the material changed (re-prepared) even when nothing differs
         let geometry_of = |m: &crate::gamematerial::GameMaterial<C>| geometry::for_material(geometry, m.alpha, m.params.diffuse.w);
-        if game.get(id).is_some_and(|m| m.params.remaster.xyz() != want(m) || m.params.geometry != geometry_of(m)) {
+        let detail_of = |m: &crate::gamematerial::GameMaterial<C>| Vec4::new(m.params.detail.x, m.params.detail.y, detail.0, detail.1);
+        if game.get(id).is_some_and(|m| m.params.remaster.xyz() != want(m) || m.params.geometry != geometry_of(m) || m.params.detail != detail_of(m)) {
             if let Some(mut m) = game.get_mut(id) {
                 let w = want(&m);
                 m.params.remaster = w.extend(m.params.remaster.w);
                 m.params.geometry = geometry_of(&m);
+                m.params.detail = detail_of(&m);
             }
         }
     }

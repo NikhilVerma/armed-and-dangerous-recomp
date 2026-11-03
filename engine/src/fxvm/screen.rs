@@ -262,8 +262,9 @@ impl Plugin for ScreenFxPlugin {
 /// pausing screen asks for it: the pause menu, mission messages, the pub and the stats): on pause the blur (id 1)
 /// restarts at once, fades in over 0.1 s and holds, its clock running while paused; on resume it fades out over
 /// 0.5 s.
-fn pause_blur(vtime: Res<Time<Virtual>>, mut fx: ResMut<ScreenEffects>, mut was_paused: Local<bool>) {
-    let paused = vtime.is_paused();
+fn pause_blur(vtime: Res<Time<Virtual>>, overlay: Option<Res<crate::devtools::DevOverlay>>, mut fx: ResMut<ScreenEffects>, mut was_paused: Local<bool>) {
+    // A bookmark's note box pauses play, but the player is describing what is on screen, so the picture stays sharp.
+    let paused = vtime.is_paused() && !overlay.is_some_and(|o| o.note);
     if paused == *was_paused {
         return;
     }

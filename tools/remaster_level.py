@@ -20,7 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 MAIN = ROOT if (ROOT / "orig").exists() else ROOT.parents[2]   # a worktree reads the main checkout's orig/ and work/
 GAME = MAIN / "orig" / "pc" / "GameData"
 WORK = MAIN / "work" / "remaster"
-from gamefiles import game_exe  # noqa: E402
+from gamefiles import game_exe, table_va  # noqa: E402
 EXE = game_exe(GAME)  # tools/gamefiles.py: game.unpacked.exe if present, else game.exe
 
 sys.path.insert(0, str(ROOT / "tools"))
@@ -71,7 +71,7 @@ def exe_f32(va, n):
         import pefile
         _EXE_IMAGE = pefile.PE(str(EXE)).get_memory_mapped_image()
     import struct
-    return list(struct.unpack_from(f"<{n}f", _EXE_IMAGE, va - 0x400000))
+    return list(struct.unpack_from(f"<{n}f", _EXE_IMAGE, table_va(EXE, va) - 0x400000))
 
 
 def plain_number(x, digits=6):

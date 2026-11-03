@@ -798,7 +798,8 @@ fn grunts(
         // (a guard firing shows what the fire state shows)
         let mind = if guard_fire { Mind::Fire } else { g.mind };
         let (n, looping): (String, bool) = match mind {
-            Mind::Dead if g.ragdoll => (name(&g, 73, 0.0).to_owned(), false),
+            // in flight (ai/flung.rs): the flail Character_Launch picked, until the ragdoll takes over
+            Mind::Dead if g.ragdoll => (g.death_name.map(str::to_owned).unwrap_or_else(|| name(&g, 73, 0.0).to_owned()), true),
             Mind::Dead => {
                 // the death anim Character_Die picked (window, ledge, trench: ai.rs death_name) or 0x50 + n
                 let r = (g.death_anim.saturating_sub(1)) as f32 / 6.0;

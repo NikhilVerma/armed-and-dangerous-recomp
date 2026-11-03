@@ -6,9 +6,9 @@
 //!   Roman is thrown; the timer Game+0xc80 = topsy_turvy_duration (5 s) runs with Roman hanging
 //!   (trotter_topsy_hanging), unable to turn; at 0 the bomb is removed and the world turns back.
 //! - A thrown grunt rolls rand * 100: at or above topsy_turvy_fall_pct (50), with more than 3 s of the effect left,
-//!   it hangs on (grunt_hang_into, grunt_hanging) until the world turns back; otherwise it lets go and falls into
-//!   the sky (grunt_blown_up_into, grunt_blown_up, physics off) with a topsy_scream, and is dead when the world
-//!   turns back.
+//!   it hangs on (grunt_hang_into, grunt_hanging) for rand(0.25, duration - 1) s (+0x878, state 0xeb,
+//!   ai_06.cpp:2776). Then, or at once on a lower roll, it lets go and falls into the sky (grunt_blown_up_into,
+//!   grunt_blown_up, physics off) with a topsy_scream, and is dead when the world turns back.
 //! Simplified, labelled: the view rolls 180 degrees about its axis over the turn instead of following the
 //! Camera_topsy track; the world turns back over the same 0.97 s (the original's anim 0x23 is not identified).
 
@@ -54,7 +54,8 @@ pub struct Thrown {
     pub rise: f32,
     /// the hang starts with the hang_into anim (a grunt's 113; a monk goes straight to monk_hanging, 114)
     pub into: bool,
-    /// a monk's hang ends on its own after this long (state 0xf4's +0x87c), then he teleports away
+    /// the hang ends after this long: a grunt lets go and falls (state 0xeb's +0x878); a monk teleports away (state
+    /// 0xf4's +0x87c)
     pub until: Option<f32>,
 }
 
@@ -229,7 +230,8 @@ fn run(
                         hang += 1;
                     }
                     gr.mind = Mind::WaitTrigger;
-                    commands.entity(e).insert(Thrown { hangs, t: 0.0, rise: 0.0, into: true, until: None });
+                    let until = hangs.then(|| rng.range(0.25, topsy.duration - 1.0));
+                    commands.entity(e).insert(Thrown { hangs, t: 0.0, rise: 0.0, into: true, until });
                 }
                 // the twiglets in reach take it too (Twiglet_TakeDamage 0x0049f530: flag 0x20 stuns them; bounds radius
                 // about 3: guess)
@@ -300,23 +302,38 @@ fn thrown(
     mut commands: Commands,
     time: Res<Time>,
     topsy: Res<Topsy>,
-    mut q: Query<(Entity, &mut Grunt, &mut Transform, &mut Thrown, &mut crate::fx::Health)>,
+    mut q: Query<(Entity, &mut Grunt, &mut Transform, &mut Thrown, &mut crate::fx::Health, Option<&crate::physics::Body>)>,
     mut stats: ResMut<crate::player::PlayerStats>,
+    mut physics: NonSendMut<crate::physics::Physics>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
+    voices: crate::audio::PlayingVoices,
 ) {
     let dt = time.delta_secs();
-    for (e, mut g, mut t, mut th, mut h) in &mut q {
+    for (e, mut g, mut t, mut th, mut h, body) in &mut q {
         th.t += dt;
         if th.hangs {
             g.pause = 1.0;
-            // a monk's hang runs out: +0x878 = 0 and the bamf (vt+0x240): his pursuit with no specials left teleports
             if th.until.is_some_and(|u| th.t >= u) {
-                commands.entity(e).remove::<Thrown>();
+                // a monk's hang runs out: +0x878 = 0 and the bamf (vt+0x240): his pursuit with no specials left teleports
                 if let Some(m) = g.monk.as_mut() {
+                    commands.entity(e).remove::<Thrown>();
                     m.special = 0;
                     m.bamf = true;
+                    g.mind = Mind::Roam;
+                    info!("EVENT topsy: monk {e:?} lets go");
+                } else {
+                    // a grunt's grip runs out: 0x0042fe50 again with a0 = 0, the same fall as a low roll
+                    if let Some(b) = body {
+                        physics.remove(b.id);
+                        commands.entity(e).remove::<crate::physics::Body>();
+                    }
+                    let set = g.voice_set;
+                    if let Some(req) = g.speech.scream(&voices, crate::ai::bark_request("Topsy_Scream", set, t.translation).following(e)) {
+                        sounds.write(req);
+                    }
+                    th.hangs = false;
+                    th.t = 0.0;
                 }
-                g.mind = Mind::Roam;
-                info!("EVENT topsy: monk {e:?} lets go");
                 continue;
             }
             if !topsy.active() {

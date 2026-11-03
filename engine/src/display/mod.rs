@@ -24,6 +24,7 @@
 pub mod brightness;
 pub mod frame_limit;
 pub mod menu;
+pub mod offscreen;
 pub mod render_scale;
 pub mod ui;
 pub mod view;

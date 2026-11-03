@@ -953,6 +953,9 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         // remaster: the GPU snowfall (graphics/snow.rs)
         s.check(Page::GfxDetail, "GPU Snow", 346.0, 465.773, 342.691, Some(Flag::Graphics("snow")), false);
         s.slider(Page::GfxDetail, "Snow Amount", it(198.691), 1.0, Opt::Number("snow_amount"), true);
+        // remaster: close-up detail on the landscape (graphics/ground_detail.rs) and rounded scenery (geometry)
+        s.check(Page::GfxDetail, "Ground Detail", 51.0, 171.215, 174.691, Some(Flag::Graphics("ground_detail")), false);
+        s.check(Page::GfxDetail, "Tessellated Scenery", 346.0, 465.773, 174.691, Some(Flag::Graphics("tessellation_scenery")), false);
         s.row(Page::GfxDetail, "ui_shellmenu_back", Vec2::new(320.0, 60.44), 1.4, YELLOW, Act::Back, 0.0);
         s.row(Page::Gfx, "ui_gfxmenu_apply", Vec2::new(320.0, 60.44), 1.2, GREEN, Act::Apply, 0.0);
         s.row(Page::Gfx, "ui_shellmenu_cancel", Vec2::new(320.0, 36.44), 1.1, GREEN, Act::Cancel, 0.0);
