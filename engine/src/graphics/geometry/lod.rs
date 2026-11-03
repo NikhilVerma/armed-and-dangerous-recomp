@@ -15,6 +15,12 @@
 //! Since 2026-10-13 the engine drew the finest everywhere (the human's decision, docs/decision.md), which is the
 //! Remaster's `lod_max`; the Original switches as the game does.
 //!
+//! Some first LODs are inside views. The base turret's finest model is its empty shell, which the original draws only
+//! while the camera is within a few units of it, as in the mounted view. Its next model has Roman seated in it, and the
+//! intro's fly-in and every outside view show that one. An inside view is not a finer level of detail, so `lod_max`
+//! still leaves it once the camera is outside (`LodSource::inside_view`). The turret's model is base_turret_l5_m5_0,
+//! with lodcutoff_0 set to 4.
+//!
 //! Cost: none while `lod_max` is on: the other LODs' models are only loaded and spawned (hidden) once switching is
 //! wanted. Guesses (labelled): the camera's +0xf4 field of view that 0x0040f840 returns is the horizontal one (camera
 //! nodes store horizontal fields of view, camera.rs `vertical_fov`); a LOD whose model the export lacks falls back to
@@ -32,6 +38,9 @@ const QUALITY_SCALE: f32 = 1.0;
 const QUALITY_OFFSET: f32 = 0.0;
 /// A negative cutoff's offset (0x005bcb28 = 2^32): such a LOD is never left for a coarser one.
 const NEGATIVE_CUTOFF_OFFSET: f64 = 4_294_967_296.0;
+/// A first LOD whose cutoff is set below this is an inside view, not a detail level. The turret's is 4 (about 7 units
+/// away); the smallest real detail cutoff in the shipped levels is 10 (p_grunt_regular_base, p_twiglet).
+const INSIDE_VIEW_CUTOFF: f64 = 8.0;
 /// The original camera's aspect (camera +0x154, camera.rs `vertical_fov`): its horizontal field of view from Bevy's
 /// vertical one.
 const ORIGINAL_ASPECT: f32 = 1.702_128;
@@ -47,6 +56,8 @@ pub struct LodSource {
     pub skipped: [Option<usize>; 2],
     /// whether the parts cast and receive shadows (as the finest LOD's do)
     pub shadowing: crate::level::Shadowing,
+    /// the first drawn LOD's cutoff when that LOD is an inside view (module docs)
+    pub inside_view: Option<f64>,
 }
 
 impl LodSource {
@@ -55,7 +66,7 @@ impl LodSource {
         let n = template.lods.len();
         let index = |k: &str| props.has(k).then(|| props.i(k, -1)).filter(|i| *i >= 0 && (*i as usize) < n).map(|i| i as usize);
         let skipped = [index("collision_lod_index"), index("shadow_lod_index")];
-        let cutoffs = (0..n)
+        let cutoffs: Vec<f64> = (0..n)
             .map(|i| {
                 let default = if i + 1 == n || skipped.contains(&Some(i)) { -1 } else { 0 };
                 let raw = props.i(&format!("lodcutoff_{i}"), default) as i32;
@@ -63,7 +74,9 @@ impl LodSource {
             })
             .collect();
         let models: Vec<Option<String>> = template.lods.iter().map(|m| Some(m.clone()).filter(|m| !m.is_empty())).collect();
-        let s = LodSource { models, cutoffs, skipped, shadowing };
+        let first = (0..n).find(|i| !skipped.contains(&Some(*i))).unwrap_or(0);
+        let inside_view = (props.has(&format!("lodcutoff_{first}")) && cutoffs[first] > 0.0 && cutoffs[first] < INSIDE_VIEW_CUTOFF).then(|| cutoffs[first]);
+        let s = LodSource { models, cutoffs, skipped, shadowing, inside_view };
         let drawn: std::collections::HashSet<&str> = (0..n).filter(|i| !s.is_skipped(*i)).filter_map(|i| s.models[i].as_deref()).collect();
         (drawn.len() > 1).then_some(s)
     }
@@ -114,67 +127,114 @@ impl Plugin for LodPlugin {
     }
 }
 
-/// Spawns the other LODs' parts (hidden) under objects with a [`LodSource`] once switching is wanted (`lod_max` off).
-/// The finest LOD's parts are the ones the level spawned (the object's direct children with a mesh); a skinned LOD
-/// shares the object's rig. Objects with parts riding single bones keep their finest model (no switching).
+/// Holds what drawing a model needs, copied out of the library. A `Model` also holds its physics copy, so it isn't
+/// cloned whole.
+struct Drawable {
+    parts: Vec<(Handle<Mesh>, Handle<StandardMaterial>)>,
+    binds: Vec<PartBind>,
+    skeleton: Option<String>,
+}
+
+impl Drawable {
+    fn of(m: &crate::scene::Model) -> Self {
+        Drawable { parts: m.parts.clone(), binds: m.binds.clone(), skeleton: m.skeleton.clone() }
+    }
+}
+
+/// Spawns the other LODs' parts, hidden, under objects with a [`LodSource`] once switching is wanted.
+///
+/// Switching is wanted when `lod_max` is off, or for an object with an inside view. The finest LOD's parts are the ones
+/// the level spawned. They are the object's children, or a joint's children for parts that ride one bone. A skinned
+/// LOD shares the object's rig.
 #[allow(clippy::too_many_arguments)]
 fn attach_lods(
     mut commands: Commands,
     settings: Res<GraphicsSettings>,
     objects: Query<(Entity, &LodSource, Option<&Children>, Option<&crate::skin::Animator>), Without<LodParts>>,
-    parts: Query<(), With<Mesh3d>>,
+    children: Query<&Children>,
+    parts: Query<&Mesh3d>,
     lib: Option<ResMut<crate::scene::Library>>,
+    anim_lib: Option<ResMut<crate::skin::AnimLibrary>>,
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut binds: ResMut<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>,
 ) {
-    if settings.geometry.lod_max || objects.is_empty() {
+    if objects.is_empty() {
         return;
     }
-    let Some(mut lib) = lib else { return };
-    for (e, src, children, animator) in &objects {
-        let finest: Vec<Entity> = children.map(|c| c.iter().filter(|c| parts.contains(*c)).collect()).unwrap_or_default();
+    let (Some(mut lib), Some(mut anim_lib)) = (lib, anim_lib) else { return };
+    for (e, src, own_children, animator) in &objects {
+        if settings.geometry.lod_max && src.inside_view.is_none() {
+            continue;
+        }
         let first = (0..src.models.len()).find(|i| !src.is_skipped(*i)).unwrap_or(0);
-        let finest_model = src.models.get(first).cloned().flatten();
-        let skeleton = finest_model.as_deref().and_then(|m| lib.load_model(m, false, &assets, &mut meshes, &mut materials)).map(|m| (m.skeleton.clone(), m.binds.iter().any(|b| matches!(b, PartBind::Bone(_)))));
+        let Some(finest_model) = src.models.get(first).cloned().flatten().and_then(|m| lib.load_model(&m, false, &assets, &mut meshes, &mut materials).map(Drawable::of)) else {
+            commands.entity(e).insert(LodParts { by_lod: vec![Vec::new(); src.models.len()], shown: first, finest: first });
+            continue;
+        };
+        let rides_bones = finest_model.binds.iter().any(|b| matches!(b, PartBind::Bone(_)));
+        // the finest LOD's parts are the finest model's meshes, found under the object and, for bone parts, its joints
+        let finest_meshes: Vec<AssetId<Mesh>> = finest_model.parts.iter().map(|(m, _)| m.id()).collect();
+        let mut holders: Vec<Entity> = vec![e];
+        if rides_bones {
+            holders.extend(animator.map(|a| a.joints.clone()).unwrap_or_default());
+        }
+        let finest: Vec<Entity> = holders
+            .iter()
+            .filter_map(|h| if *h == e { own_children.map(|c| c.iter().collect::<Vec<_>>()) } else { children.get(*h).ok().map(|c| c.iter().collect()) })
+            .flatten()
+            .filter(|c| parts.get(*c).is_ok_and(|m| finest_meshes.contains(&m.id())))
+            .collect();
         let mut by_lod: Vec<Vec<Entity>> = vec![Vec::new(); src.models.len()];
-        match skeleton {
-            // a skinned model switches only on its rig
-            Some((skeleton, false)) if !finest.is_empty() && (skeleton.is_none() || animator.is_some()) => {
-                by_lod[first] = finest;
-                for i in (first + 1)..src.models.len() {
-                    if src.is_skipped(i) {
-                        continue;
+        // a skinned or bone-riding model switches only on its rig
+        let usable = !finest.is_empty() && (finest_model.skeleton.is_none() || animator.is_some());
+        if usable {
+            by_lod[first] = finest;
+            for i in (first + 1)..src.models.len() {
+                if src.is_skipped(i) {
+                    continue;
+                }
+                let Some(name) = src.models[i].as_deref() else { continue };
+                if src.models[..i].iter().zip(0..).any(|(m, j)| !src.is_skipped(j) && m.as_deref() == Some(name)) {
+                    // the same model as a finer LOD (pickup_rifle_ammo_0 three times): that LOD's parts
+                    by_lod[i] = by_lod[(0..i).rev().find(|j| src.models[*j].as_deref() == Some(name)).unwrap_or(first)].clone();
+                    continue;
+                }
+                let Some(model) = lib.load_model(name, false, &assets, &mut meshes, &mut materials).map(Drawable::of) else { continue };
+                let skinned = model.binds.iter().any(|b| matches!(b, PartBind::Skinned));
+                // skinned parts index the rig's joints, so they need the very same skeleton; bone parts only their
+                // bones, placed by this model's own bind pose (base_turret_l5_m5_1 has its own copy of _0's skeleton)
+                if skinned && model.skeleton != finest_model.skeleton {
+                    continue;
+                }
+                let own_skeleton = model.skeleton.as_deref().and_then(|s| anim_lib.skeleton(s, &mut binds));
+                let inverse_bind: Vec<Mat4> = own_skeleton.as_ref().and_then(|s| binds.get(&s.inverse_bind)).map(|b| b.to_vec()).unwrap_or_default();
+                for ((mesh, mat), bind) in model.parts.iter().zip(&model.binds) {
+                    let mut owner = e;
+                    let mut place = Transform::IDENTITY;
+                    if let PartBind::Bone(b) = bind {
+                        let joint = animator.and_then(|a| a.skeleton.index.get(b).map(|&j| a.joints[j]));
+                        let ib = own_skeleton.as_ref().and_then(|s| s.index.get(b)).and_then(|&j| inverse_bind.get(j));
+                        let (Some(joint), Some(ib)) = (joint, ib) else { continue };
+                        owner = joint;
+                        place = Transform::from_matrix(*ib);
                     }
-                    let Some(name) = src.models[i].as_deref() else { continue };
-                    if src.models[..i].iter().zip(0..).any(|(m, j)| !src.is_skipped(j) && m.as_deref() == Some(name)) {
-                        // the same model as a finer LOD (pickup_rifle_ammo_0 three times): that LOD's parts
-                        by_lod[i] = by_lod[(0..i).rev().find(|j| src.models[*j].as_deref() == Some(name)).unwrap_or(first)].clone();
-                        continue;
+                    let mut c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), place, Visibility::Hidden));
+                    if !src.shadowing.casts {
+                        c.insert(NotShadowCaster);
                     }
-                    let Some(model) = lib.load_model(name, false, &assets, &mut meshes, &mut materials) else { continue };
-                    if model.skeleton != skeleton || model.binds.iter().any(|b| matches!(b, PartBind::Bone(_))) {
-                        continue;
+                    if !src.shadowing.receives {
+                        c.insert(bevy::light::NotShadowReceiver);
                     }
-                    for ((mesh, mat), bind) in model.parts.iter().zip(&model.binds) {
-                        let mut c = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(mat.clone()), Visibility::Hidden));
-                        if !src.shadowing.casts {
-                            c.insert(NotShadowCaster);
-                        }
-                        if !src.shadowing.receives {
-                            c.insert(bevy::light::NotShadowReceiver);
-                        }
-                        if let (PartBind::Skinned, Some(a)) = (bind, animator) {
-                            c.insert((crate::skin::skinned_mesh(a), NoFrustumCulling));
-                        }
-                        let c = c.id();
-                        commands.entity(e).add_child(c);
-                        by_lod[i].push(c);
+                    if let (PartBind::Skinned, Some(a)) = (bind, animator) {
+                        c.insert((crate::skin::skinned_mesh(a), NoFrustumCulling));
                     }
+                    let c = c.id();
+                    commands.entity(owner).add_child(c);
+                    by_lod[i].push(c);
                 }
             }
-            // nothing to switch (no parts, parts on single bones, or a skinned model without its rig)
-            _ => {}
         }
         commands.entity(e).insert(LodParts { by_lod, shown: first, finest: first });
     }
@@ -195,12 +255,12 @@ fn select_lods(
     let (eye, ahead) = (cam.translation(), cam.forward().as_vec3());
     for (at, src, mut lods) in &mut objects {
         let mut d = (at.translation() - eye).dot(ahead).max(0.0);
-        if g.lod_max {
-            d = 0.0;
-        } else if g.lod_scale > 1.0 {
+        if !g.lod_max && g.lod_scale > 1.0 {
             d /= g.lod_scale;
         }
         let m = (tan_half * d) as f64 * QUALITY_SCALE as f64 + QUALITY_OFFSET as f64;
+        // the finest LOD everywhere, except that an inside view is left once the camera is outside it
+        let m = if g.lod_max { src.inside_view.map_or(0.0, |c| m.min(c)) } else { m };
         let want = lods.drawable(src.select(m));
         if want == lods.shown {
             continue;
@@ -246,6 +306,13 @@ mod tests {
         let house = template(&["h_0", "h_1", "h_coll"]);
         let h = LodSource::new(&house, &props(&[("collision_lod_index", 2)]), crate::level::Shadowing::casting(true)).expect("switching");
         assert_eq!([0.0, 5.0].map(|m| h.select(m)), [1, 1]);
+        // the base turret: its empty shell is an inside view, Roman's seated LOD takes over beyond 4
+        let turret = template(&["base_turret_l5_m5_0", "base_turret_l5_m5_1", "base_turret_l5_m5_coll"]);
+        let t = LodSource::new(&turret, &props(&[("lodcutoff_0", 4), ("lodcutoff_1", 20000), ("lodcutoff_2", 40000), ("collision_lod_index", 2)]), crate::level::Shadowing::casting(true)).expect("switching");
+        assert_eq!(t.inside_view, Some(4.0));
+        assert_eq!([0.0, 3.9, 4.0].map(|m| t.select(m)), [0, 0, 1]);
+        assert_eq!(s.inside_view, None);
+        assert_eq!(h.inside_view, None);
         // one model only: nothing to switch
         assert!(LodSource::new(&template(&["a_0", "a_0", "a_coll"]), &props(&[("collision_lod_index", 2)]), crate::level::Shadowing::casting(true)).is_none());
     }
