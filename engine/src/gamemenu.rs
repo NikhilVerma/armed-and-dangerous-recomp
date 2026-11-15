@@ -30,6 +30,9 @@ use bevy::prelude::*;
 use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
 use std::collections::HashMap;
 
+mod list;
+mod settings;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Page {
     Main,
@@ -76,6 +79,11 @@ pub enum Page {
     /// remaster: the display, view and UI-layout settings (display/: the old remaster's [camera] / [display] / [ui]
     /// pages), applied as they change
     Display,
+    /// remaster (`modern_menus`): the settings in tabs, each a scrolling list with a line of help (gamemenu/settings.rs)
+    Settings,
+    /// remaster (`modern_menus`): every exported level in one scrolling list, started as New Game starts the first
+    /// (gamemenu/list.rs)
+    Levels,
 }
 
 /// The art behind a page.
@@ -101,7 +109,7 @@ impl Page {
             Page::Main | Page::Options | Page::Extras | Page::Exit => Back::Title,
             // the save page draws ui_background (layout.json pui_savegame: model ui_background_01)
             // pui_difficulty draws ui_background_01 too (layout.json)
-            Page::Gfx | Page::GfxDetail | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Engine | Page::Display | Page::Difficulty => Back::Shell,
+            Page::Gfx | Page::GfxDetail | Page::GfxEffects | Page::Sfx | Page::Controls | Page::Cheats | Page::Credits | Page::SaveSlots | Page::LoadSlots | Page::Replay | Page::Movies | Page::Settings | Page::Levels | Page::Engine | Page::Display | Page::Difficulty => Back::Shell,
             // pui_saving has no background: the game shows under its text
             Page::YesNo | Page::Pause | Page::Failed | Page::Pub | Page::Stats | Page::Saving => Back::Game,
         }
@@ -173,6 +181,10 @@ pub enum Flag {
     Graphics(&'static str),
     /// remaster: a boolean display setting by its name (display/mod.rs), on the Display page: applied at once
     Display(&'static str),
+    /// remaster: saves only where the original offers its quick save (options.rs `checkpoint_saves`)
+    CheckpointSaves,
+    /// remaster: a developer toggle (devtools: god mode, infinite ammo, ...), stored with the options
+    Dev(crate::devtools::DevToggle),
 }
 
 /// The options the graphics page edits on its copy (Apply keeps them, Cancel drops them).
@@ -217,6 +229,11 @@ pub enum Act {
     /// a row of the Difficulty page (code 71): the difficulty (0 easy .. 3 insane: the text id's last digit - 1, as
     /// 0x004921a0 passes it to 0x00401f60) and the new game starts
     Difficulty(usize),
+    /// remaster: a tab of the Settings page
+    Tab(usize),
+    /// remaster: a level of the Level Select page: started with a new game's money and the level's own loadout, the
+    /// campaign going on after it (as the developer menu's level select)
+    Level(&'static str),
 }
 
 /// What decides now whether a row can be chosen. The original sets a row's disabled bit (+0x474 0x40, through
@@ -232,6 +249,10 @@ pub struct RowGate {
     /// Auto-Aim can be changed: not in a level at a difficulty above normal (code 79: Game+0x748 set and Game+0x550 > 1
     /// disable it; the aim ignores the option there, weapons/targeting.rs)
     pub auto_aim: bool,
+    /// remaster: the Settings page's open tab (rows of the other tabs are neither shown nor chosen)
+    pub tab: usize,
+    /// remaster: the `modern_menus` setting (rows marked for one menu style only)
+    pub modern: bool,
 }
 
 impl Act {
@@ -286,7 +307,7 @@ impl MenuSound {
             _ if by_back => MenuSound::Cancel,
             Act::Back | Act::No => MenuSound::Cancel,
             Act::Continue if page == Page::Pause => MenuSound::Cancel,
-            Act::Difficulty(_) | Act::Replay(_) => MenuSound::Start,
+            Act::Difficulty(_) | Act::Replay(_) | Act::Level(_) => MenuSound::Start,
             _ => MenuSound::Select,
         }
     }
@@ -306,6 +327,12 @@ pub struct MenuRow {
     pub extra: Option<(f32, f32)>,
     /// the hit box instead of the text's (a save slot's panel), corners in 640 x 480 units
     pub panel: Option<(Vec2, Vec2)>,
+    /// remaster: the row's place in a scrolling list (gamemenu/list.rs)
+    pub list: Option<list::ListPos>,
+    /// remaster: a line of help shown while the row is selected ("" none)
+    pub hint: &'static str,
+    /// remaster: shown in one menu style only (Some(true): `modern_menus` on; Some(false): off)
+    pub only: Option<bool>,
 }
 
 /// Every entity the menus own (the HUD's visibility rules leave them alone).
@@ -317,6 +344,8 @@ pub struct MenuOwned;
 struct Part {
     page: Option<Page>,
     kind: PartKind,
+    /// its row's place in a scrolling list (gamemenu/list.rs)
+    list: Option<list::ListPos>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -336,6 +365,16 @@ enum PartKind {
     OnDevice(crate::bindings::Device),
     /// the pad's left / right stick icon (Move, Look on the pad page)
     Stick(bool),
+    /// remaster: the selected row's line of help
+    Hint,
+    /// remaster: the mark under a tab, shown while that tab is open
+    TabMark(usize),
+    /// remaster: the bar behind the selected row of a list
+    SelectBar,
+    /// remaster: a list's scroll bar (shown while the list is longer than its window)
+    ScrollBar,
+    /// remaster: the box behind a yes/no question (`modern_menus`)
+    Dialog,
 }
 
 impl PartKind {
@@ -358,6 +397,11 @@ impl MenuRow {
             _ => true,
         }
     }
+
+    /// Shown and selectable now: on its device, in this menu style, on the open tab.
+    fn live(&self, gate: RowGate) -> bool {
+        self.on_device() && self.only.is_none_or(|m| m == gate.modern) && self.list.is_none_or(|l| l.tab.is_none_or(|t| t == gate.tab))
+    }
 }
 
 /// A row's highlight size fade (UiText +0x4e0: 0..1).
@@ -374,7 +418,7 @@ struct BarFill(Opt);
 
 /// The inside of a checkbox (red when set).
 #[derive(Component)]
-struct CheckFill(Flag);
+struct CheckFill(Flag, Color);
 
 #[derive(Resource)]
 pub struct GameMenu {
@@ -405,6 +449,9 @@ pub struct GameMenu {
     pub slot_sel: Option<u8>,
     /// a key binding entry waiting for its input (bindings.rs)
     pub capture: Option<crate::bindings::Capture>,
+    /// remaster: the Settings page's open tab, and the first row a scrolling list shows (gamemenu/list.rs)
+    pub tab: usize,
+    pub scroll: usize,
 }
 
 impl Default for GameMenu {
@@ -427,6 +474,8 @@ impl Default for GameMenu {
             slots: Vec::new(),
             slot_sel: None,
             capture: None,
+            tab: 0,
+            scroll: 0,
         }
     }
 }
@@ -490,12 +539,15 @@ impl Plugin for GameMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_level_resource::<GameMenu>()
             .init_resource::<Texts>()
-            .add_systems(Update, (failed, crate::bindings::capture, navigate.run_if(crate::movie::no_movie_input).run_if(crate::devtools::overlay_closed).run_if(crate::splash::no_splash), unlock_pages, saving_screen, animate, values, pause_band, credits, log_menu).chain().in_set(MenuSystems))
+            .add_systems(Update, (failed, crate::bindings::capture, list::tab_keys.run_if(crate::movie::no_movie_input).run_if(crate::devtools::overlay_closed).run_if(crate::splash::no_splash), navigate.run_if(crate::movie::no_movie_input).run_if(crate::devtools::overlay_closed).run_if(crate::splash::no_splash), unlock_pages, list::view, saving_screen, animate, values, list::hints, pause_band, credits, log_menu).chain().in_set(MenuSystems))
             .add_plugins(crate::saveslots::SaveSlotsPlugin);
     }
 }
 
 /// The state log's "menu": the page and the selected row's text id (playtest expect steps: "menu.selected").
+/// How much the selected row grows in the remaster's menus (`modern_menus`): steady, in place of the original's pulse.
+const SELECT_ZOOM: f32 = 1.05;
+
 #[allow(clippy::type_complexity)]
 fn log_menu(
     menu: Res<GameMenu>,
@@ -522,7 +574,7 @@ fn log_menu(
     });
     state.0.insert(
         "menu".into(),
-        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art, "slot": menu.slot_sel.map(|s| s + 1), "capture": menu.capture.map(|c| format!("{:?}", c.bind)) }),
+        serde_json::json!({ "page": format!("{:?}", menu.page), "selected": sel, "fading": menu.fade > 0.0, "shown": menu.shown.map(|p| format!("{p:?}")), "value": value, "cheats_shown": cheats_shown, "art": art, "tab": settings::TABS.get(menu.tab).map(|t| t.name), "scroll": menu.scroll, "slot": menu.slot_sel.map(|s| s + 1), "capture": menu.capture.map(|c| format!("{:?}", c.bind)) }),
     );
     state.0.insert("bindings".into(), opts.bindings.log());
 }
@@ -542,6 +594,16 @@ struct Spawner<'a, 'w, 's> {
     next: (f32, Option<(f32, f32)>),
     /// the next row's hit box (`save_slot`)
     panel: Option<(Vec2, Vec2)>,
+    /// the list place of what is spawned next (kept until changed), the next row's help line and menu style
+    list: Option<list::ListPos>,
+    hint: &'static str,
+    only: Option<bool>,
+}
+
+impl<'a, 'w, 's> Spawner<'a, 'w, 's> {
+    fn new(commands: &'a mut Commands<'w, 's>, meshes: &'a mut Assets<Mesh>, materials: &'a mut Assets<ColorMaterial>, texts: &'a Texts) -> Self {
+        Spawner { commands, meshes, materials, texts, orders: HashMap::new(), next: (0.0, None), panel: None, list: None, hint: "", only: None }
+    }
 }
 
 impl Spawner<'_, '_, '_> {
@@ -560,7 +622,7 @@ impl Spawner<'_, '_, '_> {
         let mut e = self.commands.spawn((
             HudElement { name: format!("menu_{page:?}_{id}"), pos, anchor: Anchor::Centre, full: true },
             HudText { text, built: None, scale, colour, fit },
-            MenuRow { page, act, order, base_scale: scale, colour, disabled, extra, panel: self.panel.take() },
+            MenuRow { page, act, order, base_scale: scale, colour, disabled, extra, panel: self.panel.take(), list: self.list, hint: std::mem::take(&mut self.hint), only: self.only.take() },
             Glow::default(),
             MenuOwned,
             Transform::default(),
@@ -633,7 +695,7 @@ impl Spawner<'_, '_, '_> {
             HudElement { name: format!("menu_{page:?}_text"), pos, anchor: Anchor::Centre, full: true },
             HudText { text: s.to_owned(), built: None, scale, colour, fit: 0.0 },
             TextAlign(align),
-            Part { page: Some(page), kind },
+            Part { page: Some(page), kind, list: self.list },
             MenuOwned,
             Transform::default(),
             Visibility::Hidden,
@@ -662,7 +724,7 @@ impl Spawner<'_, '_, '_> {
         self.commands
             .spawn((
                 HudElement { name: format!("menu_{page:?}_panel"), pos: Vec2::new(x + (x0 + x1) / 2.0, y + (y0 + y1) / 2.0), anchor: Anchor::Centre, full: true },
-                Part { page: Some(page), kind: PartKind::Fixed },
+                Part { page: Some(page), kind: PartKind::Fixed, list: None },
                 MenuOwned,
                 Transform::default(),
                 Visibility::Hidden,
@@ -739,7 +801,7 @@ impl Spawner<'_, '_, '_> {
             .commands
             .spawn((
                 HudElement { name: format!("menu_{page:?}_bar"), pos: Vec2::new(item.x + 176.0, item.y), anchor: Anchor::Centre, full: true },
-                Part { page: Some(page), kind: opt.map(PartKind::Bar).unwrap_or(PartKind::Fixed) },
+                Part { page: Some(page), kind: opt.map(PartKind::Bar).unwrap_or(PartKind::Fixed), list: self.list },
                 MenuOwned,
                 Transform::default(),
                 Visibility::Hidden,
@@ -752,12 +814,19 @@ impl Spawner<'_, '_, '_> {
     /// A stepper (ui_progressbar, Stepper_Setup 0x0046cce0): its label centred on the item's point and fitted to 144
     /// units (Stepper_Layout 0x0046d050), the gauge (0x0046d130), the value text from +288 (left-aligned).
     fn slider(&mut self, page: Page, label: &str, item: Vec2, scale: f32, opt: Opt, enabled: bool) {
+        self.slider_at(page, label, item, 0.0, 144.0, item, scale, opt, enabled);
+    }
+
+    /// A stepper whose label sits apart from its gauge: the label at `label_pos` (`align` as TextAlign, fitted to
+    /// `fit` units), the gauge and value placed from `item` as `slider` places them.
+    #[allow(clippy::too_many_arguments)]
+    fn slider_at(&mut self, page: Page, label: &str, label_pos: Vec2, align: f32, fit: f32, item: Vec2, scale: f32, opt: Opt, enabled: bool) {
         let colour = if enabled { GREEN } else { DISABLED };
         // the hit box covers the gauge (the remaster's: the original's has a gap between label and value) and the
         // value text (Stepper_Layout 0x0046d050 adds its measured bounds: `navigate`); a click on the track sets the
         // value (Stepper_HandleInput 0x0046d290)
-        self.next = (144.0, Some((item.x + 77.0, item.x + 275.0)));
-        self.row(page, label, item, scale, colour, if enabled { Act::Slide(opt) } else { Act::None }, 0.0);
+        self.next = (fit, Some((item.x + 77.0, item.x + 275.0)));
+        self.row(page, label, label_pos, scale, colour, if enabled { Act::Slide(opt) } else { Act::None }, align);
         self.gauge(page, item, positions(opt), 0.0, Some(opt), enabled);
         self.text(page, "", Vec2::new(item.x + 288.0, item.y), scale, colour, -1.0, PartKind::Value(opt));
     }
@@ -773,21 +842,29 @@ impl Spawner<'_, '_, '_> {
     /// A checkbox (CheckBox_Layout 0x0046cc80: its label centred on the item's point, fitted to 192 units; the box
     /// from -128 to -112, -8..8 around it: CheckBox_Render 0x0046cc40), dark red when set.
     fn check(&mut self, page: Page, label: &str, box_x: f32, label_x: f32, y: f32, flag: Option<Flag>, fixed_on: bool) {
+        self.check_at(page, label, box_x, label_x, 0.0, 192.0, y, flag, fixed_on);
+    }
+
+    /// A checkbox whose label is placed by `align` (as TextAlign) and fitted to `fit` units.
+    #[allow(clippy::too_many_arguments)]
+    fn check_at(&mut self, page: Page, label: &str, box_x: f32, label_x: f32, align: f32, fit: f32, y: f32, flag: Option<Flag>, fixed_on: bool) {
         let enabled = flag.is_some();
-        self.next = (192.0, Some((box_x - 8.0, box_x + 8.0)));
-        self.row(page, label, Vec2::new(label_x, y), 1.0, if enabled { GREEN } else { DISABLED }, flag.map(Act::Toggle).unwrap_or(Act::None), 0.0);
+        self.next = (fit, Some((box_x - 8.0, box_x + 8.0)));
+        self.row(page, label, Vec2::new(label_x, y), 1.0, if enabled { GREEN } else { DISABLED }, flag.map(Act::Toggle).unwrap_or(Act::None), align);
         let outline = self.rect(Vec2::new(16.0, 16.0), Color::srgb(0.55, 0.55, 0.55), 14.0);
         let inside = self.rect(Vec2::new(13.0, 13.0), Color::srgb(0.05, 0.08, 0.1), 15.0);
-        let on = if enabled { Color::srgb(0.55, 0.05, 0.05) } else if fixed_on { Color::srgb(0.3, 0.12, 0.12) } else { Color::srgb(0.05, 0.08, 0.1) };
+        // the remaster's Settings screen: set is the gauges' green, easier to tell from clear than the dark red
+        let set = if page == Page::Settings { Color::srgb_u8(0x40, 0xc0, 0x40) } else { Color::srgb(0.55, 0.05, 0.05) };
+        let on = if enabled { set } else if fixed_on { Color::srgb(0.3, 0.12, 0.12) } else { Color::srgb(0.05, 0.08, 0.1) };
         let fill = self.rect(Vec2::new(13.0, 13.0), on, 16.0);
         if let Some(f) = flag {
-            self.commands.entity(fill).insert(CheckFill(f));
+            self.commands.entity(fill).insert(CheckFill(f, set));
         }
         let b = self
             .commands
             .spawn((
                 HudElement { name: format!("menu_{page:?}_check"), pos: Vec2::new(box_x, y), anchor: Anchor::Centre, full: true },
-                Part { page: Some(page), kind: flag.map(PartKind::Check).unwrap_or(PartKind::Fixed) },
+                Part { page: Some(page), kind: flag.map(PartKind::Check).unwrap_or(PartKind::Fixed), list: self.list },
                 MenuOwned,
                 Transform::default(),
                 Visibility::Hidden,
@@ -824,6 +901,7 @@ impl Spawner<'_, '_, '_> {
             ("Gamma brightness", "brightness_shader"),
             ("All resolutions", "all_modes"),
             ("Sharp on high-DPI", "dpi_aware"),
+            ("Modern menus", "modern_menus"),
         ];
         for (i, (label, key)) in checks.into_iter().enumerate() {
             let y = 230.0 - 24.0 * (i / 2) as f32;
@@ -842,7 +920,7 @@ impl Spawner<'_, '_, '_> {
             .commands
             .spawn((
                 HudElement { name: format!("menu_art_{back:?}"), pos: Vec2::new(320.0, 240.0), anchor: Anchor::Centre, full: true },
-                Part { page: None, kind: PartKind::Art(back) },
+                Part { page: None, kind: PartKind::Art(back), list: None },
                 MenuOwned,
                 Transform::default(),
                 Visibility::Hidden,
@@ -857,7 +935,7 @@ impl Spawner<'_, '_, '_> {
 pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<Mesh>, materials: &mut Assets<ColorMaterial>, scene: &std::path::Path) {
     let texts = Texts(std::fs::read_to_string(scene.join("ui").join("texts.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default());
     {
-        let mut s = Spawner { commands, meshes, materials, texts: &texts, orders: HashMap::new(), next: (0.0, None), panel: None };
+        let mut s = Spawner::new(commands, meshes, materials, &texts);
         // the steppers' and checkboxes' item points (layout.json: ref_text_05 x 171.215, ref_text_04 x 465.773)
         let it = |y: f32| Vec2::new(171.215, y);
         s.art(Back::Title, assets.load("ui/textures/and_title.png"));
@@ -886,7 +964,22 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         ];
         for (i, (id, act)) in main.into_iter().enumerate() {
             let c = if act == Act::None { DISABLED } else { ORANGE };
+            s.only = Some(false);
             s.row(Page::Main, id, Vec2::new(320.0, 372.3 - 48.0 * i as f32), 1.3, c, act, 0.0);
+        }
+        // remaster (`modern_menus`): the same menu with Level Select, and Options opening the tabbed settings; six
+        // rows 40 apart over the same span
+        let modern = [
+            ("ui_mainmenu_startgame", Act::NewGame),
+            ("ui_mainmenu_loadgame", Act::LoadMenu),
+            ("Level Select", Act::Go(Page::Levels)),
+            ("ui_mainmenu_options", Act::Go(Page::Settings)),
+            ("ui_mainmenu_extras", Act::Go(Page::Extras)),
+            ("ui_mainmenu_exitgame", Act::Ask(Ask::ExitGame)),
+        ];
+        for (i, (id, act)) in modern.into_iter().enumerate() {
+            s.only = Some(true);
+            s.row(Page::Main, id, Vec2::new(320.0, 380.3 - 40.0 * i as f32), 1.3, ORANGE, act, 0.0);
         }
         // the version text of a screen with flag 0x800 (the main menu, 0x8a0): 0x004927f0 draws "v%d.%02d" of 1, 0 in
         // 0xffc0c0c0 at scale 0.8, its right edge at x 0.9 and y 0.1 of the screen (orig_ui_menu-800.png: "v1.00")
@@ -1052,6 +1145,10 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
         let credits = std::fs::read_to_string(scene.join("ui").join("credits.txt")).unwrap_or_default().replace("\r", "").replace('\n', "<br>");
         s.text(Page::Credits, &credits, Vec2::new(320.0, -10.0), 0.9, Color::WHITE, 0.0, PartKind::Credits);
 
+        s.settings_page();
+        // remaster (`modern_menus`): a box behind the yes/no question on the menu pages (over the game the question
+        // sits on the message band: `pause_band`)
+        s.dialog(Page::YesNo, Vec2::new(320.0, 212.0), Vec2::new(470.0, 230.0));
         // yes/no (pui_yesno, hud.md 6): message 1.4 white at y 276.4, Yes 1.1 #a0ffa0, No 1.1 #ff6060
         s.row(Page::YesNo, "ui_yesno_defaulttext", Vec2::new(320.0, 276.4), 1.4, Color::WHITE, Act::None, 0.0);
         s.row(Page::YesNo, "ui_yesno_yes", Vec2::new(320.0, 156.44), 1.1, GREEN, Act::Yes, 0.0);
@@ -1067,8 +1164,17 @@ pub fn spawn(commands: &mut Commands, assets: &AssetServer, meshes: &mut Assets<
             ("ui_pausemenu_quitgame", 60.44, Act::Ask(Ask::QuitMission)),
         ];
         for (id, y, act) in pause {
+            // remaster (`modern_menus`): Options opens the tabbed settings
+            if act == Act::Go(Page::Options) {
+                s.only = Some(true);
+                s.row(Page::Pause, id, Vec2::new(320.0, y), 1.0, GREEN, Act::Go(Page::Settings), 0.0);
+                s.only = Some(false);
+            }
             s.row(Page::Pause, id, Vec2::new(320.0, y), 1.0, if act == Act::None { DISABLED } else { GREEN }, act, 0.0);
         }
+        // remaster (`modern_menus`): another level straight from the pause menu
+        s.only = Some(true);
+        s.row(Page::Pause, "Level Select", Vec2::new(320.0, 36.44), 1.0, GREEN, Act::Go(Page::Levels), 0.0);
 
         // mission failed (pui_missionfailed): the title is the mission's failure text (the bank's
         // ui_mfail_title is the placeholder "ui_mfail_title.")
@@ -1095,6 +1201,7 @@ fn unlock_pages(
     menu: Res<GameMenu>,
     mut last: crate::levelreset::PerLevel<Option<Page>>,
     rows: Query<(Entity, &MenuRow)>,
+    parts: Query<(Entity, &Part)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     texts: Res<Texts>,
@@ -1105,7 +1212,7 @@ fn unlock_pages(
         return;
     }
     *last = Some(menu.page);
-    if !matches!(menu.page, Page::Extras | Page::Replay | Page::Movies | Page::Difficulty) {
+    if !matches!(menu.page, Page::Extras | Page::Replay | Page::Movies | Page::Difficulty | Page::Levels) {
         return;
     }
     for (e, r) in &rows {
@@ -1113,12 +1220,18 @@ fn unlock_pages(
             commands.entity(e).despawn();
         }
     }
+    for (e, p) in &parts {
+        if p.page == Some(menu.page) {
+            commands.entity(e).despawn();
+        }
+    }
     let u = crate::extras::Unlocks::new(&opts, &cheats, &levels);
-    let mut s = Spawner { commands: &mut commands, meshes: &mut meshes, materials: &mut materials, texts: &texts, orders: HashMap::new(), next: (0.0, None), panel: None };
+    let mut s = Spawner::new(&mut commands, &mut meshes, &mut materials, &texts);
     match menu.page {
         Page::Extras => s.extras_page(&u),
         Page::Replay => s.replay_page(&u),
         Page::Difficulty => s.difficulty_page(&u),
+        Page::Levels => s.levels_page(&levels),
         _ => s.movies_page(&u),
     }
 }
@@ -1127,7 +1240,7 @@ fn unlock_pages(
 /// (+0x474 0x40, skipped by the selection: 0x00491b20) while there is none: Load Game (code 2, 0x004a2c10 slot -1),
 /// Quick Load and Restart from last save (code 34, 0x004a2e90).
 fn rows_of<'a>(rows: impl Iterator<Item = &'a MenuRow>, page: Page, gate: RowGate) -> Vec<(usize, Act)> {
-    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && r.on_device() && r.act.enabled(gate)).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
+    let mut v: Vec<(usize, Act)> = rows.filter(|r| r.page == page && r.live(gate) && r.act.enabled(gate)).filter_map(|r| r.order.map(|o| (o, r.act))).collect();
     v.sort_by_key(|x| x.0);
     v
 }
@@ -1158,6 +1271,13 @@ fn hit_box(r: &MenuRow, e: &HudElement, size: Option<&TextSize>, align: Option<&
         hi.x = hi.x.max(x1);
     }
     Some((lo, hi))
+}
+
+/// A stepper row's track in 640 units (Stepper_HandleInput 0x0046d290: +80..+272 of the item, the gauge's frame
+/// `extra` less its 3-unit border).
+fn track(r: &MenuRow, e: &HudElement) -> Option<(f32, f32)> {
+    let _ = e;
+    r.extra.map(|(x0, x1)| (x0 + 3.0, x1 - 3.0))
 }
 
 /// Mission failed: the failed page once the mission is lost (level state 3 after Roman's 5 s death timer).
@@ -1249,6 +1369,8 @@ fn navigate(
     // the rows' enabling that follows the game (the saved game is looked for below, twice a second)
     menu.gate.menu_save = crate::savegame::may_save(opts.checkpoint_saves, crate::savegame::SaveSource::Menu);
     menu.gate.auto_aim = *state.get() == AppState::Title || difficulty.0 <= 1;
+    menu.gate.modern = settings.display.modern_menus;
+    menu.gate.tab = menu.tab;
     // a screen transition is under way (0x004915b0: no input while a request is pending); the loading screen
     // (levelreset.rs) takes none either
     if menu.fade > 0.0 || *state.get() == AppState::Loading {
@@ -1291,7 +1413,7 @@ fn navigate(
                 // or a checkbox's box (`extra`); of several, the nearest row (archive/hook/enhance's nearest-hit rule)
                 hovered = placed
                     .iter()
-                    .filter(|(r, ..)| r.page == menu.page && r.order.is_some() && r.on_device())
+                    .filter(|(r, ..)| r.page == menu.page && r.order.is_some() && r.live(menu.gate) && r.list.is_none_or(|l| l.in_window(menu.scroll)))
                     .filter(|(r, e, size, align)| {
                         hit_box(r, e, *size, *align, drawn).is_some_and(|(lo, mut hi)| {
                             if let Act::Slide(o) = r.act {
@@ -1329,14 +1451,16 @@ fn navigate(
     if let Some(p) = cursor {
         if mouse.just_pressed(MouseButton::Left) {
             input.drag = placed.iter().find_map(|(r, e, ..)| match r.act {
-                Act::Slide(o) if r.page == menu.page && (p.y - e.pos.y).abs() <= 6.0 && (e.pos.x + 80.0..=e.pos.x + 272.0).contains(&p.x) => Some((r.page, o)),
+                Act::Slide(o) if r.page == menu.page && r.live(menu.gate) && r.list.is_none_or(|l| l.in_window(menu.scroll)) && (p.y - e.pos.y).abs() <= 6.0 && track(r, e).is_some_and(|(x0, x1)| (x0..=x1).contains(&p.x)) => {
+                    Some((r.page, o))
+                }
                 _ => None,
             });
         }
         if let Some((page, o)) = input.drag.filter(|d| d.0 == menu.page) {
-            if let Some((_, e, ..)) = placed.iter().find(|(r, ..)| r.page == page && r.act == Act::Slide(o)) {
-                let frac = (p.x - (e.pos.x + 80.0)) / 192.0;
-                let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+            if let Some((x0, x1)) = placed.iter().find(|(r, ..)| r.page == page && r.act == Act::Slide(o)).and_then(|(r, e, ..)| track(r, e)) {
+                let frac = (p.x - x0) / (x1 - x0);
+                let target = if on_gfx_copy(o) && page.edits_gfx_copy() { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
                 let before = value(target, o, &screen).1;
                 set_position(target, o, frac, &screen);
                 if value(target, o, &screen).1 != before {
@@ -1415,7 +1539,7 @@ fn navigate(
     if let (Act::Slide(o), true) = (cur, dir.x != 0) {
         // a stepper takes left / right: one position, not past the ends (Stepper_HandleInput 0x0046d290: the move
         // sound even at an end, as the input was taken)
-        let target = if on_gfx_copy(o) { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
+        let target = if on_gfx_copy(o) && page.edits_gfx_copy() { menu.edit.get_or_insert_with(|| opts.clone()) } else { &mut *opts };
         slide(target, o, dir.x as f32, &screen);
         play(&mut sounds, MenuSound::Move);
     } else if dir != IVec2::ZERO {
@@ -1428,12 +1552,19 @@ fn navigate(
                 to = crate::saveslots::nav(t, dir.x, dir.y);
             }
             to.and_then(|t| items.iter().position(|x| x.0 == t))
+        } else if page == Page::Settings {
+            list::tabbed_neighbour(&items, menu.selected, dir, menu.tab)
         } else {
             let pos: Vec<Vec2> = items.iter().map(|(o, _)| placed.iter().find(|(r, ..)| r.page == page && r.order == Some(*o)).map(|(_, e, ..)| e.pos).unwrap_or_default()).collect();
             neighbour(&pos, menu.selected, dir)
         };
         if let Some(i) = to {
             menu.selected = i;
+            // left / right along the tab bar opens the tab at once
+            if let (Act::Tab(t), true) = (items[i].1, dir.x != 0) {
+                menu.tab = t;
+                menu.scroll = 0;
+            }
             play(&mut sounds, MenuSound::Move);
         }
     }
@@ -1474,8 +1605,11 @@ fn navigate(
         menu.selected = match p {
             Page::Options => usize::MAX,
             Page::Difficulty => 1,
+            // the first row of the open tab (the tabs come first)
+            Page::Settings => settings::TABS.len(),
             _ => 0,
         };
+        menu.scroll = 0;
         if let Some(mode) = menu.slot_mode() {
             menu.slots = crate::savegame::slots();
             menu.selected = crate::saveslots::default_slot(&menu.slots, mode);
@@ -1572,6 +1706,17 @@ fn navigate(
             replay.0 = true;
             restart.to = Some(RestartTo::Level(level.to_owned()));
         }
+        Act::Tab(t) => {
+            menu.tab = t;
+            menu.scroll = 0;
+        }
+        Act::Level(level) => {
+            // as the developer menu's level select (devtools): a new game's money, the level's own loadout, and the
+            // campaign goes on to the next level after a win
+            crate::campaign::new_game(&mut opts);
+            replay.0 = false;
+            restart.to = Some(RestartTo::Level(level.to_owned()));
+        }
         Act::Movie(movie) => {
             // code 12: "PlayMovie" over the page (skippable; the page shows again after it)
             movies.write(crate::movie::PlayMovies::list(movie));
@@ -1629,6 +1774,11 @@ fn navigate(
                 Flag::AutoAim => target.auto_aim = !target.auto_aim,
                 Flag::Fullscreen => target.fullscreen = !target.fullscreen,
                 Flag::Graphics(key) | Flag::Display(key) => crate::graphics::menu::toggle(target, key),
+                Flag::CheckpointSaves => target.checkpoint_saves = !target.checkpoint_saves,
+                Flag::Dev(t) => {
+                    let on = !t.get(&target.dev);
+                    t.set(&mut target.dev, on);
+                }
             }
         }
         Act::Rebind(bind, device) => {
@@ -1901,7 +2051,16 @@ fn animate(
     for (p, mut v) in &mut parts {
         let show = match p.kind {
             PartKind::Art(b) => art == Some(b),
-            k => p.page.is_some() && p.page == page && k.device().is_none_or(|d| d == crate::bindings::Device::active()),
+            PartKind::TabMark(t) => p.page == page && t == menu.tab,
+            PartKind::Dialog => p.page == page && menu.gate.modern && !menu.hud_under(),
+            // gamemenu/list.rs shows these two
+            PartKind::SelectBar | PartKind::ScrollBar => continue,
+            k => {
+                p.page.is_some()
+                    && p.page == page
+                    && k.device().is_none_or(|d| d == crate::bindings::Device::active())
+                    && p.list.is_none_or(|l| l.tab.is_none_or(|t| t == menu.tab) && l.in_window(menu.scroll))
+            }
         };
         *v = if show { Visibility::Inherited } else { Visibility::Hidden };
     }
@@ -1921,7 +2080,7 @@ fn animate(
     let order = rows_of(rows.iter().map(|x| x.0), page.unwrap_or(menu.page), menu.gate);
     let sel_order = order.get(if page == Some(menu.page) { menu.selected } else { menu.shown_sel }).map(|x| x.0);
     for (r, mut t, mut v, mut glow) in &mut rows {
-        let shown = Some(r.page) == page && r.on_device();
+        let shown = Some(r.page) == page && r.live(menu.gate) && r.list.is_none_or(|l| l.in_window(menu.scroll));
         *v = if shown { Visibility::Inherited } else { Visibility::Hidden };
         if !shown {
             continue;
@@ -1944,12 +2103,15 @@ fn animate(
         // UiText_Draw 0x00464750: size ((pulse - 1) x fade + 1) x scale, the fade +0x4e0 moving 0.2 per drawn frame
         // (here 12 / s) towards 1 while highlighted (+0x474 & 0x80), else towards 0; the colour white at once
         glow.0 = if sel { (glow.0 + 12.0 * dt).min(1.0) } else { (glow.0 - 12.0 * dt).max(0.0) };
-        let pulse = (menu.phase.sin() * 0.15).abs() + 1.0;
+        // the remaster's menus: no pulse, the selected row only grows a little (list pages add the select bar)
+        let pulse = if menu.gate.modern { SELECT_ZOOM } else { (menu.phase.sin() * 0.15).abs() + 1.0 };
         let scale = ((pulse - 1.0) * glow.0 + 1.0) * r.base_scale;
         let colour = if sel {
             Color::WHITE
         } else if !r.act.enabled(menu.gate) {
             DISABLED
+        } else if matches!(r.act, Act::Tab(t) if t == menu.tab) {
+            YELLOW
         } else {
             r.colour
         };
@@ -2046,9 +2208,11 @@ fn values(
             Flag::Fullscreen => gfx.fullscreen,
             Flag::Graphics(key) => crate::graphics::menu::flag(gfx, key),
             Flag::Display(key) => crate::graphics::menu::flag(&opts, key),
+            Flag::CheckpointSaves => opts.checkpoint_saves,
+            Flag::Dev(t) => t.get(&opts.dev),
         };
         if let Some(mut mat) = materials.get_mut(&m.0) {
-            mat.color = if on { Color::srgb(0.55, 0.05, 0.05) } else { Color::srgb(0.05, 0.08, 0.1) };
+            mat.color = if on { c.1 } else { Color::srgb(0.05, 0.08, 0.1) };
         }
     }
 }

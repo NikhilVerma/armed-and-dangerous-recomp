@@ -334,3 +334,19 @@ never shipping source).
   not have yet. It is a roadmap milestone; until then no releases or binaries are published.
 - AGENTS.md updated: the "do not publish" rule now means agents ask before any push, release or upload; the
   decompilation-loop rules that applied to src/ moved with it into the archive's documents.
+
+## 2026-11-15: binary release, unsigned, on GitHub Releases
+
+The human: "I want this game ready and mastered and tested and released on the internet that would require us to
+compile and ship binaries ... i want the game playable e2e". This replaces "No binary release yet" (2026-10-23).
+
+- **Platforms:** Windows x64 and macOS Apple silicon. Linux and Intel Macs stay build-from-source.
+- **Unsigned:** the binaries ship without code signing. Windows shows a SmartScreen warning and macOS needs the
+  quarantine flag cleared once; the release notes say how. Signing can follow later.
+- **Where:** GitHub Releases on the public repository, built by CI (`.github/workflows/release.yml`). The texture
+  pack stays where `tools/setup_assets.py --remaster-textures` already fetches it.
+- **Bring your own game still holds:** a release holds the engine, the exporters and a Python to run them
+  (`tools/package_release.py`). It holds no game data. The player points Setup at their own copy.
+- **Release bar:** the playtest bot completes all 24 levels (`tools/regress.py --long`) and the launch checks pass.
+  The human's own playthrough is not a gate; its feedback goes into a later release.
+- Agents still ask before each push, tag and release (AGENTS.md).

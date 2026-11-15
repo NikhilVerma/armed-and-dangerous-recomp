@@ -304,6 +304,50 @@ without an image; from the frame a level change is asked for to the end of the s
 0x00493770 (the menu fades to it and the game quits); the legal and exit screens hold the music (flag 0x2000,
 0x004928f0 -> 0x0044f510). Tests legal_splash, loading_screen, exit_screen.
 
+## 5. The remaster's menus (`modern_menus`; engine/src/gamemenu/list.rs, settings.rs; 2026-11-15)
+
+The human asked for a level selector and a richer menu with common UI elements (tab bars, checkboxes, scrolling,
+dialog boxes, short descriptions) that keeps the game's look. The setting `modern_menus` (display/mod.rs: Remaster
+on, Original off) switches it. Off, every page above is unchanged, so tool runs (Original) and the oracle
+comparisons are unaffected.
+
+All of it is drawn by the menu's own parts: the same font, colours, selection pulse, gauges, checkboxes and sounds.
+
+- **Level Select** (`Page::Levels`, on the main menu and the pause menu): every exported level in one scrolling
+  list, the campaign's in order and then the bonus levels. `Act::Level` starts a level as the developer menu does
+  (devtools `DevCommand::Level`): a new game's money (5000), the level's own loadout, and the campaign goes on to
+  the next level after a win. The original carries no guns or ammunition between levels (campaign.md), so a level
+  started here has what Roman has there in the campaign.
+- **Settings** (`Page::Settings`, where Options was): eight tabs (Game, Controls, Audio, Display, Graphics, Effects,
+  Engine, Flags). The page is data: `settings::TABS` lists each row with its label, its line of help and the option
+  it edits (an `Opt` stepper, a `Flag` checkbox) or the page / question it opens. To add a setting, add a row. The
+  test `rows_name_settings` checks every row names a real setting, has help, and is on the page once. Changes apply
+  at once (no Apply / Cancel copy) and are saved on Back. The Flags tab holds the developer toggles (`Flag::Dev`:
+  god mode, infinite ammo, unlock everything, the FPS and state overlays) and opens the cheat-code page.
+- **List** (list.rs): a row carries a `ListPos` (tab, slot). `view` scrolls so the selected row stays in the window
+  of 11 rows, places the rows and their gauges / boxes, moves the bar behind the selected row and sizes the scroll
+  bar's thumb. `animate` hides rows outside the window; the hover test ignores them. The mouse wheel scrolls and
+  takes the selection along.
+- **Tabs**: left / right along the tab bar opens a tab at once; down enters the list; up from the first row returns
+  to the open tab (`tabbed_neighbour`). Q / E, Page Up / Page Down and the pad's shoulder buttons step the tab from
+  anywhere on the page.
+- **Help line**: `MenuRow::hint`, shown under the list for the selected row (`hints`).
+- **Dialog**: the yes/no question gets a box on the menu pages. Over the game it stays on the message band.
+- Rows that exist in one menu style only carry `MenuRow::only` (the main menu has both sets; `RowGate::modern`).
+
+Tests: `modern_menus.json` (tabs, scrolling, a checkbox and a stepper applied at once, the dialog) and
+`level_select.json` (start a level from the title, another from the pause menu); unit tests in list.rs and
+settings.rs. The four older Remaster-preset menu scripts (display_page, geom_menu, limits_menu, launch_options) turn
+`modern_menus` off first: they test the original pages.
+
+Not done yet: a difficulty choice on Level Select (it uses the last difficulty chosen), the key bindings as a tab
+(the Controls tab opens the original Controls page), a list for Replay Mission and Play Cutscene.
+
+Look (maintainer, 2026-11-15: "a simple, very subtle zoom on hover, and that's it. And no animation"): with
+`modern_menus` the selected row does not pulse. It is white and 5 % larger (`SELECT_ZOOM`), steady; list pages add
+the select bar with a thin green border. Set checkboxes on the Settings screen are the gauges' green, not the
+original's dark red. The Original preset keeps the pulse (0x00463fa0).
+
 ## Open questions
 
 - Slots 4 and 8 (`0x00433e70`) and the meaning of the slot 3 arguments.

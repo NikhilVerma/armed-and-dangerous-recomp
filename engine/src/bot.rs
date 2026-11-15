@@ -313,7 +313,7 @@ pub fn think(
     mut bot: ResMut<Bot>,
     grunts: Query<(&crate::ai::Grunt, &GlobalTransform)>,
     pickups: Query<(&crate::pickup::Pickup, &GlobalTransform)>,
-    explosives: Query<(Entity, &crate::fx::Destructible, &GlobalTransform, Option<&crate::level::InstanceId>)>,
+    explosives: Query<(Entity, &crate::fx::Destructible, &GlobalTransform, Option<&crate::level::InstanceId>, Has<crate::level::Husk>)>,
     placed_ai: Query<(Entity, &crate::ai::Grunt, &GlobalTransform, &crate::level::InstanceId)>,
     towers: Query<(&crate::level::InstanceId, &crate::vehicles::rocket_turrets::RocketTower)>,
     physics: NonSend<Physics>,
@@ -367,8 +367,8 @@ pub fn think(
         grunts: live_grunts(&grunts),
         kegs: explosives
             .iter()
-            .filter(|(_, d, _, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
-            .map(|(_, d, gt, _)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
+            .filter(|(_, d, _, _, _)| d.area_damage > 0.0 && d.health > 0.0 && d.dying.is_none())
+            .map(|(_, d, gt, _, _)| (gt.translation() + Vec3::Y * 2.0, d.radius_outer))
             .collect(),
         sirens: alarm.sirens().iter().filter_map(|&e| objects.get(e).ok()).map(|gt| gt.translation() + Vec3::Y * SIREN_CENTRE).collect(),
     };
@@ -398,12 +398,14 @@ pub fn think(
             Some(te) => explosives
                 .get(te)
                 .ok()
-                .filter(|(_, d, _, _)| alive(d))
-                .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * 20.0, reach: 26.0, feet: gt.translation(), object: Some(e) }),
+                .filter(|(_, d, _, _, _)| alive(d))
+                .map(|(e, _, gt, _, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * 20.0, reach: 26.0, feet: gt.translation(), object: Some(e) }),
             None => explosives
                 .iter()
-                .find(|(_, d, _, i)| i.is_some_and(|i| i.0 == id) && alive(d))
-                .map(|(e, _, gt, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * SHOOT_LIFT, reach: 6.0, feet: gt.translation(), object: Some(e) }),
+                // (a husk is the object already dead, its death trigger sent: a house's damaged shell can be destroyed
+                // again, but bombing it on only wrecks what stands beside it: lev_3_m2's civilian houses)
+                .find(|(_, d, _, i, husk)| i.is_some_and(|i| i.0 == id) && alive(d) && !husk)
+                .map(|(e, _, gt, _, _)| Target { kind: "object", at: gt.translation() + Vec3::Y * SHOOT_LIFT, reach: 6.0, feet: gt.translation(), object: Some(e) }),
         };
         // or a placed AI of that id (a gunner, a captain the objective names)
         let ai = || {

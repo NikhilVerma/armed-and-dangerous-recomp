@@ -63,6 +63,7 @@ pub enum FullscreenMode {
 /// | ui_anchor | off | on | ui_aspect.cpp anchor (0, 1) |
 /// | text_scale | 1.0 | 1.0 | ui_aspect.cpp text_scale (1.0..2.5) |
 /// | text_relative | off | on | ui_aspect.cpp text_relative (0, 1) |
+/// | modern_menus | off | on | none: the remaster's tabbed settings and Level Select (gamemenu/settings.rs) |
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub struct DisplaySettings {
@@ -98,6 +99,9 @@ pub struct DisplaySettings {
     /// text keeps its 640 x 480 size at every resolution; off, the original's glyphs are sized in screen pixels (a
     /// quarter of the size at 3840 x 2160 as at 640 x 480)
     pub text_relative: bool,
+    /// the remaster's menus: Level Select on the main and pause menus, and Options as tabs of scrolling lists with a
+    /// line of help (gamemenu/settings.rs, gamemenu/list.rs); off, the original's pages
+    pub modern_menus: bool,
 }
 
 impl DisplaySettings {
@@ -117,6 +121,7 @@ impl DisplaySettings {
             ui_anchor: false,
             text_scale: 1.0,
             text_relative: false,
+            modern_menus: false,
         }
     }
 
@@ -130,6 +135,7 @@ impl DisplaySettings {
             brightness_shader: true,
             ui_anchor: true,
             text_relative: true,
+            modern_menus: true,
             ..Self::original()
         }
     }

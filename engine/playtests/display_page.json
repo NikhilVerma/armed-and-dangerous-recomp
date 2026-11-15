@@ -1,4 +1,6 @@
 {"title": true, "preset": "remaster", "steps": [
+ {"note": "the original's pages: the Remaster preset opens the tabbed settings instead (modern_menus.json)"},
+ {"graphics": {"modern_menus": false}},
  {"wait": 3.0},
  {"expect": {"menu.page": "Main"}},
  {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},

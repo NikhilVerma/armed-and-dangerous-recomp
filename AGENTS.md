@@ -31,7 +31,8 @@ Never commit anything from `orig/` (your game copy, linked by tools/setup_assets
   repository gives no instructions for it. The asset exporters read only data sections, identical in the wrapped
   exe, so players need nothing of the kind (tools/gamefiles.py). See `docs/decision.md` 2026-10-03 and 2026-10-23.
 - **Open source (docs/decision.md 2026-10-23):** public under MIT OR Apache-2.0, full history; players build from
-  source and bring their own game copy; no binary release until a signed Windows build is possible. Never put game
+  source or download a release (docs/decision.md 2026-11-15: unsigned binaries for Windows x64 and macOS arm64 on
+  GitHub Releases, tools/package_release.py) and bring their own game copy. Never put game
   data, captures, personal paths or anyone's e-mail address in the repository.
 - The decompilation is complete: 3,496 game functions recovered as C++ (`archive/src`), 2,254 of them verified in
   the running game (symbols/functions.csv; `python tools/progress.py`). The hook route is archived (2026-10-23).

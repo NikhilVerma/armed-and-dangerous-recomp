@@ -99,7 +99,13 @@ regenerate them and the known differences still open: [docs/comparisons.md](docs
 
 ## Getting started
 
-The steps below are for Windows. On a Mac, follow [docs/macos.md](docs/macos.md) (same steps, its own commands).
+**From a release (no tools to install):** a release zip for Windows x64 or macOS Apple silicon holds the engine,
+the asset exporters and a Python to run them. Unzip it, run `Setup` (it finds your copy of the game, exports its
+assets and fetches the Remaster texture pack), then run `Play`. Its README.txt has the details. The builds are not
+code-signed yet, so Windows and macOS warn once. `python tools/package_release.py` builds the same zip from a
+checkout.
+
+**From source:** the steps below are for Windows. On a Mac, follow [docs/macos.md](docs/macos.md) (same steps, its own commands).
 
 ### 1. Prerequisites
 
@@ -166,7 +172,7 @@ developer menu and the cheat codes: docs/play-guide.md.
 | **M2. Accuracy pass**: every ported function compared with the original | In progress: 1,419 functions read, 1,560 differences triaged, 606 fixed; the deferred ones next |
 | **M3. Remaster look**: the original's look first, then better | In progress: [comparisons and known differences](docs/comparisons.md) |
 | **M4. Feature complete**: the deferred features (`python tools/port_queue.py --deferred`) and a full campaign playthrough against the original | Next |
-| **M5. Signed Windows release**: a downloadable, code-signed build | Blocked: needs a Microsoft developer / code-signing account. Until then, build from source |
+| **M5. Binary release**: downloadable builds for Windows x64 and macOS Apple silicon, unsigned at first (docs/decision.md 2026-11-15) | In progress: `tools/package_release.py`, `.github/workflows/release.yml`; signing later |
 | **M6. Trace-based verification**: lockstep traces of the original and the engine on the same inputs (`tools/oracle_diff.py`) for every mechanic | Planned |
 | **M7. Enhancements (phase 2)**: level selector, difficulty settings (for example more enemies), rendering upgrades, mod support (game specifics already live in data) | Planned |
 

@@ -1471,6 +1471,25 @@ and checkbox writes its setting). The tests use the playtest steps `{"graphics":
 104 fps average with the defaults (the systems are a matrix and a few comparisons per frame), 117 with
 `letterbox=true` (fewer pixels), 74 with `render_scale=2.0` (an 8K picture). State log `display`: vfov / hfov / aspect from the view's
 matrix, game_fov, viewport_y / viewport_h, bars, render_w / render_h, frame_ms, hud_text_scale.
+## The remaster's menus (2026-11-15)
+
+`modern_menus` (a `DisplaySettings` field; Remaster on, Original off) swaps the original's option pages for one
+Settings screen and adds Level Select. Details: docs/subsystems/menus.md section 5.
+
+- engine/src/gamemenu/settings.rs: `TABS` is the whole Settings screen as data (tab, rows, one-line description per
+  row). A new setting is one `Item` there; `rows_name_settings` (unit test) checks every row names a real setting.
+- engine/src/gamemenu/list.rs: the shared parts (scrolling list, select bar, scroll bar, description line, dialog
+  frame, tab keys Q / E / PageUp / PageDown / shoulder buttons) and the Level Select page.
+- Level Select (main menu and pause menu) calls `campaign::new_game` and restarts into the level. Weapons do not
+  carry between levels in the original, so a level started this way has its normal loadout.
+- Tool runs pin the Original preset, so they see the original pages. A script that wants the new menus sets
+  `"preset": "remaster"`; a Remaster script that walks the original Options pages sets
+  `{"graphics": {"modern_menus": false}}` first (display_page, geom_menu, limits_menu, launch_options).
+- Playtests: modern_menus.json, level_select.json. The pause menu has one more row (Level Select) with the new menus:
+  count Downs with care (restart_parity.json).
+- Trap: a page without a list must hide the list bars itself (list.rs `view`); otherwise the select bar of the last
+  list page stays on screen behind a dialog.
+
 ## GPU snowfall (2026-10-19, agent-gpusnow)
 
 graphics/snow.rs + snow.wesl: the old remaster's Vulkan snowfall, ported (docs/subsystems/weather.md, last section).

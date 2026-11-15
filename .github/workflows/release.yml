@@ -1,0 +1,89 @@
+# Release builds (docs/decision.md 2026-11-15): the engine, the asset exporters and a Python to run them, zipped
+# per system by tools/package_release.py. No game data reaches CI or the zips: the player runs Setup on their own
+# copy. The binaries are not code-signed yet.
+#
+# A tag `v*` builds both systems and opens a DRAFT GitHub release with the two zips; a maintainer reviews it and
+# publishes it by hand. A manual run (workflow_dispatch) only builds the zips as workflow artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+          - name: macos-arm64
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+          key: release
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag matches the engine's version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: grep -q "^version = \"${GITHUB_REF_NAME#v}\"" engine/Cargo.toml
+      - name: Build (release)
+        working-directory: engine
+        run: cargo build --release --locked
+      - name: Unit tests
+        working-directory: engine
+        run: cargo test --release --locked
+      - name: Package
+        run: python tools/package_release.py
+      - name: The packaged Python runs the setup tool
+        shell: bash
+        run: |
+          cd work/release/and-remaster-*-${{ matrix.name }}
+          if [ -f python/python.exe ]; then PY=python/python.exe; else PY=python/bin/python3; fi
+          "$PY" -c "import numpy, PIL, pefile"
+          "$PY" tools/setup_assets.py --check
+          "$PY" tools/release_setup.py --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: and-remaster-${{ matrix.name }}
+          path: work/release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  draft-release:
+    name: Draft GitHub release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: zips
+          merge-multiple: true
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" zips/*.zip --repo "$GITHUB_REPOSITORY" --draft
+          --title "Armed and Dangerous Remaster ${GITHUB_REF_NAME#v}" --generate-notes

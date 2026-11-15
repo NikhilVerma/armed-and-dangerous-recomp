@@ -3,6 +3,16 @@
 One line per item, with its status. Newest session first. Each fix needs evidence: a capture, a log or a test.
 Agents re-read this file after every context compaction (AGENTS.md).
 
+## 2026-11-15 menus for play-testing
+
+| # | Feedback (the player's words, short) | Status / plan |
+|---|---|---|
+| U1 | "A level selector in the main menu": pick a level, play, quit, restart, pick another | DONE: Level Select on the main menu and on the pause menu (gamemenu/list.rs `levels_page`). It starts a new campaign state and loads the level. Playtest level_select.json. WAITING FOR CONFIRMATION in play |
+| U2 | "A proper graphics settings option, proper feature flags option screen" | DONE: one Settings screen with eight tabs (Game, Controls, Audio, Display, Graphics, Effects, Engine, Flags); gamemenu/settings.rs `TABS` is the data. Playtest modern_menus.json. WAITING FOR CONFIRMATION |
+| U3 | "Remaster the ancient UI while keeping its aesthetics: tab bars, checkboxes, scrolling, dialog boxes, smaller descriptions" | DONE behind the `modern_menus` setting (Remaster on, Original off): tab bar, scrolling list with a scroll bar and mouse wheel, a one-line description of the selected row, a framed yes/no dialog. Same font, colours, pulse and sounds. WAITING FOR CONFIRMATION |
+| U4 | "If I load a level directly I should still have the weapons the earlier levels gave" | NO CHANGE NEEDED: the game does not carry weapons or ammo between levels; each level sets its own loadout (only money, tokens and difficulty carry). Level Select starts with the new-game money (5000) |
+| U5 | The selected menu row's "crazy zoom in and zoom out" is not modern UX: "a simple, very subtle zoom on hover, and that's it. And no animation", maybe a simple border | DONE with `modern_menus`: no pulse; the selected row is white and 5 % larger, steady; lists show a bordered select bar; set checkboxes are green. The Original preset keeps the pulse. WAITING FOR CONFIRMATION |
+
 ## 2026-11-01 Mac playthrough
 
 Session 2026-11-01_07-41-37 (lev_1_m1, GOG build, M5 Pro).
