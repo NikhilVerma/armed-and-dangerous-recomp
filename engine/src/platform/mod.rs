@@ -11,6 +11,8 @@
 mod localtime;
 #[cfg(target_os = "macos")]
 pub mod metalfx;
+#[cfg(target_os = "macos")]
+mod rawmouse;
 
 use std::path::{Path, PathBuf};
 
@@ -76,6 +78,16 @@ pub fn find_file_ignoring_case(dir: &Path, name: &str) -> Option<PathBuf> {
         return Some(exact);
     }
     std::fs::read_dir(dir).ok()?.filter_map(Result::ok).find(|e| e.file_name().to_str().is_some_and(|n| n.eq_ignore_ascii_case(name))).map(|e| e.path())
+}
+
+/// The mouse's own motion since the last call, one entry per device report (+x right, +y down), where the system has
+/// a source finer than the window system's `MouseMotion`. macOS: Apple's `GCMouse` (rawmouse.rs); None when it lists no
+/// mouse. Elsewhere None: the window system's raw motion is the device's already. Main thread.
+pub fn raw_mouse_motion() -> Option<Vec<bevy::math::Vec2>> {
+    #[cfg(target_os = "macos")]
+    return rawmouse::drain();
+    #[cfg(not(target_os = "macos"))]
+    None
 }
 
 /// How the game holds the pointer in play (cursor.rs `grab`, player.rs `grab_cursor`).

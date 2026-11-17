@@ -117,8 +117,19 @@ bookmark).
   the window has the focus, and the look reads the mouse's raw motion; it is released when the window loses the
   focus or a menu opens. "Keep the mouse in the window" (`clip_cursor`) has no effect in the menus on macOS.
   (`engine/src/platform/mod.rs` `PlayPointer`, `engine/src/cursor.rs`.)
-- **Mouse speed** may feel different: macOS reports motion in points, with its own acceleration, where Windows
-  reports raw counts. The mouse sensitivity option scales it; a default for macOS is a tuning item once played.
+- **The look reads the mouse through Apple's `GCMouse`** (GameController framework; `engine/src/platform/rawmouse.rs`,
+  setting `raw_mouse`, "Raw Mouse Input" under Controls). Why: winit's `MouseMotion` on macOS is AppKit's `NSEvent`
+  delta. That is whole points of pointer travel after the system's acceleration, handed over in one lump per display
+  refresh. A game on its own frame clock gets one lump on some frames, two on others and none on a few. Evidence: the
+  player's trackpad session of 2026-11-16 (508 motion frames in play): every delta whole, a third of the frames one
+  point long (0.29 degrees of turret turn each), and 37 frames with no report between two fast ones. winit issues 1418
+  and 4581 describe and measure the same; SDL3 switched its relative mouse mode to `GCMouse` in 2026 for this reason,
+  and this follows it. `GCMouse` gives every device report, as floats, with no acceleration. A frame without a raw
+  report falls back to `MouseMotion` (a device the framework does not list, a scripted run). The log says which
+  source is live (`EVENT input: mouse motion from ...`); the session's inputs.jsonl writes the raw motion as `raw`
+  beside `mouse`.
+- **Mouse speed** is a tuning item: raw counts have no acceleration, so the turn per swipe differs from the system
+  pointer's. The look gains are the original's per mouse count. Mouse Sensitivity scales them.
 - **The system font**: the menus' outline text is drawn from Arial (`/System/Library/Fonts/Supplemental/Arial.ttf`,
   shipped with macOS). Without it the text falls back to the game's own font atlas.
 - **Textures**: every Mac GPU samples the game's BC1 / BC3 (DXT) textures directly (wgpu enables

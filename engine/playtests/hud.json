@@ -9,7 +9,7 @@
  {"shot": "arrow_held"},
  {"up": "KeyQ"},
  {"wait": 1.0},
- {"expect": {"hud.chat": ["Game loaded", "ROME: I've switched to the Rifle"], "hud.chat_colours": "1,2"}},
+ {"expect": {"hud.chat": ["Game loaded", "I've switched to the Rifle"], "hud.chat_colours": "1,2"}},
  {"warp": [-75, 45, 20, 0]},
  {"wait": 1.0},
  {"expect": {"hud.prompt": "Hold down <icon=keyboard_x> to set the ticker bomb!", "hud.prompt_colour": "#ffffff", "hud.prompt_scale": 1.0}},

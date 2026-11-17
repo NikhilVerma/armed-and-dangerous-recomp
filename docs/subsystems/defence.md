@@ -100,6 +100,14 @@ follows the shown launcher. Playtest defence_launchers.
   turret's own death (0x0049afe0 / the dying countdown in 0x0049b030: death_anim_name, death_fx_delay, the husk) needs
   its health to run out, which only happens with no player riding it (0x00498400 gives the player the hits), and the
   scripted-camera return (camera mode 2: no code sets it). mortar_bullseye_tga is read at load and never used.
+- A platoon stops a shell (2026-11-16, player feedback T2). FakeGruntObject_Slot6 0x00432cb0 gives the platoon a
+  physics body and links it into the world's list at +0xe94, so the original's mortar shell bursts on the soldiers.
+  The engine's platoon has no body: a shell aimed at soldiers flew through them and burst on the ground behind (aim
+  point 205 units past a platoon 1018 away), out of the 50-unit kill range, so the bomb seemed small. army.rs
+  `fake_hits` now strikes a shell (shell.rs `Shell::strike`) whose path this frame enters the platoon's box. Test:
+  turret_mortar_platoon.json (one crosshair mortar kills 12). Open: the crosshair ray still passes through platoons
+  (whether the original's aim list at +0xea4 holds them is not known), and the shell's blast does not add its
+  direct-hit `damage` 300 to the object struck, as the original does.
 - The goliath in a base defence (goliath.rs `hurt`, 0x00434180): a hit above hit_level_2 (25) on its scripted walk while
   the breach is shut plays goliath_hit_med (blend 0.25) and GOL50005_Hurt and holds its walk until the anim ends; the
   turret's machine gun keeps stalling it. Playtest goliath_hurt.

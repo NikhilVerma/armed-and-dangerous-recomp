@@ -355,7 +355,7 @@ mission, dead grunts, destroyed objects); a script with top-level `"load": "stat
 the intro skipped. `{"expect": {"health": [200, 290], "stickies": 5}}` checks state-log fields (two numbers: an
 inclusive range; else equality) and prints EXPECT PASS / FAIL; any failure exits 1. `{"expect_perf": {...}}` holds wall-clock
 limits (frame_ms, main_ms): checked only by `tools/regress.py --perf` on an idle machine, skipped otherwise. `{"blast": D}` sets off a
-badguy explosion of area damage D at Roman. States: `after_pub` (state_after_pub.json, 23 s to make). Example:
+badguy explosion of area damage D at Roman. States: `after_pub` (state_after_pub.json, 23 s to make). It is saved after the pub is left (Back; trigger 900 sent). A state file from before 2026-11-17 was saved inside the pub: delete it and let the script write a new one. Example:
 topsyhit2.json (24 s; the same check replayed from the start took about 4 minutes).
 
 Completion tooling (2026-10-16, agent-complete-b; engine/playtests/complete_<level>.json play a level to mission
@@ -984,6 +984,22 @@ script's "scene" names its level; a `defence` step drives the turret: {"aim": "a
 {"frame": F}). Debt: the ic_* marker arrival is detected by army.rs from the grunt's position (plan: an ai.rs message);
 the failure mob, the carried ladder and the turret's launcher models are not ported. Platoon members are crowd meshes
 (see Army crowds).
+
+**The base turret, 2026-11-16 (player feedback T1 to T7).**
+
+- A fast turret check (about 30 s, no movies): start a script with `{"wait":1.0},{"tap":"Enter"},{"until":"message"},
+  {"wait":0.5},{"tap":"Enter"},{"wait":3.5},{"tap":"Enter"},{"wait":8.0},{"cheat":"SHIELDME"}`, then
+  `{"defence":{"aim":"platoon","fire":true}}`, `{"click":"Right"}` (the crosshair mortar), `{"destroy":42}` (a keg).
+  Run it with `--size 1280x800`. Never let a test sit through a movie.
+- The turret camera takes its lens from the camera node, like its position (defence.rs `pose`; the anim export's
+  `fov` is vertical already). The zoom is a blend over camera_zoom_secs. A system that places the camera goes in
+  `camera::CameraPlace`, or the shake (which runs after that set) is overwritten.
+- A projectile shows its template's model (player.rs `dress_projectiles`). A shell bursts on a platoon's box
+  (army.rs `fake_hits`, shell.rs `Shell::strike`): platoons have no physics body.
+- Trap: the Remaster texture pack damages soft effect sprites. Compare a new effect in both presets; a bad pack
+  texture goes on graphics/textures.rs `PACK_DAMAGED`.
+- Trap: on macOS the window system's mouse motion is coarse and lumpy; the look reads `GCMouse` (docs/macos.md).
+- Trap: `smooth` is a reserved word in WGSL. Many engine files are CRLF: a Python edit must open with `newline=''`.
 
 ## Effects (subsystem port, 2026-10-15)
 

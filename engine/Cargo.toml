@@ -40,6 +40,10 @@ wgpu-hal = { version = "30", features = ["metal"] }
 objc2 = "0.6"
 objc2-metal = "0.3"
 objc2-metal-fx = { version = "0.3", default-features = false, features = ["MTLFXSpatialScaler"] }
+# Apple's raw mouse input for games (platform/rawmouse.rs), as SDL3 uses it
+objc2-game-controller = { version = "0.3", default-features = false, features = ["std", "block2", "GCMouse", "GCMouseInput", "GCPhysicalInputProfile", "GCDevice"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray"] }
+block2 = "0.6"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -45,6 +45,9 @@ pub struct ScreenPost {
     fraction: f32,
     /// 1: the blur draws
     blur: u32,
+    /// 1: the blur's small targets are drawn back with a smooth (cubic B-spline) filter, not the original's bilinear
+    /// one, whose 64x32 texels show as blocks and diamonds on a modern screen (`blur_smooth`)
+    soft: u32,
 }
 
 /// The original's colour bytes: an alpha as Ftol(a * 255) / 255.
@@ -54,8 +57,8 @@ fn byte(a: f32) -> f32 {
 
 impl ScreenPost {
     /// PostProcess_Pass's draws from the accumulators (the blur alone: its ring form is not ported; see screen.rs).
-    fn from_effects(fx: &ScreenEffects) -> Option<Self> {
-        let mut post = ScreenPost::default();
+    fn from_effects(fx: &ScreenEffects, smooth: bool) -> Option<Self> {
+        let mut post = ScreenPost { soft: smooth as u32, ..default() };
         let blur = fx.accum.blur;
         if blur != 0.0 {
             let (level, fraction) = split_level(blur, BLUR_LEVELS);
@@ -103,8 +106,13 @@ impl Plugin for ScreenPostPlugin {
 }
 
 /// The draw on the game's view while an effect wants one (after the accumulation: screen.rs `update`).
-pub(super) fn follow_effects(mut commands: Commands, fx: Res<ScreenEffects>, mut views: Query<(Entity, Option<&mut ScreenPost>), (With<Camera3d>, With<crate::display::GameView>)>) {
-    let want = ScreenPost::from_effects(&fx);
+pub(super) fn follow_effects(
+    mut commands: Commands,
+    fx: Res<ScreenEffects>,
+    gfx: Option<Res<crate::graphics::GraphicsSettings>>,
+    mut views: Query<(Entity, Option<&mut ScreenPost>), (With<Camera3d>, With<crate::display::GameView>)>,
+) {
+    let want = ScreenPost::from_effects(&fx, gfx.is_some_and(|g| g.present.blur_smooth));
     for (e, have) in &mut views {
         match (want, have) {
             (Some(w), Some(mut h)) => {

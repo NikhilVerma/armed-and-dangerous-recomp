@@ -120,17 +120,35 @@ impl Difficulty {
     }
 }
 
+/// The key under which a property set carries its own name (added at load; not a game property).
+pub const SET_NAME: &str = "__set";
+
 impl GameData {
     pub fn load(dir: &Path) -> Self {
         let read = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap_or_else(|e| panic!("{f}: {e} (re-run tools/remaster_export.py)"));
+        let mut props: HashMap<String, Map<String, Value>> = serde_json::from_str(&read("properties.json")).expect("properties.json");
+        // each set knows its own name (SET_NAME): a projectile launched from its set finds its template's model by it
+        for (name, set) in &mut props {
+            set.insert(SET_NAME.to_owned(), Value::String(name.clone()));
+        }
         GameData {
-            props: serde_json::from_str(&read("properties.json")).expect("properties.json"),
+            props,
             templates: serde_json::from_str(&read("templates.json")).expect("templates.json"),
             fx: serde_json::from_str(&read("fx.json")).expect("fx.json"),
         }
     }
     pub fn props(&self, set: &str) -> Props {
         Props(self.props.get(&set.to_lowercase()).cloned().unwrap_or_default())
+    }
+    /// The model of the template that carries the property set `p` (a projectile's: Projectile is a game object made
+    /// from its template, ObjectSystem_CreateObject 0x0045f020, and drawn with the template's model).
+    pub fn model_of_set(&self, p: &Props) -> Option<&str> {
+        let set = p.s(SET_NAME)?;
+        // (the template named as the set without its p_ first, else any template of the set: the lowest name, for a
+        // fixed choice)
+        let named = self.templates.get(set.trim_start_matches("p_")).filter(|t| t.property == set);
+        let any = || self.templates.iter().filter(|(_, t)| t.property == set && t.model.is_some()).min_by_key(|(n, _)| n.as_str()).map(|(_, t)| t);
+        named.filter(|t| t.model.is_some()).or_else(any).and_then(|t| t.model.as_deref())
     }
     pub fn template_props(&self, template: &str) -> Props {
         Props(self.templates.get(template).and_then(|t| self.props.get(&t.property)).cloned().unwrap_or_default())

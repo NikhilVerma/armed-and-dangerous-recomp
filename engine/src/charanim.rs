@@ -546,7 +546,8 @@ fn roman(
             continue;
         }
         // the hit reaction (modes 0x1e / 0x1f: Trotter_hit_small / _med, full body, once)
-        if r.hit_anim > 0.0 {
+        // (a shot ends it, player.rs; the shot's own frame still holds the latch, and its fire state must not be lost)
+        if r.hit_anim > 0.0 && !req.fire {
             play_mode(a, table, st, if r.hit_med { mode::HIT_MED } else { mode::HIT_SMALL }, state::NONE, w, v, false);
             continue;
         }
@@ -970,14 +971,17 @@ fn grunts(
 ///
 /// Not ported: what GenericAI_Update does while a critter walks (its generic_txt, mover_sheep_roam, played by
 /// vt+0x238 at load; the mover's root does not move, so the sheep walk on the spot) and the load's "stamp" (0x004ec410
-/// on the mover anim: the sheep placed at a point of it); physics on while grazing (knocked about by blasts); the bomb
+/// on the mover anim: the sheep placed at a point of it); physics on while grazing (pushed by a blast that does not
+/// kill: none does, any hit kills); the bomb
 /// carrier (a sticky bomb stuck on a penguin: PenguinObject_Grab 0x0048f9c0 holds it 300 s, salutes (0xd), then runs
 /// to the nearest visible bad guy within 500 (0x0048f4c0, 0x0042cf40 state 0x3e) and sets it off within 15 of him,
 /// else lets it go in 3..6 s and flees; needs sticky.rs to hand over the bomb's linger); the screams of vt+0x160..0x168
 /// / 0x268 (Slot88 0x0048fd80 / 0x0048fbc0: scare, sticky, topsy, which reach critters only through the carrier: the
 /// scare walks list World+0xe7c, which critters are not in).
 fn critters(
-    mut q: Query<(&mut Animator, &mut crate::level::Critter)>,
+    mut q: Query<(&mut Animator, &mut crate::level::Critter, &mut Transform, Option<&crate::fx::BlastThrow>)>,
+    physics: NonSend<crate::physics::Physics>,
+    mut ps: Option<ResMut<crate::playtest::PlayState>>,
     lib: Res<crate::skin::AnimLibrary>,
     // the random stream and the death lines used per species (a level starts them over)
     mut per_level: crate::levelreset::PerLevel<(u32, [Vec<usize>; 2])>,
@@ -991,7 +995,11 @@ fn critters(
         *seed = seed.wrapping_mul(214013).wrapping_add(2531011);
         (*seed >> 16) & 0x7fff
     };
-    for (mut a, mut c) in &mut q {
+    // the state log: critters a blast threw, and those of them that have landed
+    let (mut thrown, mut landed) = (0, 0);
+    for (mut a, mut c, mut at, throw) in &mut q {
+        thrown += c.thrown as u32;
+        landed += (c.thrown && c.flight.is_none()) as u32;
         a.blend = AI_BLEND;
         let species = c.species;
         let play = |a: &mut Animator, id: u32, looping: bool| {
@@ -1005,6 +1013,32 @@ fn critters(
             let first = *t == 0.0;
             *t += dt;
             let t = *t;
+            // a killing blast throws it (PenguinObject_Damage 0x0048fa20 ends in GoRagdoll 0x00431310, whose impact
+            // branch gives a hit over 10050 the record's direction x amount x 0.15 and plays blown_up): it flies
+            // under gravity and lies where it lands. Guess: the 80 kg of the engine's fling for its mass, plain
+            // gravity (the species' bof_anti_gravity is not traced).
+            if let (Some(throw), false) = (throw, c.thrown) {
+                c.thrown = true;
+                c.flight = Some(throw.0);
+                info!("EVENT critter: thrown at {:.0} units/s", throw.0.length());
+            }
+            if let Some(mut v) = c.flight {
+                v.y -= crate::shell::GRAVITY * dt;
+                let next = at.translation + v * dt;
+                let ground = physics.raycast_landscape(next + Vec3::Y * 40.0, Vec3::NEG_Y, 80.0);
+                match ground.filter(|g| v.y < 0.0 && g.y >= next.y) {
+                    Some(g) => {
+                        at.translation = g;
+                        c.flight = None;
+                        info!("EVENT critter: landed after {t:.2} s");
+                        play(&mut a, 0x5d, false);
+                    }
+                    None => {
+                        at.translation = next;
+                        c.flight = Some(v);
+                    }
+                }
+            }
             if first {
                 play(&mut a, 0x49, false);
                 // GoRagdoll's death line: the Dead slot (vt+0x154) is a no, so DeadAtPosition (vt+0x158): one of the
@@ -1020,7 +1054,7 @@ fn critters(
                 used.push(k);
                 let at = a.joints.first().and_then(|j| tf.get(*j).ok()).map(|j| j.translation()).unwrap_or_default();
                 sounds.write(crate::audio::PlaySound::at(lines[k], at));
-            } else if t > BLOWN_UP && a.layers.first().is_some_and(|l| l.anim == species.anim(0x49)) {
+            } else if c.flight.is_none() && t > BLOWN_UP && a.layers.first().is_some_and(|l| l.anim == species.anim(0x49)) {
                 play(&mut a, 0x5d, false);
             }
             continue;
@@ -1061,6 +1095,9 @@ fn critters(
             }
         };
         c.state = Some(state);
+    }
+    if let Some(ps) = ps.as_mut() {
+        ps.0.insert("critters".into(), serde_json::json!({ "thrown": thrown, "landed": landed }));
     }
 }
 

@@ -362,7 +362,7 @@ fn record_input(
     frame: Res<bevy::diagnostic::FrameCount>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    (motion, wheel): (Res<AccumulatedMouseMotion>, Res<AccumulatedMouseScroll>),
+    (motion, wheel, raw): (Res<AccumulatedMouseMotion>, Res<AccumulatedMouseScroll>, Option<Res<crate::player::RawMouseFrame>>),
     pads: Query<(Entity, &Gamepad)>,
     state: Res<State<AppState>>,
     mut last: Local<(Option<AppState>, std::collections::HashMap<(Entity, u8), Vec2>)>,
@@ -383,6 +383,10 @@ fn record_input(
     put("mup", names(mouse.get_just_released()));
     if motion.delta != Vec2::ZERO {
         line.insert("mouse".into(), serde_json::json!([motion.delta.x, motion.delta.y]));
+    }
+    // the mouse's own motion (platform/rawmouse.rs), beside the window system's
+    if let Some(raw) = raw.and_then(|r| r.0).filter(|r| *r != Vec2::ZERO) {
+        line.insert("raw".into(), serde_json::json!([raw.x, raw.y]));
     }
     if wheel.delta != Vec2::ZERO {
         line.insert("wheel".into(), serde_json::json!([wheel.delta.x, wheel.delta.y]));

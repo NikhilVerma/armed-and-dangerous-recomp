@@ -1,0 +1,9 @@
+{"scene": "lev_5_m5", "preset": "remaster", "timeout": 120, "steps": [
+ {"wait": 1.0}, {"tap": "Enter"}, {"until": "message"}, {"wait": 0.5}, {"tap": "Enter"}, {"wait": 3.5}, {"tap": "Enter"}, {"wait": 8.0},
+ {"expect": {"critters.thrown": 0}},
+ {"destroy": 42}, {"wait": 0.5},
+ {"expect": {"critters.thrown": [1, 22], "critters.landed": 0}},
+ {"wait": 1.5},
+ {"expect": {"critters.landed": [1, 22]}},
+ {"quit": true}
+]}

@@ -21,8 +21,8 @@
  {"wait": 0.5},
  {"wait": 0.5},
  {"wait": 1.0},
- {"tap": "Enter"},
- {"wait": 0.5},
+ {"comment": "the pub is left on Back only, as in the original (pubscreen.rs)", "tap": "Escape"},
+ {"wait": 1.0},
  {"save": "after_pub"},
  {"wait": 0.3},
  {"quit": true}

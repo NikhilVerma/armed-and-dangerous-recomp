@@ -11,7 +11,7 @@
  {"tap": "Enter"}, {"wait": 1.0},
  {"expect": {"menu.page": "Gfx", "menu.selected": "ui_gfxmenu_brightness", "menu.art": "Shell"}},
  {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3},
- {"expect": {"menu.selected": "Graphics", "menu.value": "Remaster"}},
+ {"expect": {"menu.selected": "Graphics", "menu.value": "Remaster (custom)"}, "comment": "custom: this script turned modern_menus off"},
  {"tap": "ArrowRight"}, {"wait": 0.3},
  {"expect": {"menu.value": "Original"}},
  {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowDown"}, {"wait": 0.3}, {"tap": "ArrowUp"}, {"wait": 0.3},

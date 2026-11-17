@@ -16,6 +16,24 @@ pub struct Shell {
     life: f32,
     by: crate::fx::Src,
     props: crate::gamedata::Props,
+    /// where it struck a body the physics world does not hold (a marching platoon's box, army.rs): it explodes there
+    struck: Option<Vec3>,
+}
+
+impl Shell {
+    /// The segment it crossed this frame.
+    pub fn step(&self, at: Vec3, dt: f32) -> (Vec3, Vec3) {
+        (at - self.vel * dt, at)
+    }
+
+    /// It struck a body at `at` and explodes there (the first strike holds).
+    pub fn strike(&mut self, at: Vec3) {
+        self.struck.get_or_insert(at);
+    }
+
+    pub fn struck(&self) -> bool {
+        self.struck.is_some()
+    }
 }
 
 /// How a shell is thrown.
@@ -58,7 +76,7 @@ pub fn throw(commands: &mut Commands, data: &crate::gamedata::GameData, kit: &mu
     let tr = Transform::from_translation(from).with_rotation(rot);
     let model = data.templates.get(template).and_then(|t| t.model.clone());
     let e = model.and_then(|m| kit.spawn(commands, &m, tr, true)).unwrap_or_else(|| commands.spawn((tr, Visibility::default())).id());
-    commands.entity(e).insert(Shell { vel, life: p.f("lifetime", 15.0), by, props: p.clone() });
+    commands.entity(e).insert(Shell { vel, life: p.f("lifetime", 15.0), by, props: p.clone(), struck: None });
     if let Some(name) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: name.to_lowercase(), at: from, rotation: rot, follow: Some(e), position_only: false });
     }
@@ -85,7 +103,7 @@ fn fly(
         let from = tr.translation;
         s.vel.y -= GRAVITY * dt;
         let step = s.vel * dt;
-        let hit = physics.raycast(from, step.normalize_or(Vec3::NEG_Y), step.length()).map(|h| h.1);
+        let hit = s.struck.or_else(|| physics.raycast(from, step.normalize_or(Vec3::NEG_Y), step.length()).map(|h| h.1));
         if hit.is_none() && s.life > 0.0 {
             tr.translation = from + step;
             tr.rotation = facing(s.vel);

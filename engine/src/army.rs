@@ -746,6 +746,7 @@ fn fake_hits(
     mut blasts: MessageReader<crate::fx::Explode>,
     mut q: Query<(Entity, &mut Platoon, &Mover)>,
     shots: Query<(Entity, &Transform, &crate::player::Projectile)>,
+    mut shells: Query<(&Transform, &mut crate::shell::Shell)>,
     mut fx: MessageWriter<crate::fx::StartFx>,
     mut triggers: MessageWriter<crate::mission::SendTrigger>,
 ) {
@@ -799,6 +800,23 @@ fn fake_hits(
                     used.insert(se);
                     commands.entity(se).despawn();
                     break;
+                }
+            }
+        }
+        // a lobbed shell stops on the platoon's body too and explodes there (its blast is the record, a frame later):
+        // without this a mortar aimed at the soldiers flies through them and lands far behind
+        if let Some(bx) = p.hit_box {
+            for (st, mut shell) in &mut shells {
+                let (a, b) = shell.step(st.translation, dt);
+                if shell.struck() || segment_distance(a, b, centre) > radius {
+                    continue;
+                }
+                let (la, lb) = (inv.transform_point3(a), inv.transform_point3(b));
+                if la.cmpge(bx.0).all() && la.cmple(bx.1).all() {
+                    continue;
+                }
+                if let Some(at) = segment_enters_box(la, lb, bx) {
+                    shell.strike(world.transform_point3(at));
                 }
             }
         }

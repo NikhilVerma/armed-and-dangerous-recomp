@@ -32,17 +32,20 @@ pub struct PresentSettings {
     pub tonemap_aces: bool,
     /// triangular noise of +-1 step before the 8-bit output: no banding in sky, fog and snow gradients
     pub dither: bool,
+    /// the pause blur's small targets drawn back with a smooth filter instead of the original's bilinear one, which
+    /// shows their texels as blocks (fxvm/screen_post.rs)
+    pub blur_smooth: bool,
 }
 
 impl PresentSettings {
     /// The colours as they are.
     pub fn original() -> Self {
-        PresentSettings { tonemap_aces: false, dither: false }
+        PresentSettings { tonemap_aces: false, dither: false, blur_smooth: false }
     }
 
     /// The old remaster's defaults: dithered, no tone curve.
     pub fn remaster() -> Self {
-        PresentSettings { dither: true, ..Self::original() }
+        PresentSettings { dither: true, blur_smooth: true, ..Self::original() }
     }
 
     pub fn enabled(&self) -> bool {

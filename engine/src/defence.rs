@@ -39,6 +39,8 @@ use crate::levelreset::LevelAppExt;
 #[derive(Clone, Debug, Default)]
 pub struct CameraTrack {
     keys: Vec<(f32, Vec3, Quat)>,
+    /// the lens: time, vertical FOV in radians (the exporter applies 0x0040a4d0's horizontal-to-vertical rule)
+    fov: Vec<(f32, f32)>,
     pub duration: f32,
 }
 
@@ -58,8 +60,9 @@ impl CameraTrack {
             let r = rs.get(i.min(rs.len().saturating_sub(1)))?.as_array()?;
             keys.push((f(&t[0]), Vec3::new(f(&t[1]), f(&t[2]), f(&t[3])), Quat::from_xyzw(f(&r[1]), f(&r[2]), f(&r[3]), f(&r[4])).normalize()));
         }
+        let fov = c["fov"].as_array().map(|ks| ks.iter().filter_map(|k| Some((f(k.get(0)?), f(k.get(1)?)))).collect()).unwrap_or_default();
         let duration = v["duration"].as_f64().unwrap_or(0.0) as f32;
-        (!keys.is_empty()).then_some(Self { keys, duration })
+        (!keys.is_empty()).then_some(Self { keys, fov, duration })
     }
 
     /// The node's model-space matrix at `t` (held at the ends).
@@ -68,6 +71,14 @@ impl CameraTrack {
         let (a, b) = (self.keys[i.saturating_sub(1)], self.keys[i.min(self.keys.len() - 1)]);
         let u = if b.0 > a.0 { ((t - a.0) / (b.0 - a.0)).clamp(0.0, 1.0) } else { 0.0 };
         Mat4::from_rotation_translation(a.2.slerp(b.2, u), a.1.lerp(b.1, u))
+    }
+
+    /// The node's vertical FOV at `t` (held at the ends); None for a node without one.
+    pub fn fov(&self, t: f32) -> Option<f32> {
+        let i = self.fov.partition_point(|k| k.0 <= t);
+        let (a, b) = (*self.fov.get(i.saturating_sub(1))?, *self.fov.get(i.min(self.fov.len() - 1))?);
+        let u = if b.0 > a.0 { ((t - a.0) / (b.0 - a.0)).clamp(0.0, 1.0) } else { 0.0 };
+        Some(a.1 + (b.1 - a.1) * u)
     }
 }
 
@@ -114,6 +125,10 @@ pub struct BaseTurret {
     /// zoom (camera_zoom node)
     pub zoomed: bool,
     cameras: (Mat4, Option<Mat4>),
+    /// the nodes' lenses (vertical FOV), the zoom blend's length (camera_zoom_secs) and its weight (0 normal, 1 zoom)
+    lenses: (Option<f32>, Option<f32>),
+    zoom_secs: f32,
+    zoom_weight: f32,
     /// the intro (+0x62d): its anim and camera, the time into it
     intro: Option<(String, Option<CameraTrack>, f32)>,
     /// the glass window's model (base_turret_l5_m5_window, attached at ref_window) and its health: the
@@ -227,7 +242,7 @@ impl Plugin for DefencePlugin {
             .init_level_resource::<DefenceDebug>()
             .add_message::<DefenceCommand>()
             .add_systems(Update, (setup, start, debug_commands, (window, ride, run_over, launchers, overrun, failure_mob, boarders, log).chain().after(crate::turret::ride).after(crate::hud_state)).chain().run_if(crate::playing))
-            .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
+            .add_systems(PostUpdate, pose.in_set(crate::camera::CameraPlace).after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
 
@@ -236,9 +251,9 @@ fn read_json(path: std::path::PathBuf) -> Option<serde_json::Value> {
 }
 
 /// The camera node of the turret's reference anim (camera_bone_name / zoom_camera_bone_name).
-fn reference_camera(dir: &std::path::Path, model: &str, name: &str) -> Option<Mat4> {
+fn reference_camera(dir: &std::path::Path, model: &str, name: &str) -> Option<(Mat4, Option<f32>)> {
     let reference = read_json(dir.join("skeletons").join(format!("{model}.json")))?["reference_anim"].as_str()?.to_owned();
-    CameraTrack::load(dir, &reference, name).map(|c| c.sample(0.0))
+    CameraTrack::load(dir, &reference, name).map(|c| (c.sample(0.0), c.fov(0.0)))
 }
 
 /// Base-turret components for the placed turrets (once each), with their wall.
@@ -298,7 +313,7 @@ fn setup(
         let track_frames = read_json(dir.join("anims").join(format!("{track_anim}.json"))).and_then(|v| v["duration"].as_f64()).unwrap_or(500.0 / 30.0) as f32 * 30.0;
         let bone = |k: &str| p.s(k).and_then(|n| a.skeleton.index.get(&n.to_lowercase()).copied());
         let model = &inst.model;
-        let normal = reference_camera(&dir, model, p.s("camera_bone_name").unwrap_or("camera_normal")).unwrap_or(Mat4::from_translation(Vec3::new(0.0, -2.0, 13.0)));
+        let normal = reference_camera(&dir, model, p.s("camera_bone_name").unwrap_or("camera_normal")).unwrap_or((Mat4::from_translation(Vec3::new(0.0, -2.0, 13.0)), None));
         let zoom = p.s("zoom_camera_bone_name").and_then(|n| reference_camera(&dir, model, n));
         let deg = |k: &str, d: f32| p.f(k, d).to_radians();
         // the turret moves along the wall: its placed collider would stay behind (removed; the player takes the hits)
@@ -362,7 +377,10 @@ fn setup(
             upgrade: 0.0,
             upgrade_duration: p.f("ammo_upgrade_duration", 10.0),
             zoomed: false,
-            cameras: (normal, zoom),
+            cameras: (normal.0, zoom.map(|z| z.0)),
+            lenses: (normal.1, zoom.and_then(|z| z.1)),
+            zoom_secs: p.f("camera_zoom_secs", 0.15),
+            zoom_weight: 0.0,
             intro: None,
             window,
             window_health: data.props("p_base_turret_l5_m5_window").f("max_health", 40.0),
@@ -507,14 +525,16 @@ fn debug_commands(
         }
     }
     if dbg.aim_army || dbg.aim_platoon {
-        // the nearest live army grunt (not with "platoon"), else the nearest marching member; aimed through the
-        // turret's centre (the camera sits on its axis)
+        // the nearest of the live army grunts (not with "platoon") and the marching members; aimed through the
+        // turret's centre (the camera sits on its axis). A platoon in front of a grunt stops the shots meant for him
+        // (its body, army.rs fake_hits), and a hit on one end of its row leaves a survivor at the other end alive
+        // (kill_range 50 on a row 50 wide): the nearer target first, as a player shoots what is in the way
         let target = grunts
             .iter()
             .filter(|(g, _)| dbg.aim_army && g.mind != crate::ai::Mind::Dead)
             .map(|(_, g)| g.translation() + Vec3::Y * 6.0)
-            .min_by(|x, y| x.distance(from).total_cmp(&y.distance(from)))
-            .or_else(nearest_platoon);
+            .chain(nearest_platoon())
+            .min_by(|x, y| x.distance(from).total_cmp(&y.distance(from)));
         if let Some(target) = target {
             // engine -> game: (x, y, z) -> (x, -z, y); then into the wall's frame
             let d = target - (from + gt.rotation() * Vec3::Z * 10.0);
@@ -836,8 +856,11 @@ fn ride(
                 t.reload = Some(t.upgrade > 0.0);
                 crate::shell::launch(&mut commands, &data, &mut kit, &mut fx, &template, from, target, crate::shell::Lob { by: crate::fx::Src::Player, flight: None });
                 if let Some(name) = t.mortar_fx.clone() {
-                    let (_, rot, at) = bone_world(t.muzzles[2].unwrap_or(em)).to_scale_rotation_translation();
-                    fx.write(crate::fx::StartFx { name, at, rotation: rot, follow: None, position_only: false });
+                    // locked to the muzzle bone with the turret as owner (0x0049c2a0: desc flag 4), so it stays on the
+                    // launcher while the gun slides
+                    let bone = t.muzzles[2].unwrap_or(em);
+                    let (_, rot, at) = bone_world(bone).to_scale_rotation_translation();
+                    fx.write(crate::fx::StartFx { name, at, rotation: rot, follow: a.joints.get(bone).copied(), position_only: false });
                 }
                 stats.shots += 1;
                 t.last_mortar = Some(now);
@@ -1072,25 +1095,46 @@ fn boarders(
     }
 }
 
-/// The camera at the turret's camera node (normal, zoom or the intro's), set after the anims.
+/// The camera at the turret's camera node (normal, zoom or the intro's), with the node's lens, set after the anims
+/// (Camera_Update 0x0040e350 with a camera name: the node's matrix, FOV and near through 0x0040a4d0). The zoom is the
+/// camera blend 0x0040fbb0 over camera_zoom_secs (0x00498350 / 0x00498390 start it): translation and FOV move from
+/// the normal node to the zoom node, the rotation stays the normal node's. The lens Roman had on foot comes back when
+/// he is off the gun.
 fn pose(
+    time: Res<Time>,
     mounted: Res<crate::turret::Mounted>,
-    turrets: Query<(&BaseTurret, &GlobalTransform)>,
-    mut cam: Query<&mut Transform, With<crate::player::FollowCam>>,
+    mut turrets: Query<(&mut BaseTurret, &GlobalTransform)>,
+    mut cam: Query<(&mut Transform, &mut Projection), With<crate::player::FollowCam>>,
+    mut on_foot: Local<Option<f32>>,
 ) {
-    let Some(me) = mounted.0 else { return };
-    let Ok((t, gt)) = turrets.get(me) else { return };
-    let node = match &t.intro {
-        Some((_, Some(c), ti)) => c.sample(*ti),
-        _ => match (t.zoomed, t.cameras.1) {
-            (true, Some(z)) => z,
-            _ => t.cameras.0,
-        },
+    let Ok((mut c, mut proj)) = cam.single_mut() else { return };
+    let Projection::Perspective(pp) = &mut *proj else { return };
+    let Some((mut t, gt)) = mounted.0.and_then(|me| turrets.get_mut(me).ok()) else {
+        if let Some(fov) = on_foot.take() {
+            pp.fov = fov;
+        }
+        return;
     };
-    if let Ok(mut c) = cam.single_mut() {
-        let (_, rot, pos) = (gt.to_matrix() * node).to_scale_rotation_translation();
-        c.translation = pos;
-        c.rotation = rot;
+    let goal = if t.zoomed && t.cameras.1.is_some() { 1.0 } else { 0.0 };
+    let step = if t.zoom_secs > 0.0 { time.delta_secs() / t.zoom_secs } else { 1.0 };
+    t.zoom_weight += (goal - t.zoom_weight).clamp(-step, step);
+    let w = t.zoom_weight;
+    let (node, lens) = match &t.intro {
+        Some((_, Some(c), ti)) => (c.sample(*ti), c.fov(*ti)),
+        _ => {
+            let (normal, zoom) = (t.cameras.0, t.cameras.1.unwrap_or(t.cameras.0));
+            let mut node = normal;
+            node.w_axis = normal.w_axis.lerp(zoom.w_axis, w);
+            let lens = t.lenses.0.map(|n| n + (t.lenses.1.unwrap_or(n) - n) * w);
+            (node, lens)
+        }
+    };
+    let (_, rot, pos) = (gt.to_matrix() * node).to_scale_rotation_translation();
+    c.translation = pos;
+    c.rotation = rot;
+    if let Some(lens) = lens {
+        on_foot.get_or_insert(pp.fov);
+        pp.fov = lens;
     }
 }
 

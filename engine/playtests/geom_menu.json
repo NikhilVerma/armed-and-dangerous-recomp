@@ -2,8 +2,14 @@
  "title": true,
  "preset": "remaster",
  "steps": [
- {"note": "the original's pages: the Remaster preset opens the tabbed settings instead (modern_menus.json)"},
- {"graphics": {"modern_menus": false}},
+  {
+   "note": "the original's pages: the Remaster preset opens the tabbed settings instead (modern_menus.json)"
+  },
+  {
+   "graphics": {
+    "modern_menus": false
+   }
+  },
   {
    "wait": 3.0
   },
@@ -12,7 +18,42 @@
     "menu.page": "Main"
    }
   },
-  {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowDown"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
   {
    "expect": {
     "menu.page": "Main",
@@ -25,7 +66,48 @@
   {
    "wait": 1.0
   },
-  {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4}, {"tap": "ArrowUp"}, {"wait": 0.4},
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "tap": "ArrowUp"
+  },
+  {
+   "wait": 0.4
+  },
   {
    "expect": {
     "menu.page": "Options",
@@ -259,6 +341,30 @@
     "menu.page": "GfxDetail",
     "menu.selected": "Snow Amount",
     "menu.value": "200000"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Ground Detail"
+   }
+  },
+  {
+   "tap": "ArrowDown"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "expect": {
+    "menu.page": "GfxDetail",
+    "menu.selected": "Tessellated Scenery"
    }
   },
   {

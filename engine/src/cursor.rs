@@ -30,15 +30,18 @@ pub struct CursorSettings {
     pub hardware_cursor: bool,
     /// keep the pointer inside the window while it has the focus
     pub clip_cursor: bool,
+    /// the look reads the mouse's own reports where the system has a finer source than the window system's motion
+    /// (platform/rawmouse.rs: macOS)
+    pub raw_mouse: bool,
 }
 
 impl CursorSettings {
     pub fn original() -> Self {
-        CursorSettings { hardware_cursor: false, clip_cursor: false }
+        CursorSettings { hardware_cursor: false, clip_cursor: false, raw_mouse: true }
     }
 
     pub fn remaster() -> Self {
-        CursorSettings { hardware_cursor: true, clip_cursor: true }
+        CursorSettings { hardware_cursor: true, clip_cursor: true, raw_mouse: true }
     }
 }
 

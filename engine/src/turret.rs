@@ -229,7 +229,7 @@ impl Plugin for TurretPlugin {
             .add_systems(Update, (setup, turret_anims))
             .add_systems(Update, ride.after(crate::mission::sites).after(crate::player::grab_cursor).run_if(crate::playing))
             .add_systems(Update, (damage, log_turrets).chain().after(ride).run_if(crate::playing))
-            .add_systems(PostUpdate, pose.after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
+            .add_systems(PostUpdate, pose.in_set(crate::camera::CameraPlace).after(crate::skin::AnimateSet).before(TransformSystems::Propagate));
     }
 }
 

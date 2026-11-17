@@ -17,6 +17,8 @@ struct ScreenPost {
     fraction: f32,
     // 1: the blur draws
     blur: u32,
+    // 1: the small targets are drawn back through the cubic B-spline filter
+    soft: u32,
 }
 
 @group(0) @binding(2) var below: texture_2d<f32>;
@@ -59,6 +61,33 @@ fn downsample(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     return vec4(box_filter(in.uv, false), 1.0);
 }
 
+// A small target drawn back to the screen: the original's bilinear tap, or (smooth) a cubic B-spline over its 4 x 4
+// nearest texels, taken as four bilinear taps. The spline has no creases at the texel edges, so a 64 x 32 target
+// comes back as an even, Gaussian-like blur with no blocks.
+fn blur_tap(t: texture_2d<f32>, uv: vec2<f32>) -> vec3<f32> {
+    if post.soft == 0u {
+        return textureSampleLevel(t, linear_sampler, uv, 0.0).rgb;
+    }
+    let size = vec2<f32>(textureDimensions(t));
+    let p = uv * size - 0.5;
+    let i = floor(p);
+    let f = p - i;
+    let f2 = f * f;
+    let f3 = f2 * f;
+    let w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    let w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    let w3 = f3 / 6.0;
+    let w2 = 1.0 - w0 - w1 - w3;
+    let g0 = w0 + w1;
+    let g1 = w2 + w3;
+    let h0 = (i - 0.5 + w1 / g0) / size;
+    let h1 = (i + 1.5 + w3 / g1) / size;
+    return textureSampleLevel(t, linear_sampler, vec2(h0.x, h0.y), 0.0).rgb * g0.x * g0.y
+        + textureSampleLevel(t, linear_sampler, vec2(h1.x, h0.y), 0.0).rgb * g1.x * g0.y
+        + textureSampleLevel(t, linear_sampler, vec2(h0.x, h1.y), 0.0).rgb * g0.x * g1.y
+        + textureSampleLevel(t, linear_sampler, vec2(h1.x, h1.y), 0.0).rgb * g1.x * g1.y;
+}
+
 @fragment
 fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let scene = textureSample(source, linear_sampler, in.uv);
@@ -66,9 +95,9 @@ fn composite(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // Post_DrawBlur 0x0047d0f0
     if post.blur != 0u {
         if post.opaque_below != 0u {
-            c = textureSample(below, linear_sampler, in.uv).rgb;
+            c = blur_tap(below, in.uv);
         }
-        c = mix(c, textureSample(level, linear_sampler, in.uv).rgb, post.fraction);
+        c = mix(c, blur_tap(level, in.uv), post.fraction);
     }
     // Post_DrawFade 0x0047cff0
     c = mix(c, post.fade.rgb, post.fade.a);

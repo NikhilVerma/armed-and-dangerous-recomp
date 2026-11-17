@@ -527,10 +527,32 @@ fn launch_projectile(commands: &mut Commands, fx: &mut MessageWriter<crate::fx::
             },
         ))
         .id();
+    if let Some(set) = p.s(crate::gamedata::SET_NAME) {
+        commands.entity(e).insert((Visibility::default(), ProjectileSet(set.to_owned())));
+    }
     if let Some(name) = p.s("fx_start") {
         fx.write(crate::fx::StartFx { name: name.to_owned(), at: from, rotation: Quat::IDENTITY, follow: Some(e), position_only: false });
     }
     e
+}
+
+/// The property set a projectile was launched from: `dress_projectiles` draws its template's model on it.
+#[derive(Component)]
+pub struct ProjectileSet(pub String);
+
+/// A projectile is drawn with its template's model while it flies (Projectile is a game object: the base turret's
+/// bullets, base_turret_bullet_0, have no fx_start trail and are seen only by it). Arrows carry theirs (arrows.rs).
+fn dress_projectiles(
+    mut commands: Commands,
+    data: Res<crate::gamedata::GameData>,
+    mut kit: crate::army::ModelKit,
+    q: Query<(Entity, &ProjectileSet), (Added<ProjectileSet>, Without<crate::arrows::ArrowShaft>)>,
+) {
+    for (e, set) in &q {
+        if let Some(model) = data.model_of_set(&data.props(&set.0)).map(str::to_owned) {
+            kit.attach(&mut commands, e, &model, false);
+        }
+    }
 }
 
 /// The third-person camera (camera.rs).
@@ -681,8 +703,10 @@ impl Plugin for PlayerPlugin {
         app.init_level_resource::<PlayerStats>()
             .init_level_resource::<Banter>()
             .init_level_resource::<LookDelta>()
+            .init_resource::<RawMouseFrame>()
             .add_systems(Update, grab_cursor.before(control))
             .add_systems(Update, (control, ground_effects, weapons.in_set(PlayerSet::Weapons), projectiles, damage_feedback, death).chain().run_if(crate::playing))
+            .add_systems(Update, dress_projectiles.after(projectiles).run_if(crate::playing))
             .add_systems(Update, publish_stats.after(control).before(weapons))
             .add_systems(Update, (player_state.after(death), idle_banter).run_if(crate::playing));
     }
@@ -872,6 +896,11 @@ pub struct LookDelta(pub Vec2);
 
 /// The cursor: confined, hidden and re-centred in play (the pointer's movement is the look input, LookDelta), free and
 /// shown in the menus (title, pause, pub screen). Focus changes and the pointer's kind go to the session's events.
+/// The mouse's own motion this frame (platform `raw_mouse_motion`), None where the system has no such source: the
+/// session log writes it beside the window system's.
+#[derive(Resource, Default)]
+pub struct RawMouseFrame(pub Option<Vec2>);
+
 #[allow(clippy::too_many_arguments)]
 pub fn grab_cursor(
     mut windows: Query<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
@@ -883,9 +912,21 @@ pub fn grab_cursor(
     mut motion: MessageReader<bevy::input::mouse::MouseMotion>,
     mut was_absolute: Local<bool>,
     gfx: Option<Res<crate::graphics::GraphicsSettings>>,
+    (mut was_raw, mut raw_frame, _main): (Local<bool>, ResMut<RawMouseFrame>, bevy::ecs::system::NonSendMarker),
 ) {
     look.0 = Vec2::ZERO;
-    let reports: Vec<Vec2> = motion.read().map(|m| m.delta).collect();
+    let mut reports: Vec<Vec2> = motion.read().map(|m| m.delta).collect();
+    // the device's own reports where the system has them (platform/rawmouse.rs); read every frame, so none is left
+    // over for a later one. A frame without any keeps the window system's (another device, a scripted run).
+    let raw = crate::platform::raw_mouse_motion();
+    if raw.is_some() != *was_raw {
+        *was_raw = raw.is_some();
+        info!("EVENT input: mouse motion from {}", if *was_raw { "the device (raw)" } else { "the window system" });
+    }
+    raw_frame.0 = raw.as_ref().map(|r| r.iter().sum());
+    if let Some(raw) = raw.filter(|r| !r.is_empty() && crate::cursor::settings(gfx.as_deref()).raw_mouse) {
+        reports = raw;
+    }
     // scripted runs leave the mouse to the person at the desk
     if playtest.is_some() {
         return;

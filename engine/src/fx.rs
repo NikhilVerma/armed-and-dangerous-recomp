@@ -239,6 +239,10 @@ pub const FLING_MIN_IMPACT: f32 = 10050.0;
 /// normalise(n.x, n.y, 0.7) in game axes (AreaDamage_Apply 0x0047f020; n the unit direction from the blast, engine
 /// axes here, y up) x impact x 0.15 (K 0x005bcedc) on the character's 80 kg (the engine's convention, ai/ic.rs
 /// `launch_velocity`): units/s, engine axes.
+/// The throw a killing blast gave an object (as `fling`): for whoever plays its death (a critter: charanim.rs).
+#[derive(Component, Clone, Copy)]
+pub struct BlastThrow(pub Vec3);
+
 pub fn fling(n: Vec3, impact: f32) -> Vec3 {
     Vec3::new(n.x, 0.7, n.z).normalize() * impact * 0.15 / 80.0
 }
@@ -267,6 +271,7 @@ fn fuses(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Fus
 }
 
 fn damage(
+    mut commands: Commands,
     mut blasts: MessageReader<Explode>,
     mut physics: NonSendMut<Physics>,
     mut objects: Query<(Entity, &GlobalTransform, &mut Destructible, Option<&Bounds>), Without<BlastProof>>,
@@ -292,11 +297,15 @@ fn damage(
             if Some(e) == b.source || d.health <= 0.0 {
                 continue; // a keg already at health <= 0 ignores further damage
             }
-            let (dist, _) = surface(t, bounds, b.at);
+            let (dist, n) = surface(t, bounds, b.at);
             if dist > b.radius_outer || !d.accepts_record(b.by, false, b.kind) {
                 continue;
             }
             if d.take_damage(b.area_damage * falloff(dist, b.radius_inner, b.radius_outer)) {
+                // the killing record's throw, as a character's below (GoRagdoll 0x00431310's impact branch)
+                if b.impact_force > FLING_MIN_IMPACT && (b.source.is_some() || b.by != Src::Object) {
+                    commands.entity(e).try_insert(BlastThrow(fling(n, b.impact_force)));
+                }
                 if d.chain {
                     let fuse = b.delay.max(d.min_delay);
                     d.chain_delay = fuse;

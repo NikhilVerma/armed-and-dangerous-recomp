@@ -74,6 +74,7 @@ pub const TABS: [Tab; 8] = [
         items: &[
             slide("ui_controls_mousescale", Opt::MouseSens, "How far the view turns when you move the mouse."),
             check("ui_controls_flipmousey", Flag::InvertMouse, "Moving the mouse up looks down."),
+            gfx("Raw Mouse Input", "raw_mouse", "Reads the mouse or trackpad itself, not the system pointer (macOS)."),
             gfx("Windows Pointer", "hardware_cursor", "Uses the system's pointer in the menus. Off: the game draws its own."),
             gfx("Keep Mouse In Window", "clip_cursor", "The pointer cannot leave the game's window."),
             open("Key Bindings ...", Act::Go(Page::Controls), "Choose the keys and buttons for each action."),
@@ -145,6 +146,7 @@ pub const TABS: [Tab; 8] = [
             gfx("Contact Shadows", "ao_contact", "Small shadows where things touch."),
             gfx("Filmic Tone Mapping", "tonemap_aces", "A film-like response to bright light."),
             gfx("Dithering", "dither", "Hides banding in skies and fog."),
+            gfx("Smooth Pause Blur", "blur_smooth", "A soft, even blur behind menus and messages."),
             gfx("GPU Snow", "snow", "Real falling flakes in the snow levels."),
             num("Snow Amount", "snow_amount", "How many flakes fall."),
         ],

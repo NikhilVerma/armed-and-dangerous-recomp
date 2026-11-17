@@ -32,6 +32,7 @@ impl TextureSet {
                     d.filter_map(|e| e.ok())
                         .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".dds")).map(str::to_lowercase))
                         .filter(|n| !self.exclude.iter().any(|x| !x.is_empty() && n.contains(&x.to_lowercase())))
+                        .filter(|n| !PACK_DAMAGED.contains(&n.as_str()))
                         .collect()
                 })
                 .unwrap_or_default()
@@ -43,6 +44,22 @@ impl TextureSet {
         }
     }
 }
+
+/// Effect textures the pack's upscale damaged, so the original is shown (audit of 2026-11-16, player feedback T3: the
+/// powder keg's blast "not the same as the original"). These are soft, premultiplied sprites; the upscaler turned the
+/// soft streaks and puffs into hard outlined shapes and put noise where the alpha is near zero, which an additive
+/// blend shows (fx_fire_trail: edge energy 6.7 times the original's, colour under alpha 0.1 up from 0.04 to 0.23).
+/// Redo them in the pack to take a name off this list.
+const PACK_DAMAGED: [&str; 8] = [
+    "fx_fire_trail",
+    "fx_blast_ring_snow",
+    "fx_smoke_snow",
+    "fx_smoke_ring",
+    "fx_glow_red",
+    "fx_dust_red",
+    "fx_flare_pink",
+    "fx_impact_snow_medium",
+];
 
 static SET: RwLock<Option<TextureSet>> = RwLock::new(None);
 

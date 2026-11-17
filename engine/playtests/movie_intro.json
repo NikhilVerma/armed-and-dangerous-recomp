@@ -12,7 +12,7 @@
   {"tap": "Enter"}, {"wait": 0.6},
   {"expect": {"movie.name": "pm_logo", "movie.left": 1, "menu.page": "Main"}},
   {"pad": "South=1"}, {"wait": 0.1}, {"pad": "South=0"}, {"wait": 1.0},
-  {"expect": {"movie.name": "pre_1_1_opening", "movie.left": 0, "movie.subtitle": "sup_011", "movie.time": [0.4, 1.1]}},
+  {"expect": {"movie.name": "pre_1_1_opening", "movie.left": 0, "movie.time": [0.4, 1.1]}},
   {"shot": "opening"},
   {"click": "Left"}, {"wait": 0.5},
   {"expect": {"movie": null, "menu.page": "Main", "menu.selected": "ui_mainmenu_startgame", "game_paused": false}},

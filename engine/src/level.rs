@@ -579,6 +579,9 @@ pub struct Critter {
     /// the update's state (+0xb58) and timer (+0xb5c); None until the first update
     pub state: Option<CritterState>,
     pub dead: Option<f32>,
+    /// thrown by the blast that killed it: its velocity (units/s) until it lands; `thrown` once the throw was taken
+    pub flight: Option<Vec3>,
+    pub thrown: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1408,7 +1411,7 @@ pub fn spawn(
                     teammate_damage: true,
                     badguy_damage: true,
                 },
-                Critter { species, roams: p.s("generic_txt").is_some_and(|g| !g.is_empty() && g != "none") && turret_start_known(scene, inst.id), state: None, dead: None },
+                Critter { species, roams: p.s("generic_txt").is_some_and(|g| !g.is_empty() && g != "none") && turret_start_known(scene, inst.id), state: None, dead: None, flight: None, thrown: false },
             ));
         }
     }

@@ -756,8 +756,9 @@ pub(crate) fn drive(
     // scripted runs ignore the real mouse (it moves the camera under the cursor grab): only scripted turns
     motion.delta = turn;
     // a paused mission message (the mid-mission briefings) is dismissed as a player would while the bot walks,
-    // fights or holds Use (those steps would never end on a paused game); other steps leave it to the script
-    let waits_for_message = pt.steps.get(pt.step).is_none_or(|st| st.goto.is_none() && st.fight.is_none() && st.hold_use.is_none());
+    // fights, holds Use or waits for a trigger or a death (those steps would never end on a paused game: a token shot
+    // from the turret pauses on its message); other steps leave it to the script
+    let waits_for_message = pt.steps.get(pt.step).is_none_or(|st| st.goto.is_none() && st.fight.is_none() && st.hold_use.is_none() && !st.until.as_deref().is_some_and(|u| u.starts_with("trigger:") || u.starts_with("dead:")));
     // (a frame up between taps, as a finger gives: input.rs needs a release before a held key counts again)
     if mission.as_ref().is_some_and(|m| m.showing.is_some()) && !waits_for_message && !pt.taps.contains(&KeyCode::Enter) && !released.contains(&KeyCode::Enter) {
         keys.press(KeyCode::Enter);

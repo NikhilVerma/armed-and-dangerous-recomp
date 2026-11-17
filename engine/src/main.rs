@@ -568,6 +568,9 @@ fn main() {
     if let Some(p) = a.play {
         let pt = playtest::Playtest::load(p);
         if !pt.title {
+            // a script that starts in play starts a new game, as --level does (the campaign's money, 0x00401e80); a
+            // loaded state then brings its own
+            app.add_systems(PreStartup, |mut o: ResMut<options::GameOptions>| campaign::new_game(&mut o));
             app.insert_state(AppState::Playing);
         }
         // game time advances one fixed step per frame (real and virtual): a slow frame (a screenshot, loading) no
